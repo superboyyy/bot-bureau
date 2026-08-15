@@ -15,8 +15,12 @@ const REMOTE = PARAMS.get("remote") === "1";
 if (PARAMS.get("vibrancy") === "1") document.documentElement.setAttribute("data-vibrancy", "");
 let TOKEN = PARAMS.get("token") || localStorage.getItem("botbureau_token:" + BACKEND) || "";
 
-let state = { bots: [], approvals: [], routines: [], tasks: [], keys: [], group_members: [], groups: [], mcp: [], default_bot: "" };
+let state = { bots: [], approvals: [], routines: [], tasks: [], keys: [], group_members: [], groups: [], pins: [], mcp: [], default_bot: "" };
 const isGroupChatId = (id) => id === "group" || /^g_/.test(id);
+// 置顶是会话的属性，群聊和私聊同一套判断（引擎里存的就是会话 id）
+// Pinning is a property of the conversation, one notion for group chats and DMs alike (the engine
+// stores conversation ids)
+const isPinned = (id) => (state.pins || []).includes(id);
 const groupsList = () => state.groups || [];
 const groupOf = (id) => groupsList().find((g) => g.id === id);
 const groupTitleOf = (id) => (id === "group" ? settingsOf().group_title : (groupOf(id) || {}).title) || t("Group chat");
@@ -29,6 +33,9 @@ let current = "group"; // "group" 或 "dm:<bot>" / "group" or "dm:<bot>"
 const unread = {};
 let filter = "";                       // 侧栏搜索词 / sidebar search term
 const expanded = new Set();            // 已展开的折叠块 / folds the user has opened
+// 正在引用回复的那条消息（{id, chat, source, text}），没有就是 null
+// The message currently being replied to ({id, chat, source, text}), or null
+let replyTo = null;
 let refetchTimer = null;
 
 // 服务商与模型不再写死在这里：目录来自引擎 /api/providers，模型名现拉 /api/models。
@@ -148,7 +155,11 @@ function finishAsk(v) {
   if (r) r(v);
 }
 
-function ask({ title, hint = "", ok, cancel, danger = false, field = false, fieldLabel = "", placeholder = "" }) {
+// check 传进来就多一个复选框，此时确认返回的是 { checked }，取消照旧是 false——
+// 两种情况都还是"真值 = 用户点了确认"，所以老的 if (ok) 调用一个都不用改。
+// Passing check adds a checkbox, and confirming then resolves to { checked } while cancelling stays
+// false — truthy still means "the user said yes", so no existing if (ok) call site has to change.
+function ask({ title, hint = "", ok, cancel, danger = false, field = false, fieldLabel = "", placeholder = "", check = null }) {
   return new Promise((resolve) => {
     askResolver = resolve;
     $("askTitle").textContent = title;
@@ -158,6 +169,9 @@ function ask({ title, hint = "", ok, cancel, danger = false, field = false, fiel
     $("askField").value = "";
     $("askField").placeholder = placeholder;
     $("askFieldLabel").textContent = fieldLabel;
+    $("askCheckWrap").hidden = !check;
+    $("askCheck").checked = !!(check && check.checked);
+    $("askCheckLabel").textContent = check ? check.label : "";
     $("askOk").textContent = ok || t("OK");
     $("askCancel").textContent = cancel || t("Cancel");
     $("askOk").classList.toggle("danger", !!danger);
@@ -173,7 +187,8 @@ $("askForm").addEventListener("submit", (e) => {
     return;
   }
   e.preventDefault();
-  const v = fieldOn ? $("askField").value : true;
+  const v = fieldOn ? $("askField").value
+    : ($("askCheckWrap").hidden ? true : { checked: $("askCheck").checked });
   finishAsk(v);
   $("askModal").close();
 });
@@ -500,19 +515,71 @@ function previewOf(ev) {
   return ev.text || "";
 }
 
+// 置顶标记：一枚图钉，跟着名字走。
+// 光靠"排在上面"说不清它为什么在上面——列表本来就按最后动静排序，一个刚聊过的会话待在
+// 顶上再正常不过。有了这枚钉子，"它钉在这儿"和"它刚有动静"才分得开。
+//
+// The pin marker: a pushpin that travels with the name.
+// Position alone cannot explain itself — the list already sorts by last activity, so a conversation
+// that was just used sits on top perfectly naturally. The pushpin is what separates "this one is
+// nailed here" from "this one just said something".
+function pinGlyph() {
+  const svg = document.createElementNS(NS_SVG, "svg");
+  svg.setAttribute("class", "pin");
+  svg.setAttribute("width", "11"); svg.setAttribute("height", "11");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "currentColor");
+  const p = document.createElementNS(NS_SVG, "path");
+  p.setAttribute("d", "M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5c0 1.66-1.34 3-3 3v2h5.97v7l1 1 1-1v-7H19v-2c-1.66 0-3-1.34-3-3z");
+  svg.append(p);
+  return svg;
+}
+
+// 置顶/取消：先信引擎的回话，再就地重排一次。
+// 引擎那边同时会广播一条 refresh，别的设备靠它跟上；本机不等那一圈回来——手上这一下点完
+// 就该看见列表动，而不是隔着一次拉取才动。
+//
+// Pin or unpin: take the engine's answer and re-sort on the spot.
+// The engine also broadcasts a refresh so other devices follow along; this one does not wait for that
+// round trip — the list should move the moment it is clicked, not one fetch later.
+async function setPinned(id, pinned) {
+  try {
+    const r = await api("/api/pins", { chat: id, pinned });
+    state.pins = r.pins || [];
+    renderChatList();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
+  const pinned = isPinned(id);
   const row = el("div", "conv" + (current === id ? " active" : ""));
   const body = el("div", "body");
   const line = el("div", "line");
   line.append(el("span", "name", name));
+  if (pinned) line.append(pinGlyph());
   const time = listTime(ev && ev.ts);
   if (time) line.append(el("span", "time", time));
   const empty = ev ? previewOf(ev) : (id.startsWith("dm:") && !modelSet(id.slice(3))
     ? t("No model selected")
     : t("No messages yet"));
-  body.append(line, el("div", "prev", empty));
+  // 未读数挂在第二行的预览旁边，不挂在整行的右端。挂在行上时它是 .conv 的一个 flex 兄弟，
+  // 一出现就把 .body 整体压窄，于是同一个会话的时间戳会随着"有没有新消息"左右跳一下——
+  // 而时间是这一行里唯一需要跨行对齐着扫读的东西，它不该因为别处的状态变化而移位。
+  // 第二行的预览本来就是会被截断的文字，让出这点宽度不产生任何视觉抖动。
+  //
+  // The unread count sits next to the preview on the second line, not at the right edge of the whole
+  // row. As a flex sibling of .body it narrowed the entire body the moment it appeared, so a
+  // conversation's timestamp jumped left and back as messages went unread — and the timestamp is the
+  // one thing here read by scanning down the column, so it must not move because something else
+  // changed state. The preview on line two is already truncated text; giving up that width shifts
+  // nothing visible.
+  const foot = el("div", "foot");
+  foot.append(el("div", "prev", empty));
+  if (badge) foot.append(el("span", "badge", String(badge)));
+  body.append(line, foot);
   row.append(av, body);
-  if (badge) row.append(el("span", "badge", String(badge)));
   // 设置和删除走右键菜单，不在行里放按钮。
   // 行内按钮悬停才出现，出现的位置正好压在会话预览和时间上——为了给它们腾地方，
   // 之前还得在悬停时把时间和未读数整个 opacity:0 掉。也就是说，想看清一行的内容，
@@ -526,6 +593,7 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
   // it. Text in a menu also says what each action does better than two small glyphs ever did.
   // Nothing is lost in discoverability: clicking the chat header opens the same settings (renderHeader).
   const menu = [
+    [pinned ? t("Unpin") : t("Pin to top"), "", () => setPinned(id, !pinned)],
     [t("Settings"), "", () => (isGroupChatId(id) ? openGroupModal(id) : openBotModal(id.slice(3)))],
   ];
   if (groupDel) {
@@ -544,13 +612,32 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
   }
   if (deletable) {
     menu.push([t("Remove this bot"), "danger", async () => {
-      const ok = await ask({
+      const bot = id.slice(3);
+      // 资料删不删让用户当场决定，而不是替他决定完再告诉他文件在 data/ 下——
+      // id 是随机串又从不露面，用户翻到那个文件夹也认不出哪个目录是这位成员的，
+      // 所以"留着"必须同时说清楚之后在哪能看见它。
+      //
+      // The user decides then and there whether the files go, instead of being told after the fact that
+      // they are somewhere under data/ — an id is a random string that never surfaces, so even in that
+      // folder nobody could tell which directory was whose. "Kept" only means something alongside where
+      // it can be seen afterwards.
+      const routines = (state.routines || []).filter((r) => r.bot === bot).length;
+      const hint = sentences(
+        t("Their memory and work files are kept; Settings › Former members is where you can read or delete them."),
+        routines === 1 ? t("The routine assigned to them stops too.") : "",
+        routines > 1 ? t("The %s routines assigned to them stop too.", routines) : "",
+      );
+      const res = await ask({
         title: t("Remove %s", name),
-        hint: t("Its workspace and memory stay under data/."),
+        hint,
         ok: t("Remove"),
         danger: true,
+        check: { label: t("Delete their memory and work files as well"), checked: false },
       });
-      if (ok) api("/api/bots/delete", { name: id.slice(3) }).catch((err) => toast(err.message));
+      if (!res) return;
+      api("/api/bots/delete", { name: bot, purge: !!res.checked })
+        .then((r) => { if (r && r.warning) toast(r.warning); })
+        .catch((err) => toast(err.message));
     }]);
   }
   row.oncontextmenu = (e) => contextMenu(e, menu);
@@ -577,14 +664,23 @@ function renderChatList() {
   const shown = q
     ? rows.filter((r) => (r.name + " " + r.id + " " + (r.role || "") + " " + previewOf(r.ev)).toLowerCase().includes(q))
     : rows;
-  // 有动静的排前面，按时间倒序；没聊过的保持配置顺序垫底
-  // Conversations with activity come first, newest on top; untouched ones keep config order at the bottom
-  shown.sort((a, b) => ((b.ev && b.ev.ts) || 0) - ((a.ev && a.ev.ts) || 0));
+  // 置顶的整体浮到最上面；两段内部还是同一条老规矩：有动静的排前面，按时间倒序，
+  // 没聊过的保持配置顺序垫底。置顶区不按"钉的时间"排——用户钉了几个会话是想留住这几行，
+  // 不是想给它们再定一套次序，而那几行照旧谁刚说话谁在上，读起来和列表其余部分一致。
+  //
+  // Pinned conversations float to the top as a block; within each block the old rule still holds —
+  // activity first, newest on top, untouched ones keeping config order at the bottom. The pinned block
+  // is not ordered by when each was pinned: pinning a few conversations is about keeping those rows,
+  // not about giving them a second ordering, and whoever spoke last still leads — the same way the
+  // rest of the list reads.
+  shown.sort((a, b) =>
+    (Number(isPinned(b.id)) - Number(isPinned(a.id))) ||
+    (((b.ev && b.ev.ts) || 0) - ((a.ev && a.ev.ts) || 0)));
   nav.replaceChildren(...shown.map(convRow));
   if (!shown.length) {
     nav.append(el("div", "empty", rows.length
       ? t("No matching conversations")
-      : t("No teammates yet — press ＋ to hire your first one")));
+      : t("No members yet — press ＋ to hire your first one")));
   }
 }
 
@@ -698,16 +794,153 @@ function bubbleNode(text) {
 // every line chops one continuous statement into a stack of unrelated cards.
 // gutter decides whether the column exists at all (a DM has no use for it); showWho decides whether
 // anything sits in it.
-function msgNode(ev, gutter, showWho) {
+function msgNode(ev, gutter, showWho, quoted = true) {
   const node = el("div", "msg" + (ev.source === "user" ? " user" : ""));
+  node.dataset.eid = ev.id;
   const body = el("div", "msg-body");
   if (showWho && ev.source !== "user") body.append(el("div", "who", titleOf(ev.source)));
-  body.append(bubbleNode(ev.text));
+  // 附件在气泡上面：先看见发了什么，再读随之说了什么。空正文的消息（只丢了张图）
+  // 这样也还是一条完整的消息，而不是一个孤零零的空气泡。
+  // Attachments sit above the bubble: what was sent is seen first, what was said about it second. A
+  // message with no text — just a dropped image — then still reads as a whole message rather than a
+  // stray empty bubble.
+  if (ev.files && ev.files.length) body.append(filesNode(ev.files));
+  if (String(ev.text || "").trim() || !(ev.files && ev.files.length)) body.append(bubbleNode(ev.text));
+  if (ev.reply_to && quoted) body.append(quoteNode(ev));
   if (gutter && ev.source !== "user") {
     node.append(showWho ? avatar(ev.source, MSG_AV) : el("span", "av-slot"));
   }
   node.append(body);
+  node.oncontextmenu = (e) => contextMenu(e, [[t("Reply"), "", () => startReply(ev)]]);
   return node;
+}
+
+const speakerName = (src) => (src === "user" ? t("You") : titleOf(src));
+
+// 消息里带的附件。图片直接铺出来，别的按文件条列出来。
+//
+// 事件里只有元数据，正文从 /api/file/<id> 取——base64 塞进 events.json，几张截图就能
+// 把整份聊天记录撑爆。取图这条请求也要带配对码，所以走 fileURL 而不是直接拼路径。
+//
+// The attachments a message carries: images laid out as images, everything else as a file row.
+//
+// The event holds metadata only and the bytes come from /api/file/<id> — base64 inside events.json
+// would blow the whole chat log apart after a few screenshots. That request needs the pairing code too,
+// hence fileURL rather than a hand-built path.
+function filesNode(files) {
+  const box = el("div", "files");
+  for (const f of files) {
+    if (String(f.mime || "").startsWith("image/")) {
+      const img = document.createElement("img");
+      img.className = "shot";
+      img.alt = f.name || "";
+      img.title = f.name || "";
+      fileURL(f.id).then((url) => { if (url) img.src = url; });
+      img.onclick = () => lightbox(img.src, f.name || "");
+      box.append(img);
+      continue;
+    }
+    const row = el("div", "file-row");
+    row.title = f.name || "";
+    row.append(el("span", "ic", "📄"), el("span", "nm", f.name || ""), el("span", "sz", humanSize(f.bytes || 0)));
+    box.append(row);
+  }
+  return box;
+}
+
+// fileURL 把一份附件取成一个能直接喂给 <img> 的地址。
+//
+// 不能直接把 /api/file/<id> 写进 src：这个接口和其余接口一样在配对码后面，而 <img> 带不了
+// Authorization 头。把配对码塞进查询串倒是能让图显示出来——同时也就把它写进了每一条日志、
+// 每一份历史记录。所以老老实实 fetch 一次，转成 blob 地址。
+//
+// 按 id 缓存。内容寻址的文件永远不会变，同一张图在历史里翻过去翻回来也只取一次。
+//
+// fileURL turns an attachment into an address an <img> can take directly.
+//
+// /api/file/<id> cannot go into a src as-is: like every other endpoint it sits behind the pairing code,
+// and an <img> cannot carry an Authorization header. Putting the code in the query string would make
+// the picture appear — and write the code into every log and every history file along with it. So it is
+// fetched properly and handed over as a blob address.
+//
+// Cached by id. These files are content-addressed and never change, so scrolling past the same image
+// twice fetches it once.
+const fileCache = new Map();
+function fileURL(id) {
+  if (fileCache.has(id)) return fileCache.get(id);
+  const headers = TOKEN ? { Authorization: "Bearer " + TOKEN } : {};
+  const p = fetch(BACKEND + "/api/file/" + encodeURIComponent(id), { headers })
+    .then((r) => (r.ok ? r.blob() : null))
+    .then((b) => (b ? URL.createObjectURL(b) : ""))
+    .catch(() => "");
+  fileCache.set(id, p);
+  return p;
+}
+
+// 点开一张图：铺满窗口看原尺寸，点哪儿都关掉。
+// Clicking an image: full window at its own size, and clicking anywhere closes it.
+function lightbox(src, name) {
+  if (!src) return;
+  const box = el("div", "lightbox");
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt = name;
+  box.append(img);
+  const close = () => { box.remove(); document.removeEventListener("keydown", esc); };
+  const esc = (e) => { if (e.key === "Escape") close(); };
+  box.onclick = close;
+  document.addEventListener("keydown", esc);
+  document.body.append(box);
+}
+
+// 气泡下面挂的那个引文小框：谁说的 + 一行原话，点一下跳回原处。
+// 挂在下面而不是压在气泡顶上——先读这条消息说了什么，再看它在回哪一句；
+// 反过来的话，每条带引用的消息都要先跨过一段旧话才读得到新话。
+// 里面存的是发出时抄下的副本，所以原消息滚出事件流之后引文照样读得到，只是跳不过去了。
+//
+// The little quotation box hanging under the bubble: who said it, one line of what they said, and a
+// click jumps back. It hangs below rather than sitting on top of the bubble, so what this message says
+// is read first and what it answers second; the other way round, every quoting message makes the
+// reader step over an old line to reach the new one.
+// The text inside is a copy taken when the message was sent, so it stays readable once the original
+// has scrolled out of the event stream — only the jump stops working.
+function quoteNode(ev) {
+  const box = el("button", "quote");
+  box.type = "button";
+  box.append(el("span", "q-who", speakerName(ev.reply_src)), el("span", "q-text", ev.reply_text || ""));
+  box.onclick = (e) => { e.stopPropagation(); jumpTo(ev.reply_to); };
+  return box;
+}
+
+function jumpTo(id) {
+  const target = $("msgs").querySelector(`.msg[data-eid="${id}"]`);
+  if (!target) return;
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  target.classList.remove("flash");
+  void target.offsetWidth; // 重启动画：同一条被连点两次也要再闪一下 / restart the animation so a second click flashes again
+  target.classList.add("flash");
+}
+
+// 引用某条消息来回复。引文只在本会话内有效，所以换会话时会清掉（见 switchChat）。
+// Reply to a specific message. A quotation only means anything inside its own conversation, so
+// switching away clears it (see switchChat).
+function startReply(ev) {
+  replyTo = { id: ev.id, chat: current, source: ev.source, text: ev.text };
+  renderReplyBar();
+  $("input").focus();
+}
+
+function clearReply() {
+  replyTo = null;
+  renderReplyBar();
+}
+
+function renderReplyBar() {
+  const bar = $("replyBar");
+  bar.hidden = !replyTo;
+  if (!replyTo) return;
+  bar.querySelector(".rb-who").textContent = t("Replying to %s", speakerName(replyTo.source));
+  bar.querySelector(".rb-text").textContent = replyTo.text;
 }
 
 // 把一串工具事件收成一行小字，点开才展开。
@@ -813,6 +1046,35 @@ function approvalNode(ap) {
   };
   acts.append(yes, no);
   box.append(acts);
+  // 「批准，并以后不再问这个目录」。这是把一个目录交给某位成员唯一说得准的时机：
+  // 用户嘴上说的是「bot-bureau」，引擎猜不出那是哪儿；而这张卡上写着的就是完整路径。
+  // 按钮把它原样印出来，用户点的就是他看见的那个目录。
+  //
+  // 它排在两个按钮下面、而且刻意做得比它们轻：这一下批的不只是眼前这条命令，
+  // 而是那个目录里往后的所有命令。放大、做成主按钮，就是拿视觉分量替用户拿主意。
+  //
+  // "Approve, and stop asking about this directory." This is the one moment when handing a directory to
+  // a member is unambiguous: the user says "bot-bureau" and the engine cannot tell where that is, while
+  // the card in front of them spells the full path out. The button prints it verbatim, so the directory
+  // they grant is the directory they can see.
+  //
+  // It sits below the two buttons and is deliberately quieter than either: this click approves not just
+  // the command in view but everything that directory will see afterwards. Making it big or primary
+  // would be using visual weight to decide on the user's behalf.
+  if (ap.dir) {
+    const grant = el("button", "grant");
+    grant.type = "button";
+    grant.title = t("This member will read, write and run commands in this directory without asking. Remove it in its settings.");
+    grant.append(el("span", "lbl", t("Approve, and stop asking about")), el("span", "code", ap.dir));
+    grant.onclick = () => {
+      grant.disabled = true;
+      api("/api/approve", { id: ap.id, approved: true, grant: true }).catch((e) => {
+        grant.disabled = false;
+        toast(e.message);
+      });
+    };
+    box.append(grant);
+  }
   return box;
 }
 
@@ -825,7 +1087,7 @@ function renderMsgs(forceBottom) {
     const blank = el("div", "blank");
     blank.append(
       el("div", "blank-title", t("Nobody works here yet")),
-      el("div", "blank-desc", t("Press ＋ in the sidebar to hire your first teammate, then talk to it here.")),
+      el("div", "blank-desc", t("Press ＋ in the sidebar to hire your first member, then talk to it here.")),
     );
     box.append(blank);
     return;
@@ -840,12 +1102,14 @@ function renderMsgs(forceBottom) {
   let bufferKey = "";
   let trace = [];    // 攒起来的工具事件，成串折成一行 / buffered tool events, folded into one line
   let traceKey = "";
+  let prevMsg = 0;   // 紧挨在上面的那条消息（中间隔了别的东西就归零）/ the message directly above (zeroed once anything else comes between)
 
   const flushTrace = (live) => {
     if (!trace.length) return;
     box.append(traceNode(traceKey, trace, !!live));
     trace = [];
     lastSource = null;
+    prevMsg = 0;
   };
 
   // 注意：这里不能顺手 flushTrace——每轮循环都会调 flush()，
@@ -857,6 +1121,7 @@ function renderMsgs(forceBottom) {
     box.append(foldNode(bufferKey, buffer));
     buffer = [];
     lastSource = null;
+    prevMsg = 0;
   };
 
   for (const ev of events) {
@@ -875,6 +1140,7 @@ function renderMsgs(forceBottom) {
       flushTrace(false);
       box.append(el("div", "tsep", sepTime(ev.ts)));
       lastSource = null;
+      prevMsg = 0;
     }
     if (ev.ts) lastTs = ev.ts;
 
@@ -882,17 +1148,28 @@ function renderMsgs(forceBottom) {
       flushTrace(false);
       box.append(el("div", "sys", ev.text));
       lastSource = null;
+      prevMsg = 0;
     } else if (ev.kind === "tool") {
       if (!trace.length) traceKey = "trace:" + current + ":" + ev.id;
       trace.push(ev);
     } else {
       flushTrace(false);
       const runStart = ev.source !== lastSource;
+      // bot 的引文是自动挂上去的，紧贴着被引的那条时它什么也没说明，画出来只是噪音；
+      // 中间隔了过程行、别人的发言或一段时间，它才开始有用。用户自己点的引用一律保留——
+      // 那是个明确的动作（在群里还决定了这句话交给谁），不该看着像没生效。
+      // A bot's quotation is attached automatically, and directly beneath what it quotes it says
+      // nothing that the layout does not already say. It earns its place once a run of steps, someone
+      // else's message, or a stretch of time has come between. A quotation the user picked always
+      // stays: that was a deliberate act — in a group it also decides who the message is for — and it
+      // must not look like it failed to register.
+      const quoted = ev.source === "user" || ev.reply_to !== prevMsg;
       // 群聊里才需要标发言人和头像；私聊双方明确 / Only the group chat needs speaker labels and avatars
-      const node = msgNode(ev, isGroupChatId(current), runStart);
+      const node = msgNode(ev, isGroupChatId(current), runStart, quoted);
       if (runStart) node.classList.add("run-start");
       box.append(node);
       lastSource = ev.source;
+      prevMsg = ev.id;
     }
   }
   flush();
@@ -963,14 +1240,66 @@ function renderTasks() {
   for (const task of tasks) {
     const title = el("div", "title");
     title.append(el("span", "pill " + task.status, task.status), document.createTextNode(" " + task.title));
+    // 负责人独占一行，备注另起一行。两者同处一行时它们是同一个 flex 容器里的兄弟，
+    // 而 .item .sub 的 overflow-wrap:anywhere 会把每个 flex 项的最小宽度降到一个字，
+    // 于是一句长备注就能把名字挤成竖着排的两三个字——看板上最该认出来的正是"这活归谁"。
+    //
+    // The owner gets a line of its own and the note starts a new one. Side by side they were siblings
+    // in one flex container, and overflow-wrap:anywhere on .item .sub drops every flex item's minimum
+    // width to a single character — so one long note squeezed the name down to two or three stacked
+    // glyphs, when whose job it is is the thing the board exists to show.
     const sub = el("div", "sub");
-    sub.append(avatar(task.owner, 14), el("span", "", " " + titleOf(task.owner)));
-    sub.style.display = "flex";
-    sub.style.alignItems = "center";
-    sub.style.gap = "5px";
-    if (task.note) sub.append(el("span", "", "· " + task.note));
+    const who = el("div", "owner");
+    who.append(avatar(task.owner, 14), el("span", "who-name", titleOf(task.owner)));
+    sub.append(who);
+    if (task.note) sub.append(el("div", "note", task.note));
     wrap.append(item({ title, sub }));
   }
+}
+
+// 例程行上的负责人是个下拉框，就地改派。
+//
+// 在这之前负责人是一行死文字，而且印的是内部 id——那串东西界面上别处都不出现，用户认不出是谁。
+// 想换个人做只有一条歪路：让另一位成员按同一个名字重存一遍，靠"同名覆盖"把原来那条顶掉。
+// 那既要求用户知道这个实现细节，又要求他把 prompt 一字不差地重述一遍，而这里超过 90 字就截断了，
+// 想抄都抄不全。既然"这件活归谁"本来就是随时会变的，那它就该是一个能点的控件。
+//
+// The owner on a routine row is a dropdown that reassigns in place.
+//
+// It used to be dead text printing the internal id — a string that appears nowhere else in the UI and
+// identifies nobody. Handing the work to someone else meant a sideways trick: have the other member
+// save a routine under the very same name and let "same name overwrites" displace the original. That
+// asked the user to know an implementation detail and to restate the prompt word for word, which this
+// row truncates at 90 characters anyway. Whose job this is was always going to change; it belongs in a
+// control you can click.
+function routineSub(r, when) {
+  const sub = el("div", "sub");
+  const sel = document.createElement("select");
+  // 负责人已经不在团队里的老数据：把它原样列出来并选中，否则下拉会显示成别人，
+  // 看着像这条例程好好地归某人管，其实它到点只会被跳过
+  // Legacy rows whose owner has left: list that id and keep it selected, or the dropdown would show
+  // somebody else and imply the routine is in hand when it only ever gets skipped
+  if (!state.bots.some((b) => b.name === r.bot)) {
+    const gone = document.createElement("option");
+    gone.value = r.bot;
+    gone.textContent = t("%s (no longer here)", r.bot);
+    sel.append(gone);
+  }
+  for (const b of state.bots) {
+    const o = document.createElement("option");
+    o.value = b.name;
+    o.textContent = titleOf(b.name);
+    o.selected = b.name === r.bot;
+    sel.append(o);
+  }
+  sel.onchange = () => {
+    api("/api/routines/update", { name: r.name, bot: sel.value }).catch((e) => {
+      toast(e.message);
+      sel.value = r.bot;
+    });
+  };
+  sub.append(sel, document.createTextNode(" · " + t("every %s min · next %s", r.every_minutes, when)));
+  return sub;
 }
 
 function renderRoutines() {
@@ -985,7 +1314,7 @@ function renderRoutines() {
     const when = `${pad2(next.getMonth() + 1)}-${pad2(next.getDate())} ${pad2(next.getHours())}:${pad2(next.getMinutes())}`;
     wrap.append(item({
       title: r.name,
-      sub: t("%s · every %s min · next %s", r.bot, r.every_minutes, when),
+      sub: routineSub(r, when),
       code: r.prompt.length > 90 ? r.prompt.slice(0, 90) + "…" : r.prompt,
       actions: [[t("Delete"), "danger", () => api("/api/routines/delete", { name: r.name }).catch((e) => toast(e.message))]],
     }));
@@ -1054,6 +1383,99 @@ function renderKeysList() {
       title: k.name, sub: k.masked,
       actions: [[t("Delete"), "danger", () => api("/api/keys/delete", { name: k.name }).catch((err) => toast(err.message))]],
     }));
+  }
+}
+
+// ---- 已离职成员 / Former members ----
+//
+// 移除成员时选了保留，工作目录就改名成一份离职档案留在 data/workspaces 下。这一栏是它唯一的出口。
+// 没有这一栏，"保留"就只是往 data/ 里堆垃圾：id 是随机串、界面上从不出现，用户就算翻到那个
+// 文件夹，也认不出哪个目录是谁的、哪些人还在职。这里按显示名把它们一一列出来，能翻看，也能删掉。
+//
+// A member removed with their files kept leaves an archive under data/workspaces, and this pane is
+// its only way out. Without it "kept" would just be junk accumulating in data/: ids are random strings
+// that never appear in the UI, so even inside that folder nobody could tell which directory belonged to
+// whom, or who still works here. This lists them by the name the user knew, to read or to delete.
+const fmtDay = (ts) => {
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const fmtBytes = (n) => {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+};
+
+async function renderDeparted() {
+  const wrap = $("departedList");
+  wrap.replaceChildren(el("div", "empty", t("Loading…")));
+  let list = [];
+  try {
+    list = (await api("/api/bots/departed")).departed || [];
+  } catch (err) {
+    wrap.replaceChildren(el("div", "empty", err.message));
+    return;
+  }
+  wrap.replaceChildren();
+  if (!list.length) {
+    wrap.append(el("div", "empty", t("Nobody has left yet")));
+    return;
+  }
+  for (const d of list) {
+    const bits = [t("left %s", fmtDay(d.removed_at))];
+    if (d.role) bits.push(d.role);
+    bits.push(t("%s files · %s", d.files + (d.truncated ? "+" : ""), fmtBytes(d.bytes)));
+    if (!d.has_memory) bits.push(t("no memory"));
+    const node = item({
+      title: d.display_name || d.id,
+      sub: bits.join(" · "),
+      actions: [
+        [t("View"), "", (btn) => toggleDeparted(node, d, btn)],
+        [t("Delete files"), "danger", async () => {
+          const ok = await ask({
+            title: t("Delete %s's files", d.display_name || d.id),
+            hint: t("Their memory and everything in their workspace goes for good. This cannot be undone."),
+            ok: t("Delete"),
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            await api("/api/bots/departed/delete", { dir: d.dir });
+          } catch (err) {
+            toast(err.message);
+          }
+          renderDeparted();
+        }],
+      ],
+    });
+    wrap.append(node);
+  }
+}
+
+async function toggleDeparted(node, d, btn) {
+  const open = node.querySelector(".departed-detail");
+  if (open) {
+    open.remove();
+    btn.textContent = t("View");
+    return;
+  }
+  btn.textContent = t("Loading…");
+  try {
+    const res = await api("/api/bots/departed/detail", { dir: d.dir });
+    const box = el("div", "departed-detail");
+    box.append(el("div", "code", res.memory
+      ? res.memory + (res.truncated ? "\n…" : "")
+      : t("This one never wrote anything down.")));
+    const files = res.files || [];
+    if (files.length) {
+      box.append(el("div", "sub", files.map((f) => f.name + (f.dir ? "/" : "")).join("  ")));
+    }
+    node.append(box);
+    btn.textContent = t("Hide");
+  } catch (err) {
+    toast(err.message);
+    btn.textContent = t("View");
   }
 }
 
@@ -1212,11 +1634,11 @@ function renderBundleList() {
     const brought = [];
     if (b.mcp_servers?.length) brought.push(t("%s plugins", b.mcp_servers.length));
     if (b.skills?.length) brought.push(t("%s skills", b.skills.length));
-    if (b.agents?.length) brought.push(t("%s teammates", b.agents.length));
+    if (b.agents?.length) brought.push(t("%s members", b.agents.length));
     const actions = [];
-    // 包里的每个同事模板都给一个"加进团队"：这是 Bot Bureau 独有的一步——
+    // 包里的每个成员模板都给一个"加进团队"：这是 Bot Bureau 独有的一步——
     // 别处的 agent 只能当子代理用，这里它就是一位真正的成员。
-    // Each teammate template gets an "add to the team" action — the step unique to Bot Bureau, where an
+    // Each member template gets an "add to the team" action — the step unique to Bot Bureau, where an
     // agent elsewhere can only be a subagent and here becomes an actual member.
     for (const a of b.agents || []) {
       actions.push([t("Add %s", a.name), "", () => addAgentAsBot(a)]);
@@ -1230,7 +1652,7 @@ function renderBundleList() {
     actions.push([t("Remove"), "danger", async () => {
       const ok = await ask({
         title: t("Remove package %s", b.name),
-        hint: t("Its plugins and skills go with it. Teammates you already created stay."),
+        hint: t("Its plugins and skills go with it. Members you already created stay."),
         ok: t("Remove"), danger: true,
       });
       if (ok) api("/api/plugins/remove", { name: b.name }).catch((err) => toast(err.message));
@@ -1247,9 +1669,9 @@ function renderBundleList() {
   }
 }
 
-// addAgentAsBot 把包里的同事模板灌进新建 bot 的表单。不直接建：模型和权限得用户自己定，
+// addAgentAsBot 把包里的成员模板灌进新建 bot 的表单。不直接建：模型和权限得用户自己定，
 // 而且他应该先看见这个角色到底写了什么。
-// addAgentAsBot loads a bundled teammate template into the new-bot form. It does not create one outright:
+// addAgentAsBot loads a bundled member template into the new-bot form. It does not create one outright:
 // the model and permissions are the user's call, and they ought to see what the role actually says first.
 // openMarketplacePicker 把清单里的插件列出来，一条一个「安装」。
 // openMarketplacePicker lists the plugins in a marketplace, one Install per entry.
@@ -1341,6 +1763,11 @@ function switchChat(id) {
   current = id;
   delete unread[id];
   closePop();
+  clearReply();
+  // 附件跟着会话走。切走再切回来还挂在框上的那张图，下一次回车就会发给另一个人。
+  // Attachments belong to the conversation. A picture still sitting there after switching away and
+  // back would go to someone else on the next Return.
+  clearAttachments();
   renderChatList();
   renderHeader();
   renderMsgs(true);
@@ -1360,10 +1787,167 @@ $("composer").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = $("input");
   const text = input.value.trim();
-  if (!text) return;
+  // 只有附件、一个字没写也发得出去——把一张图丢进来本身就是要说的话
+  // Attachments with not a word typed still send: dropping in a picture is itself the thing being said
+  if (!text && !pending.length) return;
+  const files = pending.map((p) => ({ name: p.name, mime: p.mime, data: p.data }));
   input.value = "";
   input.style.height = "auto";
-  api("/api/send", { chat: current, text }).catch((err) => toast(t("Send failed: ") + err.message));
+  const reply_to = replyTo && replyTo.chat === current ? replyTo.id : 0;
+  clearReply();
+  clearAttachments();
+  api("/api/send", { chat: current, text, reply_to, files })
+    .catch((err) => toast(t("Send failed: ") + err.message));
+});
+$("replyCancel").onclick = clearReply;
+
+// ---- 待发送的附件 / Attachments waiting to be sent ----
+//
+// 三条进来的路都通到同一处：点回形针、往输入框粘、往窗口里拖。粘贴是其中最要紧的一条——
+// 截图之后 ⌘V，中间不落一次盘，这是给机器人看一眼屏幕最短的路。
+//
+// 正文在这里就读成 base64 存着，而不是留着 File 对象等发送时再读：读文件是异步的，
+// 而用户完全可能贴完一张图立刻按回车。先读好，按下回车时就只剩一次 POST。
+//
+// Three ways in, all landing here: the paperclip, a paste into the field, a drop onto the window.
+// Paste matters most — screenshot, ⌘V, nothing touching disk in between — the shortest path there is to
+// showing a bot what is on screen.
+//
+// The bytes are read to base64 here rather than kept as File objects until send: reading is
+// asynchronous, and a user may well paste an image and hit Return in the same breath. Read up front and
+// Return has nothing left to do but one POST.
+let pending = [];
+
+function renderAttachments() {
+  const tray = $("attachTray");
+  tray.replaceChildren();
+  tray.hidden = pending.length === 0;
+  for (const p of pending) {
+    const chip = el("div", "chip" + (p.preview ? " has-thumb" : ""));
+    if (p.preview) {
+      const img = document.createElement("img");
+      img.src = p.preview;
+      img.alt = "";
+      chip.append(img);
+    }
+    const meta = el("div", "meta");
+    meta.append(el("div", "nm", p.name), el("div", "sz", humanSize(p.size)));
+    chip.append(meta);
+    const x = el("button", "x", "✕");
+    x.type = "button";
+    x.title = t("Remove");
+    x.onclick = () => {
+      pending = pending.filter((q) => q !== p);
+      renderAttachments();
+    };
+    chip.append(x);
+    tray.append(chip);
+  }
+}
+
+function clearAttachments() {
+  pending = [];
+  renderAttachments();
+}
+
+function humanSize(n) {
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB";
+  if (n >= 1 << 10) return Math.round(n / (1 << 10)) + " KB";
+  return n + " B";
+}
+
+// addFiles 读进来一批文件。上限和后端那份是同一套数字（engine/attach.go），
+// 在这里先拦一道纯粹是为了让用户当场知道，而不是把 25MB 传上去再被退回来。
+//
+// addFiles takes in a batch of files. The limits are the same numbers the backend enforces
+// (engine/attach.go); checking here first is only so the user finds out now, rather than after 25MB has
+// gone up the wire and come back refused.
+const MAX_FILES = 8;
+const MAX_ONE = 10 * 1024 * 1024;
+const MAX_ALL = 25 * 1024 * 1024;
+
+async function addFiles(list) {
+  const files = [...list].filter((f) => f && f.size >= 0);
+  for (const f of files) {
+    if (pending.length >= MAX_FILES) {
+      toast(t("At most %s files can go with one message", MAX_FILES));
+      break;
+    }
+    if (f.size > MAX_ONE) {
+      toast(t("%s is too large (limit %s)", f.name || t("This file"), humanSize(MAX_ONE)));
+      continue;
+    }
+    if (pending.reduce((n, p) => n + p.size, 0) + f.size > MAX_ALL) {
+      toast(t("Those files come to more than one message can carry"));
+      break;
+    }
+    try {
+      pending.push(await readFile(f));
+      renderAttachments();
+    } catch (err) {
+      toast(t("Could not read %s", f.name || ""));
+    }
+  }
+}
+
+function readFile(f) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error);
+    r.onload = () => {
+      const url = String(r.result);
+      const data = url.slice(url.indexOf(",") + 1);
+      const mime = f.type || "";
+      resolve({
+        // 截图粘进来时 File 是没有名字的，给它一个能认出来的
+        // A pasted screenshot arrives as a File with no name; give it one that reads as something
+        name: f.name || (mime.startsWith("image/") ? t("pasted image") + guessExt(mime) : t("pasted file")),
+        mime, size: f.size, data,
+        preview: mime.startsWith("image/") ? url : "",
+      });
+    };
+    r.readAsDataURL(f);
+  });
+}
+
+const guessExt = (mime) => ({ "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp" })[mime] || ".png";
+
+$("attachBtn").onclick = () => $("attachFile").click();
+$("attachFile").onchange = (e) => {
+  addFiles(e.target.files);
+  e.target.value = ""; // 同一个文件连选两次也要能触发 / picking the same file twice must still fire
+};
+
+// 粘贴：只在剪贴板真的带了文件时才接管，否则照常粘文字
+// Paste: taken over only when the clipboard really carries files, so pasting text still just pastes text
+$("input").addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])];
+  if (!files.length) return;
+  e.preventDefault();
+  addFiles(files);
+});
+
+// 拖放：整个窗口都收，不用非得对准输入框。拖进来时给一层提示，否则用户不知道松手会怎样。
+// Drag and drop over the whole window rather than only the field. A visible state while dragging, or
+// nobody knows what letting go will do.
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => {
+  if (![...(e.dataTransfer ? e.dataTransfer.types : [])].includes("Files")) return;
+  e.preventDefault();
+  if (++dragDepth === 1) document.body.classList.add("dropping");
+});
+window.addEventListener("dragover", (e) => {
+  if ([...(e.dataTransfer ? e.dataTransfer.types : [])].includes("Files")) e.preventDefault();
+});
+window.addEventListener("dragleave", () => {
+  if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove("dropping"); }
+});
+window.addEventListener("drop", (e) => {
+  if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove("dropping");
+  addFiles(e.dataTransfer.files);
 });
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1380,9 +1964,9 @@ $("input").addEventListener("input", (e) => {
 function setPlusBtn() {
   const btn = $("plusBtn");
   const mention = isGroupChatId(current);
-  btn.title = mention ? t("Mention a teammate") : t("Jump to another chat");
-  btn.setAttribute("data-i18n-title", mention ? "Mention a teammate" : "Jump to another conversation");
-  btn.setAttribute("data-en-title", mention ? "Mention a teammate" : "Jump to another chat");
+  btn.title = mention ? t("Mention a member") : t("Jump to another chat");
+  btn.setAttribute("data-i18n-title", mention ? "Mention a member" : "Jump to another conversation");
+  btn.setAttribute("data-en-title", mention ? "Mention a member" : "Jump to another chat");
   const svg = document.createElementNS(NS_SVG, "svg");
   svg.setAttribute("width", "18");
   svg.setAttribute("height", "18");
@@ -1417,7 +2001,13 @@ function closePop() {
 document.addEventListener("click", (e) => {
   if (pop && !pop.contains(e.target) && e.target.closest("#plusBtn") === null) closePop();
 });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && pop) closePop(); });
+// Esc 一次退一层：先关浮层，没有浮层就撤掉正在引用的那条
+// Esc backs out one layer at a time: the popover first, and the pending quotation once it is gone
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (pop) closePop();
+  else if (replyTo) clearReply();
+});
 
 // 光标处弹出的操作菜单。外观和"点别处就关"直接复用 .pop 那一套，只有定位不同。
 // items 是 [标签, 类名, 回调] 的数组。
@@ -1555,6 +2145,8 @@ function showSettingsTab(tab) {
   // 保存按钮只在「密钥」分栏有意义：其余分栏都是选中即存
   // The save button only means anything on the Keys pane; every other pane saves on selection
   $("keysSaveBtn").hidden = tab !== "keys";
+  // 离职档案要扫磁盘，切到这一栏时才去取 / archives mean a disk scan, so fetch only on arrival
+  if (tab === "alumni") renderDeparted();
 }
 
 $("botPermSel").onchange = renderBotPermNote;
@@ -1903,7 +2495,7 @@ $("bundleInstallBtn").onclick = async () => {
     const got = [];
     if (p.mcp_servers?.length) got.push(t("%s plugins", p.mcp_servers.length));
     if (p.skills?.length) got.push(t("%s skills", p.skills.length));
-    if (p.agents?.length) got.push(t("%s teammates", p.agents.length));
+    if (p.agents?.length) got.push(t("%s members", p.agents.length));
     $("bundleErr").textContent = got.length
       ? t("%s installed: %s", p.name, got.join(" · "))
       : t("%s installed, but it had nothing Bot Bureau can use", p.name);
@@ -2071,6 +2663,10 @@ function codeChip(code) {
 }
 
 let permLevels = [];
+// 「工作目录」到底指哪儿：引擎给的一句话，三档说明共用（见 config.PermScopeNote）
+// What "working directory" actually means: one sentence from the engine, shared by all three tier
+// notes (see config.PermScopeNote)
+let permScopeNote = "";
 let effortLevels = [];
 
 // 档位随服务商变（Anthropic 是思考预算，OpenAI 多一档 minimal，xAI 只认 low/high），
@@ -2126,11 +2722,72 @@ async function loadPermLevels() {
   try {
     const r = await api("/api/permissions");
     permLevels = r.levels || [];
+    permScopeNote = r.scope_note || "";
   } catch (err) {
     console.log("permission levels unavailable: " + err.message);
   }
 }
 const permOpt = (id) => permLevels.find((p) => p.id === id) || null;
+
+// 这位成员的工作目录：自己那个（引擎给的，撤不掉），加上用户在对话里指定过的（可以撤）。
+//
+// 印出完整路径是有意的。打包之后自己那个目录落在 ~/Library/Application Support 底下，
+// Finder 默认不显示那一层，目录名还是个从不露面的随机 id——不在这儿写出来，
+// "工作目录内免审批"这句承诺就没有任何可核对的对象。
+//
+// 只给"移除"，不给"添加"。授权的动作是你在对话里说出那个目录；这里再放一个添加按钮，
+// 就把一件本该由人主动说出口的事，变成了一个随手能点开的开关。
+//
+// This member's working directories: their own (handed out by the engine, not revocable) plus the ones
+// the user named in conversation (revocable).
+//
+// Printing full paths is deliberate. Once packaged, their own directory sits under
+// ~/Library/Application Support — a level Finder hides by default — under a random id that appears
+// nowhere else, so without printing it here the promise "no approvals inside the workspace" has nothing
+// the user could check it against.
+//
+// Remove only, never add. Granting is the act of naming the directory in conversation; an add button
+// here would turn something a person has to say out loud into a switch that is easy to flip.
+function renderBotRoots(bot) {
+  const box = $("botRoots");
+  const note = $("botRootsNote");
+  if (!box) return;
+  note.textContent = permScopeNote;
+  if (!bot) {
+    // 还没建出来的成员：工作目录要等它存在了才有路径可印
+    // A member who does not exist yet: there is no path to print until they do
+    box.replaceChildren(el("div", "empty", t("Created once you save this member.")));
+    return;
+  }
+  const rows = [el("div", "item root-row")];
+  rows[0].append(
+    el("div", "title", t("Its own folder")),
+    el("div", "code", bot.workspace || ""),
+  );
+  for (const dir of bot.roots || []) {
+    const row = el("div", "item root-row");
+    const head = el("div", "title");
+    head.append(el("span", "", t("You pointed it here")));
+    const del = el("button", "text-btn danger", t("Remove"));
+    del.type = "button";
+    del.onclick = async () => {
+      del.disabled = true;
+      try {
+        await api("/api/bots/roots/remove", { name: bot.name, dir });
+        const fresh = (state.bots || []).find((b) => b.name === bot.name);
+        if (fresh) fresh.roots = (fresh.roots || []).filter((d) => d !== dir);
+        renderBotRoots(fresh || bot);
+      } catch (err) {
+        del.disabled = false;
+        toast(err.message);
+      }
+    };
+    head.append(del);
+    row.append(head, el("div", "code", dir));
+    rows.push(row);
+  }
+  box.replaceChildren(...rows);
+}
 
 // 设置里的全局档位：一档一行，选中即存。用整行按钮而不是下拉，
 // 因为每一档的差别全在那句说明里，藏进下拉就等于没写。
@@ -2568,7 +3225,7 @@ $("newBtn").onclick = (e) => {
     return b;
   };
   pop.append(
-    entry(ICON_PLUS, t("New bot"), t("Hire a teammate with its own model and workspace"), () => openBotModal("")),
+    entry(ICON_PLUS, t("New bot"), t("Hire a member with its own model and workspace"), () => openBotModal("")),
     entry(ICON_PEOPLE, t("New team"), t("Put several bots on one piece of work together"), () => createGroup()),
   );
   document.body.append(pop);
@@ -2605,7 +3262,7 @@ function slugify(name) {
 // 内部 id = 名字的 slug + 五位随机串。
 //
 // 随机那五位是必需的，不是装饰：slug 只留 a-z0-9-，所以"吴敏""催命大师"这类名字整个被删空，
-// 全都落到同一个兜底值上，第二位同事起就成了 bot-2、bot-3——一串既不好认、又跟名字毫无关系的
+// 全都落到同一个兜底值上，第二位成员起就成了 bot-2、bot-3——一串既不好认、又跟名字毫无关系的
 // 序号。id 现在不露在界面上，唯一性比可读性重要得多，随机串两头都占：拉丁名字仍然看得出是谁
 // （wren-k3f9a），中文名字至少各不相同。
 //
@@ -2613,7 +3270,7 @@ function slugify(name) {
 //
 // Those five are load-bearing rather than decorative: the slug keeps only a-z0-9-, so a name written
 // in Chinese empties out entirely and every such bot lands on the same fallback — bot-2, bot-3 from
-// the second teammate on, a sequence that is neither recognisable nor related to the name. The id no
+// the second member on, a sequence that is neither recognisable nor related to the name. The id no
 // longer surfaces in the UI, where uniqueness matters far more than readability, and a random suffix
 // gets both: a Latin name stays recognisable (wren-k3f9a) and a Chinese one is at least distinct.
 function randomSuffix(n) {
@@ -2647,8 +3304,8 @@ function paintBotID() {
   fld(form, "name").value = freeBotID(slugify(fld(form, "display_name").value));
 }
 
-// openBotModal 的 prefill 用于「从插件包导入一位同事」：新建表单先填好，再交给用户改。
-// openBotModal's prefill serves "import a teammate from a plugin package": the new-bot form arrives
+// openBotModal 的 prefill 用于「从插件包导入一位成员」：新建表单先填好，再交给用户改。
+// openBotModal's prefill serves "import a member from a plugin package": the new-bot form arrives
 // filled in, and the user takes it from there.
 function openBotModal(name, prefill) {
   const form = $("botForm");
@@ -2677,6 +3334,7 @@ function openBotModal(name, prefill) {
   botPicker.clearKeyInput();
   botPicker.setConfig(c);
   fillBotPermSel(c.permission || "");
+  renderBotRoots(name ? (state.bots || []).find((b) => b.name === name) : null);
   refreshBotEffort(c.provider_id || "", c.effort || "");
   renderBotMcpChoices(c.mcp || []);
   avatarDraft.bot = c.avatar || "";
@@ -2752,8 +3410,12 @@ $("groupForm").addEventListener("submit", async (e) => {
   try {
     if (editingGroup === "group") {
       await api("/api/settings", { group_title: title, group_avatar: avatar });
+      // 只提交改动过的成员：拉一个人进来不该让其他人也走一遍进出群的流程
+      // Submit only the members that changed: adding one bot must not run everyone else through a join
+      const was = new Set(state.group_members || []);
       for (const b of state.bots) {
-        await api("/api/group/set", { group: "group", name: b.name, in: !!groupMemberDraft[editingGroup][b.name] });
+        const now = !!groupMemberDraft[editingGroup][b.name];
+        if (now !== was.has(b.name)) await api("/api/group/set", { group: "group", name: b.name, in: now });
       }
     } else {
       await api("/api/groups/update", { id: editingGroup, title, avatar, members });
@@ -2806,6 +3468,26 @@ $("tokenForm").addEventListener("submit", (e) => {
 
 // ---- 启动 / Boot ----
 
+// syncLocaleToEngine 把界面此刻说的语言告诉引擎。
+//
+// 语言是分两处存的：界面的选择在浏览器本地，引擎的在 data/settings.json，"跟随系统"这一档
+// 两边各自解析一次。递过去的是已经解析好的 zh/en 而不是 "auto"——引擎那次解析查的是
+// LANG/LC_ALL，而从图标启动的 GUI 子进程一个都没有，"auto" 到了它那里只会变成英文。
+//
+// syncLocaleToEngine tells the engine which language the UI is speaking right now.
+//
+// The language is kept in two places: the UI's choice in browser storage, the engine's in
+// data/settings.json, and "follow the system" is resolved once on each side. What goes over is the
+// already-resolved zh/en rather than "auto" — the engine resolves that by reading LANG/LC_ALL, which a
+// GUI child process launched from an icon does not have, so "auto" only ever becomes English there.
+async function syncLocaleToEngine() {
+  try {
+    await api("/api/settings", { locale: LOCALE });
+  } catch (err) {
+    console.log("sync locale to engine failed: " + err.message);
+  }
+}
+
 // 语言切换：立即刷新界面，并把偏好同步给引擎（影响后端消息与 bot 提示词语言）
 // Language switch: refresh the UI immediately and sync the preference to the engine
 // (it drives backend messages and the bots' prompt language)
@@ -2817,8 +3499,8 @@ $("langSel").onchange = async (e) => {
   renderAll();
   renderTG();
   renderPairInfo();
+  await syncLocaleToEngine();
   try {
-    await api("/api/settings", { locale: pref });
     // 服务商目录的标签和说明由引擎按当前语言生成，切完语言要重拉一遍
     // The catalog's labels and notes are produced by the engine in its locale, so refetch after switching
     await loadProviderCatalog();
@@ -2827,17 +3509,17 @@ $("langSel").onchange = async (e) => {
     botPicker.repaint();
     if (onboardPicker) onboardPicker.repaint();
   } catch (err) {
-    console.log("sync locale to engine failed: " + err.message);
+    console.log("reload engine-supplied labels failed: " + err.message);
   }
 };
 
-// ---- 首次引导：先讲清楚"你是老板"，再带一遍能干什么，最后请第一位同事 ----
+// ---- 首次引导：先讲清楚"你是老板"，再带一遍能干什么，最后请第一位成员 ----
 //
 // 新装打开是空的：没有 bot，没有群。空界面本身讲不出这个产品是什么，所以引导要先立人称
-// ——用户是事务所的老板，bot 是雇来的同事——再逐项指出创建和管理的入口。
+// ——用户是事务所的老板，bot 是雇来的成员——再逐项指出创建和管理的入口。
 // 最后一步才落到"建第一个 bot"，并且可以跳过：不该逼着还没想好的人先配一个模型。
 //
-// ---- First-run onboarding: establish "you are the boss", tour what is here, then hire the first teammate ----
+// ---- First-run onboarding: establish "you are the boss", tour what is here, then hire the first member ----
 //
 // A fresh install opens empty: no bots, no groups. An empty window cannot explain what the product is,
 // so onboarding first fixes the frame — the user runs the bureau, the bots are the staff they hire —
@@ -2905,7 +3587,7 @@ function onboardSteps() {
     },
     {
       art: "hire",
-      title: t("Hire your first teammate"),
+      title: t("Hire your first member"),
       lede: t("Pick a vendor and a model, and this bot is ready to work. You can skip and do it later — the ＋ in the sidebar is always there."),
       hire: true,
     },
@@ -2987,12 +3669,12 @@ $("onboardNext").onclick = async () => {
       await api("/api/keys", pending);
       onboardPicker.clearKeyInput();
     }
-    // 第一位同事就叫 assistant：什么都能干，用户之后自己改名字和人设
-    // The first teammate is simply "assistant": a generalist the user can rename and reshape later
+    // 第一位成员就叫 assistant：什么都能干，用户之后自己改名字和人设
+    // The first member is simply "assistant": a generalist the user can rename and reshape later
     await api("/api/bots", {
       name: "assistant",
       role: t("Assistant"),
-      description: t("A generalist teammate: research, writing, code and chores."),
+      description: t("A generalist member: research, writing, code and chores."),
       ...picked,
     });
     finishOnboard();
@@ -3096,9 +3778,19 @@ function boot() {
   $("langSel").value = localePref();
   $("themeSel").value = themePref();
   wireSideSplit();
-  // 服务商目录要先到位，模型选择器才画得出下拉框
-  // The vendor catalog has to land first or the model picker has nothing to render
-  Promise.all([loadProviderCatalog(), loadPermLevels()])
+  // 语言要排在最前面：目录、权限档位、思考强度这些标签都是引擎按它自己的语言现生成的，
+  // 先问就会拿回上一种语言的文案。以前只在用户动语言下拉时才同步一次，于是从没动过它的人
+  // （界面语言是装的时候就定下的）永远撞不上那次同步，界面中文、引擎发的文案英文。
+  //
+  // The language goes first: the catalog, the permission tiers and the reasoning-effort labels are all
+  // produced by the engine in its own language, so asking earlier brings back the previous one. The
+  // sync used to happen only when the user touched the language dropdown, which meant anyone who never
+  // touched it — the UI language having been settled at install time — never hit it at all, and read a
+  // Chinese UI with the engine's text still in English.
+  syncLocaleToEngine()
+    // 服务商目录要先到位，模型选择器才画得出下拉框
+    // The vendor catalog has to land first or the model picker has nothing to render
+    .then(() => Promise.all([loadProviderCatalog(), loadPermLevels()]))
     .then(refetchState)
     .then(() => {
       connectSSE();

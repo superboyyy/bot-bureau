@@ -488,8 +488,21 @@ button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .conv .time { color: var(--text-3); font-size: 11.5px; flex: none; }
+/* 置顶的图钉：跟名字同一行，比时间还淡一点——它是个状态标记，不是要被读的内容
+   The pin marker sits on the name's line and stays fainter than the timestamp: it is a state marker,
+   not something to be read */
+.conv .pin { flex: none; color: var(--text-3); opacity: 0.75; }
+/* 第二行：预览占满，未读数贴右。时间在第一行、未读数在第二行，各自的宽度互不影响，
+   所以一条会话变没变成未读，时间戳都停在原处。
+   Line two: the preview takes the room and the unread count hugs the right. The timestamp lives on
+   line one and the count on line two, so neither's width touches the other and a conversation going
+   unread leaves the timestamp exactly where it was. */
+.conv .foot {
+  display: flex; align-items: center; gap: 8px; margin-top: 1px;
+}
 .conv .prev {
-  color: var(--text-2); font-size: 12.5px; margin-top: 1px;
+  color: var(--text-2); font-size: 12.5px;
+  flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .conv .badge {
@@ -704,6 +717,41 @@ header .spacer { flex: 1; }
 .msg.user .bubble { background: var(--bubble-user); margin-left: auto; }
 .msg.user .md code, .msg.user .md pre { background: var(--glass-well); }
 
+/* 气泡下面那个引文小框：谁说的 + 一行原话，点它跳回原处。
+   挂在气泡下方而不是压在气泡顶上——这条消息说了什么先读到，它在回哪一句后读到。
+   框比气泡窄一点、颜色更淡，读起来才是"这条消息的脚注"，不是又一条消息。
+   原话强制单行截断：引文是路标，原文该去原处读，摊开两三行就反客为主了。
+   The little quotation box under the bubble: who said it, one line of what they said, click to jump
+   back. It hangs below rather than sitting on top, so what this message says is read before what it
+   answers. The box is a little narrower than the bubble and paler, which is what makes it read as a
+   footnote to the message rather than another message.
+   The line is clamped: a quotation is a signpost, the original is read at the original, and letting it
+   run to three lines lets the footnote take over. */
+.msg .quote {
+  display: flex; flex-direction: column; gap: 1px;
+  width: fit-content; max-width: 100%; margin-top: 4px;
+  text-align: left; cursor: pointer; font: inherit;
+  background: var(--glass-well); border: 1px solid var(--border);
+  border-left: 2px solid var(--accent); border-radius: 4px 10px 10px 4px;
+  padding: 5px 11px 6px 9px;
+}
+.msg .quote:hover { background: var(--glass-2); }
+.msg .quote .q-who { font-size: 11px; font-weight: 550; color: var(--accent); }
+.msg .quote .q-text {
+  font-size: 12.5px; color: var(--text-3); line-height: 1.45; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* 用户消息靠右，它的脚注跟着靠右 / The user's messages hug the right, so their footnote does too */
+.msg.user .quote { margin-left: auto; }
+/* 跳回原处后闪一下。原消息可能在半屏之外，不给个落点用户就得自己找 /
+   The original flashes once you land on it: it may be half a screen away, and without a cue the user
+   has to hunt for what the jump was for. */
+@keyframes msg-flash {
+  0%, 100% { background: transparent; }
+  22% { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+}
+.msg.flash .bubble { animation: msg-flash 1.1s ease-out; }
+
 /* 时间分隔：居中一行淡灰，不画线 / Time separator: a centered grey line, no rule */
 .tsep {
   text-align: center; color: var(--text-3); font-size: 11.5px;
@@ -737,11 +785,16 @@ header .spacer { flex: 1; }
 }
 
 /* 审批卡：直接落在对话里，就地批 / Approval card: lands in the conversation, decided in place */
+/* 同 .card 那条：--glass-edge，不是 --glass-sheen。这张卡三行高（一行说明、一行命令、一排按钮），
+   而 --glass-sheen 的底部回光够到往上 37px——正好压在批准/拒绝那一排上，把它托在一层光里。
+   Same call as .card: --glass-edge, not --glass-sheen. This card is three rows tall (a line of
+   explanation, the command, a row of buttons) and the bottom bounce reaches 37px up — landing squarely
+   on Approve/Reject and floating that row on a cushion of light. */
 .approval {
   background: var(--bubble); border: 1px solid rgba(224, 164, 74, 0.38);
   border-radius: 16px; padding: 12px 15px; margin: 12px 0;
   max-width: min(80%, 660px);
-  box-shadow: inset 3px 0 0 var(--warn), var(--glass-sheen);
+  box-shadow: inset 3px 0 0 var(--warn), var(--glass-edge);
 }
 .approval .head { font-size: 12.5px; color: var(--warn); }
 .approval .code {
@@ -750,6 +803,29 @@ header .spacer { flex: 1; }
 }
 .approval .acts { display: flex; gap: 8px; }
 /* 外观走下面"按钮"一节 / Appearance comes from the Buttons section below */
+
+/* 「批准，并以后不再问这个目录」：一行淡色文字，不是第三个按钮。
+   它批出去的比上面两个按钮都多（那个目录里往后的每一条命令），所以恰恰不能长得更显眼——
+   把最省事的那一下做成最好按的那一下，就是在替用户拿主意。路径太长时省略号收尾，
+   完整路径在 title 里，反正真要核对的人会去设置里看那份清单。
+   "Approve, and stop asking about this directory": one faint line, not a third button.
+   It approves more than either button above it — every later command in that directory — which is
+   exactly why it must not look more inviting. Making the easiest click the most attractive one decides
+   for the user. A long path ellipsises, with the whole of it in the title; anyone actually checking
+   goes to the list in settings. */
+.approval .grant {
+  display: flex; align-items: baseline; gap: 6px; max-width: 100%;
+  margin-top: 9px; padding: 0; background: none; border: 0;
+  cursor: pointer; text-align: left;
+  color: var(--text-3); font-size: 11.5px;
+}
+.approval .grant:hover { color: var(--text-2); }
+.approval .grant:disabled { cursor: default; opacity: 0.5; }
+.approval .grant .lbl { flex: none; }
+.approval .grant .code {
+  margin: 0; min-width: 0; font-size: 11px; color: inherit;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* ---- 输入条 / Composer ---- */
 
@@ -761,6 +837,98 @@ header .spacer { flex: 1; }
    frame and the messages, as though a separate strip began down there. The 22px sides match #msgs, and
    the 16px underneath is clearance from the window edge — that is a window margin, not a divider. */
 #composer { padding: 0 22px 16px; flex: none; }
+/* 引用条：贴在输入框正上方，同宽同圆角，只有下沿被输入框盖住——两者要读成一件东西，
+   否则它看着像消息流的最后一条。
+   The reply bar sits directly on top of the field, same width and corners, its lower edge tucked
+   under it: the two have to read as one object, or it looks like the last message in the stream. */
+#replyBar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--glass-well); border: 1px solid var(--border); border-bottom: 0;
+  border-radius: 14px 14px 0 0; padding: 7px 10px 11px 12px; margin-bottom: -6px;
+}
+#replyBar[hidden] { display: none; }
+#replyBar .rb-quote { flex: 1; min-width: 0; border-left: 2px solid var(--accent); padding-left: 8px; }
+#replyBar .rb-who { font-size: 11.5px; font-weight: 550; color: var(--accent); }
+#replyBar .rb-text {
+  font-size: 12.5px; color: var(--text-3); line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#replyBar .rb-x {
+  flex: none; width: 22px; height: 22px; border: 0; border-radius: 50%;
+  background: none; color: var(--text-3); cursor: pointer; display: grid; place-items: center;
+}
+#replyBar .rb-x:hover { background: var(--glass-2); color: var(--text); }
+
+/* ---- 待发送的附件 / Attachments waiting to be sent ---- */
+
+/* 和引用条同一套底：都是"这条消息还带着什么"，长得一样才读得出是同一类东西。
+   横排可滚，不换行——挂到第三行的附件会把输入框整个顶上去，而它本来就是个附属物。
+   Same ground as the reply bar: both say what else this message carries, and looking alike is what
+   makes them read as one kind of thing. A scrolling row rather than wrapping: a third line of
+   attachments would shove the whole field upwards, and these are an accompaniment to it. */
+#attachTray {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  background: var(--glass-well); border: 1px solid var(--border); border-bottom: 0;
+  border-radius: 14px 14px 0 0; padding: 8px 10px 13px; margin-bottom: -6px;
+}
+#attachTray[hidden] { display: none; }
+#attachTray::-webkit-scrollbar { display: none; }
+#attachTray .chip {
+  flex: none; display: flex; align-items: center; gap: 7px; max-width: 210px;
+  background: var(--glass-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 5px 7px 5px 8px; position: relative;
+}
+#attachTray .chip.has-thumb { padding-left: 5px; }
+#attachTray .chip img {
+  width: 30px; height: 30px; flex: none; border-radius: 6px; object-fit: cover;
+  background: var(--surface-2);
+}
+#attachTray .meta { min-width: 0; }
+#attachTray .nm {
+  font-size: 12px; color: var(--text); max-width: 130px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#attachTray .sz { font-size: 10.5px; color: var(--text-3); }
+#attachTray .x {
+  flex: none; width: 18px; height: 18px; border: 0; border-radius: 50%; padding: 0;
+  background: none; color: var(--text-3); cursor: pointer; font-size: 11px; line-height: 1;
+}
+#attachTray .x:hover { background: var(--glass-3); color: var(--text); }
+
+/* 拖文件进窗口时整块画布压暗一档并镶一道边。没有这个，用户不知道松手会不会有事发生。
+   pointer-events:none 是必须的：盖在上面的层会把 drop 事件自己吃掉。
+   Dragging files over the window dims the canvas a step and rings it. Without that, nobody knows
+   whether letting go will do anything. pointer-events:none is required, or the overlay eats the drop. */
+body.dropping::after {
+  content: ""; position: fixed; inset: 8px; z-index: 60; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* ---- 消息里的附件 / Attachments inside a message ---- */
+
+.files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 5px; }
+.msg.user .files { justify-content: flex-end; }
+/* 缩略图给一个上限就好，不裁成方块：截图大多是宽的，裁成正方形等于把内容切掉一半。
+   A thumbnail is capped rather than cropped square: screenshots are mostly wide, and a square crop
+   throws away half of what is in them. */
+.files .shot {
+  max-width: min(320px, 100%); max-height: 240px; border-radius: 12px; cursor: zoom-in;
+  border: 1px solid var(--border); background: var(--surface-2); display: block;
+}
+.files .file-row {
+  display: flex; align-items: center; gap: 7px; max-width: 100%;
+  background: var(--bubble); border: 1px solid var(--border); border-radius: 12px;
+  padding: 8px 11px; font-size: 12.5px; color: var(--text);
+}
+.files .file-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files .file-row .sz { color: var(--text-3); font-size: 11px; flex: none; }
+
+.lightbox {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.72); cursor: zoom-out; padding: 32px;
+}
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; }
 /* 输入框的轮廓留着，只是不填底色。
    玻璃全部收在框以内：底色、边缘高光、模糊都挂在 .composer-pill 上，一到边框就结束。
    框外面那一圈（#composer 的内距）不铺任何东西——之前读起来像"下面另有一栏"，
@@ -801,6 +969,16 @@ header .spacer { flex: 1; }
 }
 .round-btn.plus { background: none; color: var(--text-2); }
 .round-btn.plus:hover { background: var(--glass-2); color: var(--text); }
+/* 回形针和 @ 是一对——都是"给这条消息再加点什么"，所以它俩之间收到 2px 读成一组，
+   而到输入框仍然是那一档 8px：断点该落在组和框之间，不该落在组内部。
+   数字看着狠，眼睛里并不狠：按钮 34px、图标才 18px，两侧各自空着 8px，
+   所以 2px 的间距落下来两个图标之间还隔着 18px。悬停时两个圆的底都亮着，中间留一道 2px 的缝，不会糊成一块。
+   The paperclip and the @ are a pair — both say "add something else to this message" — so the space
+   between them closes to 2px and they read as one cluster, while the step to the field stays at 8px:
+   the break belongs between the cluster and the field, not inside the cluster. The number looks harsher
+   than it is: the buttons are 34px around 18px icons, leaving 8px of slack on each side, so at a 2px gap
+   the drawn glyphs still stand 18px apart. On hover both circles light up with a clean 2px seam. */
+.composer-pill .round-btn.plus + .round-btn.plus { margin-left: -6px; }
 .round-btn.send {
   background: var(--accent); color: var(--accent-ink);
   box-shadow: 0 5px 14px var(--accent-glow);
@@ -855,9 +1033,17 @@ header .spacer { flex: 1; }
 
 /* ---- 卡片与条目（工作台 / 弹窗内）/ Cards and items (workbench & dialogs) ---- */
 
+/* 卡片是一摞条目，不是一块面板，所以走 --glass-edge。--glass-sheen 那道 -18px/38px 的底部回光
+   是按整块面板的高度调的：工作台的卡片常常只装一两条，回光就横在下半截，卡片鼓成一个枕头，
+   而且最下面那条平白亮一档，看着像鼠标正指在它上面——一摞可点的行里，这是个假的指示。
+   A card is a stack of rows, not a panel, so it takes --glass-edge. The -18px/38px bottom bounce in
+   --glass-sheen is tuned to a full panel's height: a workbench card often holds one or two rows, and
+   the bounce then lies across its lower half — the card puffs up like a pillow, and the bottom row
+   lifts a step on its own and reads as though the pointer were on it, which in a stack of clickable
+   rows is a signal that isn't true. */
 .card {
   background: var(--glass); border: 1px solid var(--border);
-  border-radius: 9px; overflow: hidden; box-shadow: var(--glass-sheen);
+  border-radius: 9px; overflow: hidden; box-shadow: var(--glass-edge);
 }
 .card > * + * { border-top: 1px solid var(--separator); }
 .card .empty { color: var(--text-3); font-size: 12px; padding: 12px; line-height: 1.5; }
@@ -869,6 +1055,49 @@ header .spacer { flex: 1; }
   font-family: var(--mono); font-size: 11px; color: var(--text-2);
   margin-top: 4px; overflow-wrap: anywhere; line-height: 1.45;
 }
+/* 工作目录行：标题一行（说明这是哪一类目录，右端是"移除"），路径另起一行走等宽。
+   路径必须完整可见，所以它换行而不是省略——这一栏存在的全部意义就是让用户核对
+   "免审批的到底是哪个目录"，印一半等于没印。
+   A working-directory row: a heading line (which kind of directory this is, with Remove at the right)
+   and the path below it in monospace. The path wraps rather than truncating: this pane exists so the
+   user can check which directory skips approval, and half a path checks nothing. */
+#botRoots .root-row .title { display: flex; align-items: baseline; gap: 8px; }
+#botRoots .root-row .title > :first-child { flex: 1; min-width: 0; }
+#botRoots .root-row .code { margin-top: 3px; }
+/* 撤销是收回权限，用危险色，和条目操作栏里的删除按钮保持一致
+   Revoking withdraws a permission, so it takes the danger colour, matching the delete buttons in a
+   row's action bar */
+#botRoots .root-row .text-btn.danger { color: #ff8b82; }
+#botRoots .root-row .text-btn.danger:hover { color: #ffaea7; }
+
+/* 任务行的负责人：头像和名字是一小块整体，不参与备注那行的宽度争夺。
+   名字宽到装不下时才用省略号收尾——半个名字尚能认人，逐字竖排的名字不能。
+   A task's owner: the face and the name are one small unit that takes no part in the note line's
+   contest for width. The name ellipsises only when it truly cannot fit — half a name still identifies
+   someone, a name stacked one glyph per line does not. */
+#tasks .owner { display: flex; align-items: center; gap: 5px; min-width: 0; }
+#tasks .owner .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tasks .note { margin-top: 3px; line-height: 1.45; }
+/* 例程行里的负责人下拉：长得像行内文字，指上去才显出是个能点的东西。
+   整行读作"谁 · 多久一次 · 下次几点"，塞一个方框控件进去会把这句话拦腰截断。
+   A routine's owner dropdown: inline text until you point at it. The line reads "who · how often ·
+   when next", and a boxed control dropped into it would cut that sentence in half. */
+.item .sub select {
+  appearance: none; cursor: pointer; font: inherit; color: var(--text-2);
+  background: none; border: 0; border-radius: 5px; outline: none;
+  margin-left: -4px; padding: 1px 15px 1px 4px;
+  background-image: var(--chevron);
+  background-repeat: no-repeat; background-position: right 3px center;
+}
+.item .sub select:hover, .item .sub select:focus-visible { background-color: var(--glass-3); color: var(--text); }
+
+/* 离职档案展开后的预览：记忆可能很长，给个高度上限让它自己滚，别把设置面板撑开
+   An archive's expanded preview: memory can run long, so cap the height and let it scroll rather than
+   stretching the settings pane */
+.departed-detail { margin-top: 8px; max-height: 220px; overflow-y: auto; }
+.departed-detail .code { white-space: pre-wrap; margin-top: 0; }
+.departed-detail .sub { margin-top: 6px; }
+
 .item .actions { display: flex; gap: 14px; margin-top: 8px; }
 .item .actions button {
   border: 0; background: none; padding: 0; cursor: pointer;
@@ -1118,6 +1347,11 @@ dialog menu button.primary.danger:hover {
 
 .err { color: #ff8f88; font-size: 11.5px; min-height: 15px; margin-bottom: 8px; }
 
+/* 同 .card 那条：--glass-edge，不是 --glass-sheen。这条就一行字、连边框统共 41px 高，
+   而底部回光从底边往上够 37px——整条药丸会变成一道从上到下的渐变，而不是一块平整的玻璃。
+   Same call as .card: --glass-edge, not --glass-sheen. This is one line of text, 41px tall including
+   its border, and the bottom bounce reaches 37px up from the bottom edge — it would turn the whole
+   pill into a top-to-bottom gradient instead of one flat piece of glass. */
 #toast {
   position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
   z-index: 80; background: var(--glass-panel); color: var(--text);
@@ -1125,7 +1359,7 @@ dialog menu button.primary.danger:hover {
   backdrop-filter: var(--glass-blur-strong);
   border: 1px solid var(--glass-line); border-radius: 12px;
   padding: 10px 16px; font-size: 13px; line-height: 1.45;
-  box-shadow: var(--shadow), var(--glass-sheen);
+  box-shadow: var(--shadow), var(--glass-edge);
   max-width: min(480px, 90vw);
 }
 

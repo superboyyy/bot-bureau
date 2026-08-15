@@ -6,8 +6,17 @@
        脚本仍限 'self'，页面只用 textContent 渲染，无远程代码执行面。 -->
   <!-- connect-src must allow any http/https: the engine address is user-configured (local / LAN / Tailscale / own server).
        Scripts stay 'self' and the page renders via textContent only, so there is no remote-code-execution surface. -->
+  <!-- img-src 里的 blob: 是给附件缩略图用的。附件接口在配对码后面，<img> 带不了
+       Authorization 头，所以正文是 fetch 下来再转成 blob 地址的（见 app.js 的 fileURL）——
+       另一条路是把配对码拼进 URL，那等于把它写进每一条日志。
+       blob: 只能由本页自己的代码造出来，外面注入不进来，所以这一放很窄。
+       The blob: in img-src is for attachment thumbnails. That endpoint sits behind the pairing code and
+       an <img> cannot carry an Authorization header, so the bytes are fetched and handed over as a blob
+       address instead (see fileURL in app.js) — the alternative being the pairing code in a URL, which
+       writes it into every log. A blob: URL can only be minted by this page's own code and cannot be
+       injected from outside, which keeps the allowance narrow. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; connect-src http: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+        content="default-src 'self'; connect-src http: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:">
   <title>Bot Bureau</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -74,8 +83,32 @@
       <header id="chatHeader"></header>
       <div id="msgs"></div>
       <form id="composer">
+        <!-- 引用条：这次发送在回哪一条。摆在输入框外面而不是框内——它是这条消息的去向，
+             不是内容的一部分，混进框里会被当成已经打好的字。
+             The reply bar: which message this one answers. It sits outside the field rather than
+             inside it, because it addresses the message rather than being part of it, and inside the
+             field it would read as text already typed. -->
+        <div id="replyBar" hidden>
+          <div class="rb-quote">
+            <div class="rb-who"></div>
+            <div class="rb-text"></div>
+          </div>
+          <button type="button" id="replyCancel" class="rb-x" title="Cancel reply" data-i18n-title="Cancel reply">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <!-- 待发送的附件排在输入框上方，和引用条同一层：都是"这条消息还带着什么"，
+             都不是已经打好的字，所以都不进框里。
+             Attachments waiting to be sent sit above the field, on the same level as the reply bar:
+             both say what else this message carries, neither is text already typed, so neither goes
+             inside the field. -->
+        <div id="attachTray" hidden></div>
+        <input type="file" id="attachFile" multiple hidden>
         <div class="composer-pill">
-          <button type="button" id="plusBtn" class="round-btn plus" title="Mention a teammate" data-i18n-title="Mention a teammate">
+          <button type="button" id="attachBtn" class="round-btn plus" title="Attach files" data-i18n-title="Attach files">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5 12.3 19a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3 3 0 0 1 4.3 4.3l-7.6 7.6a1.5 1.5 0 0 1-2.1-2.1l7-7"/></svg>
+          </button>
+          <button type="button" id="plusBtn" class="round-btn plus" title="Mention a member" data-i18n-title="Mention a member">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 12v1.6a2.4 2.4 0 0 0 4.8 0V12a8.8 8.8 0 1 0-3.5 7"/></svg>
           </button>
           <textarea id="input" rows="1" placeholder="Type a message…" data-i18n-ph="Type a message…"></textarea>
@@ -116,7 +149,7 @@
       <label><span data-i18n="Persona / responsibilities">Persona / responsibilities</span><textarea name="description" rows="3" placeholder="What it is good at and responsible for" data-i18n-ph="What it is good at and responsible for"></textarea></label>
       <details id="botPromptRow">
         <summary data-i18n="Detailed role instructions (optional)">Detailed role instructions (optional)</summary>
-        <p class="hint" data-i18n="Appended to this bot's system prompt. Importing a teammate from a plugin fills this in.">Appended to this bot's system prompt. Importing a teammate from a plugin fills this in.</p>
+        <p class="hint" data-i18n="Appended to this bot's system prompt. Importing a member from a plugin fills this in.">Appended to this bot's system prompt. Importing a member from a plugin fills this in.</p>
         <label><textarea name="prompt" rows="6" placeholder="e.g. Always check the tests before saying a task is done." data-i18n-ph="e.g. Always check the tests before saying a task is done."></textarea></label>
       </details>
 
@@ -133,6 +166,15 @@
         <select name="permission" id="botPermSel"></select>
       </label>
       <p class="hint" id="botPermNote"></p>
+
+      <!-- 工作目录清单。档位说明写着"工作目录内免审批"，这里才说得清那是哪几个目录——
+           三档说明都用得上这一句，所以它挨着选择器放一次，而不是在每一档里重复。
+           The working-directory list. The tier notes promise "no approvals inside the workspace" and
+           this is where which directories those are can actually be said — one line next to the picker,
+           since all three tiers need it, rather than repeated inside each. -->
+      <h3 class="sub-head" data-i18n="Working directories">Working directories</h3>
+      <div id="botRoots" class="card"></div>
+      <p class="hint" id="botRootsNote"></p>
 
       <h3 class="sub-head" data-i18n="Plugins">Plugins</h3>
       <div id="botMcp" class="card"></div>
@@ -185,6 +227,7 @@
       <button type="button" data-tab="perm" data-i18n="Permissions">Permissions</button>
       <button type="button" data-tab="keys" data-i18n="Keys">Keys</button>
       <button type="button" data-tab="telegram">Telegram</button>
+      <button type="button" data-tab="alumni" data-i18n="Former members">Former members</button>
     </nav>
     <div class="body">
       <section data-pane="general">
@@ -252,6 +295,10 @@
         <label><span data-i18n="Key value">Key value</span><input name="kvalue" type="password" placeholder="Paste the API key (an existing name is overwritten)" data-i18n-ph="Paste the API key (an existing name is overwritten)"></label>
         <p class="err" id="keysErr"></p>
       </section>
+      <section data-pane="alumni" hidden>
+        <p class="hint" data-i18n="Members you removed but chose to keep. Their memory and work files sit here untouched — nobody can pick them up again, so this is the only place left to read or delete them.">Members you removed but chose to keep. Their memory and work files sit here untouched — nobody can pick them up again, so this is the only place left to read or delete them.</p>
+        <div id="departedList" class="card"></div>
+      </section>
       <section data-pane="telegram" hidden>
         <p class="hint"><span data-i18n="In Telegram, create a bot with @BotFather and save its token as TELEGRAM_BOT_TOKEN (Keys tab). Once enabled, send /start to your bot to link it (the first to link claims it). After that you can chat and tap buttons to approve straight from your phone.">In Telegram, create a bot with @BotFather and save its token as TELEGRAM_BOT_TOKEN (Keys tab). Once enabled, send /start to your bot to link it (the first to link claims it). After that you can chat and tap buttons to approve straight from your phone.</span></p>
         <div class="inline-actions">
@@ -286,7 +333,7 @@
       </div>
 
       <div class="sec-label" data-i18n="Plugin packages">Plugin packages</div>
-      <p class="hint"><span data-i18n="Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and teammates are all taken in; anything not supported is listed after installing.">Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and teammates are all taken in; anything not supported is listed after installing.</span></p>
+      <p class="hint"><span data-i18n="Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and members are all taken in; anything not supported is listed after installing.">Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and members are all taken in; anything not supported is listed after installing.</span></p>
       <div id="bundleList" class="card" style="margin-bottom:8px"></div>
       <label><span data-i18n="Install from a git URL or a folder on this machine">Install from a git URL or a folder on this machine</span><input name="bundlesrc" id="bundleSrc" placeholder="https://github.com/someone/their-plugin" data-i18n-ph="https://github.com/someone/their-plugin"></label>
       <div class="inline-actions">
@@ -378,6 +425,13 @@
         <span id="askFieldLabel"></span>
         <input id="askField" autocomplete="off">
       </label>
+      <!-- 确认框里的一个可选开关：用在"删掉，但要不要连资料一起删"这种一步说清的选择上，
+           免得为了一个复选框再开一个对话框。/ An optional switch inside the confirmation: for
+           choices like "remove them — and the files too?" that belong in the same step rather than
+           in a second dialog of their own. -->
+      <div class="check-row" id="askCheckWrap" hidden>
+        <label><input type="checkbox" id="askCheck"><span id="askCheckLabel"></span></label>
+      </div>
     </div>
     <menu>
       <button value="cancel" id="askCancel" formnovalidate data-i18n="Cancel">Cancel</button>
