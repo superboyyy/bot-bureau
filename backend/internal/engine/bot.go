@@ -414,7 +414,7 @@ func (w *BotWorker) systemPrompt(chat string) string {
 			continue
 		}
 		if b := w.bus.Bot(n); b != nil {
-			fmt.Fprintf(&roster, i18n.T("- %s (%s): %s\n"), b.Name(), b.Cfg.RoleText(), b.Cfg.DescText())
+			fmt.Fprintf(&roster, i18n.T("- %s (%s): %s\n"), b.Cfg.Title(), b.Cfg.RoleText(), b.Cfg.DescText())
 		}
 	}
 	if roster.Len() == 0 {
@@ -513,7 +513,7 @@ task description.
 
 # Communication
 Reply in the user's language (English by default). Lead with the conclusion, then the details that matter.%s`),
-		w.Name(), w.Cfg.RoleText(), w.Cfg.DescText(), mode, roster.String(), skillSection, w.workspace, webLine, teamMemory, memory,
+		w.Cfg.Title(), w.Cfg.RoleText(), w.Cfg.DescText(), mode, roster.String(), skillSection, w.workspace, webLine, teamMemory, memory,
 		customPrompt(w.Cfg.Prompt))
 }
 

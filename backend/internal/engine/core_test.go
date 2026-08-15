@@ -756,4 +756,19 @@ func TestDisplayNameIsMentionable(t *testing.T) {
 	if got := bus.MentionedBotsIn("group", "coder 上"); len(got) != 1 || got[0] != "coder" {
 		t.Fatalf("the id should still work, got %v", got)
 	}
+
+	// 界面上只有一个名字，模型看到的也是它，所以它传给 message_bot / assign_task 的就是显示名。
+	// Resolve 负责翻回 id；翻不动的原样返回，让调用方照常报"查无此人"。
+	//
+	// The UI shows one name and so does the model, which means the display name is what it passes to
+	// message_bot / assign_task. Resolve translates it back to the id; an unknown name comes back
+	// unchanged so callers still report "no such bot".
+	for _, in := range []string{"小文", "@小文", " 小文 ", "wren"} {
+		if got := bus.Resolve(in); got != "wren" {
+			t.Fatalf("Resolve(%q) = %q, want wren", in, got)
+		}
+	}
+	if got := bus.Resolve("nobody"); got != "nobody" {
+		t.Fatalf("an unknown name should come back unchanged, got %q", got)
+	}
 }

@@ -174,6 +174,36 @@ func (b *Bus) Bot(name string) *BotWorker {
 	return b.bots[name]
 }
 
+// Resolve 把"人看到的名字"翻译回内部 id。
+//
+// 界面上只有一个名字，工作目录、任务归属、群成员这些键用的却是 id——那是创建时定死的，改不了，
+// 因为改它等于搬走一位同事的整个工作目录。两者不一致时（比如 id 是 test，显示名是"吴敏"），
+// 模型看到的是"吴敏"，它调 message_bot 时自然也传"吴敏"，这里负责翻回 test。
+// 找不到就原样返回，让调用方照常报"查无此人"。
+//
+// Resolve maps the name people see back to the internal id.
+//
+// The UI shows a single name, while workspaces, task ownership and group membership are keyed by the
+// id — fixed at creation, because changing it would mean relocating a teammate's whole working
+// directory. When the two differ (id "test", display name "Wren"), the model sees "Wren" and passes
+// "Wren" to message_bot; this translates it back. An unknown name is returned unchanged, so callers
+// still report "no such bot" as usual.
+func (b *Bus) Resolve(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.TrimPrefix(name, "@")
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.bots[name]; ok {
+		return name
+	}
+	for id, w := range b.bots {
+		if strings.EqualFold(w.Cfg.Title(), name) {
+			return id
+		}
+	}
+	return name
+}
+
 // Bots 按注册顺序返回所有 bot。
 // Bots returns all bots in registration order.
 func (b *Bus) Bots() []*BotWorker {

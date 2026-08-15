@@ -502,18 +502,19 @@ func (t *Toolbox) runAssignTask(to, title, detail string) (string, bool) {
 	if !IsGroupChat(t.currentChat) {
 		return i18n.T("The task board is for group chat collaboration and is not available in a DM"), true
 	}
+	to = t.bus.Resolve(to)
 	if title == "" {
 		return i18n.T("title cannot be empty"), true
 	}
 	if to != t.botName && !t.bus.IsGroupMemberOf(t.currentChat, to) {
-		return to + i18n.T(" is not in the group chat and cannot be assigned"), true
+		return t.title(to) + i18n.T(" is not in the group chat and cannot be assigned"), true
 	}
 	task := t.board.Add(t.botName, to, title, detail)
 	if to == t.botName {
 		t.bus.Emit("system", t.currentChat, t.botName,
-			fmt.Sprintf(i18n.T("%s claimed task #%d: %s"), t.botName, task.ID, task.Title), nil)
+			fmt.Sprintf(i18n.T("%s claimed task #%d: %s"), t.title(t.botName), task.ID, task.Title), nil)
 	} else {
-		msg := fmt.Sprintf(i18n.T("@%s [Task #%d] %s"), to, task.ID, task.Title)
+		msg := fmt.Sprintf(i18n.T("@%s [Task #%d] %s"), t.title(to), task.ID, task.Title)
 		if detail != "" {
 			msg += " —— " + detail
 		}
@@ -521,7 +522,7 @@ func (t *Toolbox) runAssignTask(to, title, detail string) (string, bool) {
 		t.bus.PostGroupTo(t.currentChat, t.botName, msg, []string{to})
 	}
 	t.bus.Emit("refresh", "", t.botName, "tasks", nil)
-	return fmt.Sprintf(i18n.T("Created task #%d and assigned it to %s"), task.ID, to), false
+	return fmt.Sprintf(i18n.T("Created task #%d and assigned it to %s"), task.ID, t.title(to)), false
 }
 
 func (t *Toolbox) runUpdateTask(id int, status, note string) (string, bool) {
@@ -541,7 +542,18 @@ func (t *Toolbox) runUpdateTask(id int, status, note string) (string, bool) {
 	return fmt.Sprintf(i18n.T("Task #%d updated to %s"), task.ID, task.Status), false
 }
 
+// title 取一位 bot 给人看的名字；聊天里出现的是它，路由用的仍是 id。
+// title returns the name a bot shows to people; that is what appears in chat, while routing stays on the id.
+func (t *Toolbox) title(id string) string {
+	if b := t.bus.Bot(id); b != nil {
+		return b.Cfg.Title()
+	}
+	return id
+}
+
 func (t *Toolbox) runMessageBot(to, content string) (string, bool) {
+	// 模型看到的是显示名，工具这一层要的是 id / The model sees display names; this layer needs ids
+	to = t.bus.Resolve(to)
 	if !IsGroupChat(t.currentChat) {
 		return i18n.T("A DM is one-on-one, so tasks cannot be handed off here; suggest the user move to the group chat so the team can collaborate"), true
 	}
@@ -552,10 +564,10 @@ func (t *Toolbox) runMessageBot(to, content string) (string, bool) {
 		return i18n.T("There is no bot named ") + to + i18n.T(" on the team"), true
 	}
 	if !t.bus.IsGroupMemberOf(t.currentChat, to) {
-		return to + i18n.T(" is not in the group chat and cannot be reached; you can ask the user to add them under \"Group members\""), true
+		return t.title(to) + i18n.T(" is not in the group chat and cannot be reached; you can ask the user to add them under \"Group members\""), true
 	}
-	t.bus.PostGroupTo(t.currentChat, t.botName, "@"+to+" "+content, []string{to})
-	return i18n.T("Sent in the group chat to ") + to + i18n.T("; they will reply once they are done"), false
+	t.bus.PostGroupTo(t.currentChat, t.botName, "@"+t.title(to)+" "+content, []string{to})
+	return i18n.T("Sent in the group chat to ") + t.title(to) + i18n.T("; they will reply once they are done"), false
 }
 
 // runMCPTool 把 mcp_<插件>_<工具> 还原为插件调用；非只读工具先过审批门。
