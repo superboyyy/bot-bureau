@@ -2502,7 +2502,6 @@ const botPicker = createModelPicker($("botModelPicker"));
 // Two adjacent plus buttons with near-identical icons say nothing about which is which; one menu
 // with two labelled options does.
 $("botForm").elements.namedItem("display_name").addEventListener("input", paintBotID);
-$("botForm").elements.namedItem("name").addEventListener("input", () => { botIDEdited = true; });
 
 $("newBtn").onclick = (e) => {
   e.stopPropagation();
@@ -2560,41 +2559,49 @@ function slugify(name) {
 
 // 名字里一个 ASCII 字符都没有（比如全中文）时派生不出 id，退到 bot-2、bot-3…
 // With no ASCII in the name (all-CJK, say) nothing can be derived, so fall back to bot-2, bot-3, …
-function freeBotID(base) {
-  const taken = new Set(state.bots.map((b) => b.name));
-  let id = base || "bot";
-  if (!taken.has(id)) return id;
-  for (let i = 2; i < 999; i++) {
-    if (!taken.has(id + "-" + i)) return id + "-" + i;
-  }
-  return id + "-" + Date.now();
+// 内部 id = 名字的 slug + 五位随机串。
+//
+// 随机那五位是必需的，不是装饰：slug 只留 a-z0-9-，所以"吴敏""催命大师"这类名字整个被删空，
+// 全都落到同一个兜底值上，第二位同事起就成了 bot-2、bot-3——一串既不好认、又跟名字毫无关系的
+// 序号。id 现在不露在界面上，唯一性比可读性重要得多，随机串两头都占：拉丁名字仍然看得出是谁
+// （wren-k3f9a），中文名字至少各不相同。
+//
+// The internal id is the name's slug plus five random characters.
+//
+// Those five are load-bearing rather than decorative: the slug keeps only a-z0-9-, so a name written
+// in Chinese empties out entirely and every such bot lands on the same fallback — bot-2, bot-3 from
+// the second teammate on, a sequence that is neither recognisable nor related to the name. The id no
+// longer surfaces in the UI, where uniqueness matters far more than readability, and a random suffix
+// gets both: a Latin name stays recognisable (wren-k3f9a) and a Chinese one is at least distinct.
+function randomSuffix(n) {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = new Uint8Array(n);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
 }
 
-let botIDEdited = false;
+function freeBotID(base) {
+  const taken = new Set(state.bots.map((b) => b.name));
+  // 前缀留 18 位，加上分隔符和五位随机串正好压在 id 的 24 字符上限内
+  // The prefix is capped at 18 so the separator and five random characters stay inside the 24-character id limit
+  const prefix = (base || "bot").slice(0, 18);
+  for (let i = 0; i < 20; i++) {
+    const id = prefix + "-" + randomSuffix(5);
+    if (!taken.has(id)) return id;
+  }
+  return prefix + "-" + randomSuffix(5);
+}
 
+// 新建时从名字派生一个内部 id，编辑时保持原样。全程不出现在界面上：
+// 用户只该记住一个名字，群里喊的就是它——引擎那边 id 和显示名两条都能点到人。
+//
+// Derive an internal id from the name when creating, and leave it alone when editing. It never
+// surfaces in the UI: the user should have to remember one name, and that is the one called in a
+// group — the engine matches both the id and the display name.
 function paintBotID() {
+  if (editingBot) return; // id 是工作目录的键，创建后不能改 / the id keys the workspace; fixed after creation
   const form = $("botForm");
-  const idField = fld(form, "name");
-  const note = $("botIdNote");
-  if (editingBot) {
-    // 编辑时 id 已经定死：只展示，不给改——它是工作目录和任务归属的键
-    // While editing, the id is fixed: shown, not editable — it keys the workspace and task ownership
-    $("botIdRow").hidden = true;
-    note.replaceChildren(document.createTextNode(t("Mention it as") + " "), el("code", "", "@" + editingBot));
-    return;
-  }
-  if (!botIDEdited) {
-    idField.value = freeBotID(slugify(fld(form, "display_name").value));
-  }
-  if ($("botIdRow").hidden) {
-    note.replaceChildren(document.createTextNode(t("Mention it as") + " "), el("code", "", "@" + (idField.value || "bot")));
-    const edit = el("button", "text-btn", t("change"));
-    edit.type = "button";
-    edit.onclick = () => { botIDEdited = true; $("botIdRow").hidden = false; idField.focus(); paintBotID(); };
-    note.append(edit);
-  } else {
-    note.replaceChildren();
-  }
+  fld(form, "name").value = freeBotID(slugify(fld(form, "display_name").value));
 }
 
 // openBotModal 的 prefill 用于「从插件包导入一位同事」：新建表单先填好，再交给用户改。
@@ -2611,8 +2618,6 @@ function openBotModal(name, prefill) {
     : t("New Bot");
   $("botSubmit").textContent = name ? t("Save") : t("Create");
   $("botEditNote").hidden = !name;
-  botIDEdited = false;
-  $("botIdRow").hidden = true;
   fld(form, "name").value = c.name || "";
   // 编辑时名字框里放当前显示名，没设过显示名就放 id——用户看到的就是列表里那个名字
   // While editing, the name field carries the current display name, or the id when none was set —

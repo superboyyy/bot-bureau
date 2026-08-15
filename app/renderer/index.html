@@ -106,8 +106,12 @@
       </div>
 
       <label><span data-i18n="Name">Name</span><input name="display_name" placeholder="e.g. Wren" data-i18n-ph="e.g. Wren"></label>
-      <p class="hint field-note" id="botIdNote"></p>
-      <label id="botIdRow" hidden><span data-i18n="@mention id (lowercase letters, digits, - and _)">@mention id (lowercase letters, digits, - and _)</span><input name="name" pattern="[a-z0-9_-]{1,24}" placeholder="e.g. writer" data-i18n-ph="e.g. writer"></label>
+      <!-- 内部 id：从名字派生，不出现在界面上。它是工作目录和任务归属的键，创建后不能改，
+           但用户不该为此多认一个名字——群里喊的就是上面那个名字。
+           Internal id: derived from the name and never shown. It keys the workspace and task ownership
+           and cannot change after creation, but that is no reason to make the user learn a second name —
+           the name called in a group is the one above. -->
+      <input type="hidden" name="name">
       <label><span data-i18n="Role">Role</span><input name="role" placeholder="e.g. copywriter" data-i18n-ph="e.g. copywriter"></label>
       <label><span data-i18n="Persona / responsibilities">Persona / responsibilities</span><textarea name="description" rows="3" placeholder="What it is good at and responsible for" data-i18n-ph="What it is good at and responsible for"></textarea></label>
       <details id="botPromptRow">
