@@ -1,7 +1,7 @@
-// Bot Bureau backend — 一支常驻本机的 AI 同事团队，这是它的 Go 引擎。
+// Bot Bureau backend — 一支常驻本机的 AI 成员团队，这是它的 Go 引擎。
 // 提供 HTTP + SSE 接口，由 Electron 客户端（app/）或任何前端消费。
 // 默认监听局域网并通过 mDNS 广播，同一网络的客户端可自动发现直连（配对码认证）。
-// Bot Bureau backend — the Go engine behind a resident team of AI teammates on your own machine.
+// Bot Bureau backend — the Go engine behind a resident team of AI members on your own machine.
 // Serves HTTP + SSE APIs, consumed by the Electron client (app/) or any frontend.
 // By default it listens on the LAN and advertises via mDNS; clients on the same network auto-discover it and connect directly (pairing-code auth).
 package main

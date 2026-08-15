@@ -321,7 +321,12 @@ async function startBackend() {
      "-config", path.join(DATA_ROOT, "bots.yaml"),
      "-mcp", path.join(DATA_ROOT, "mcp.yaml"),
      "-data", path.join(DATA_ROOT, "data")],
-    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"] }
+    // 系统语言得由这里递过去：引擎的"跟随系统"只能查 LANG/LC_ALL，而双击图标起来的
+    // GUI 进程这些变量全是空的，它就只好一律判成英文。
+    // The system language has to travel from here: the engine's "follow the system" has only
+    // LANG/LC_ALL to read, and a GUI process started from a double-clicked icon has none of them set,
+    // leaving it no choice but English.
+    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, BOTBUREAU_LOCALE: app.getLocale() } }
   );
   backendProc.stdout.on("data", (d) => process.stdout.write("[backend] " + d));
   backendProc.stderr.on("data", (d) => process.stderr.write("[backend] " + d));

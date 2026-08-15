@@ -2,7 +2,7 @@
   "name": "bot-bureau",
   "productName": "Bot Bureau",
   "version": "0.1.0",
-  "description": "Bot Bureau —— 常驻本机的 AI 同事团队，桌面客户端（Go 引擎 + Electron）",
+  "description": "Bot Bureau —— 常驻本机的 AI 成员团队，桌面客户端（Go 引擎 + Electron）",
   "main": "main.js",
   "scripts": {
     "prestart": "node scripts/fix-electron-identity.js",

@@ -1,8 +1,8 @@
 English | [中文](README.zh-CN.md)
 
-# Bot Bureau — a resident team of AI teammates on your own machine (Go + Electron)
+# Bot Bureau — a resident team of AI members on your own machine (Go + Electron)
 
-**Bot Bureau** is an "agency of AI colleagues" running on your own machine. You hand out work as if messaging a colleague; they finish multi-step tasks on their own, come back to you for approval when human judgment is needed, remember your preferences, turn recurring work into scheduled routines, and divide labor among themselves in a group chat.
+**Bot Bureau** is an "agency of AI members" running on your own machine. You hand out work as if messaging a team member; they finish multi-step tasks on their own, come back to you for approval when human judgment is needed, remember your preferences, turn recurring work into scheduled routines, and divide labor among themselves in a group chat.
 
 A **Go engine + a cross-platform Electron desktop client**, wired to whichever model APIs you like — data, memory and workspaces all stay local.
 
@@ -20,11 +20,11 @@ A **Go engine + a cross-platform Electron desktop client**, wired to whichever m
 
 | Capability | How it works |
 |---|---|
-| Message bots like colleagues | **Group chat** (call a bot by plain name or @mention it; with nobody named, the first member of the group takes it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
+| Message bots like team members | **Group chat** (call a bot by plain name or @mention it; with nobody named, the first member of the group takes it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
 | Each Bot has its own computer | Each bot gets an isolated workspace `data/workspaces/<bot>/`; bash / file I/O confined inside |
 | Autonomous multi-step tasks, always-on | Each bot is a resident goroutine running its own agent loop, never blocking the others |
 | Comes back when human judgment is needed | Non-read-only commands suspend for approval; one-click approve / reject in the sidebar (with optional reason) |
-| — | **Starts empty**: no bots and no group chat out of the box; the first launch runs a three-step tour (you are the boss → what you can do → hire your first teammate), skippable |
+| — | **Starts empty**: no bots and no group chat out of the box; the first launch runs a three-step tour (you are the boss → what you can do → hire your first member), skippable |
 | — | **Long thinking reports back**: while a bot works, a typing bubble sits in the conversation with a small "Working · N steps" line beside it that expands to show each step |
 | — | **No @ required**: calling a bot by name in a group (`scout take a look`) is the same as `@scout`; it will not match longer words like `scouting` |
 | — | **Light and dark**: follows the system, or pin it |
@@ -60,7 +60,7 @@ npm install
 npm start
 ```
 
-**The first launch opens empty** — no bots, no group chat. Onboarding walks three steps: it frames who you are (you run the bureau; the bots are staff you hire), points at where things are created and managed, and then hires your first teammate (pick a vendor → sign in or paste a key → choose a model from the list it fetched). Skipping is fine; the ＋ in the sidebar is always there.
+**The first launch opens empty** — no bots, no group chat. Onboarding walks three steps: it frames who you are (you run the bureau; the bots are staff you hire), points at where things are created and managed, and then hires your first member (pick a vendor → sign in or paste a key → choose a model from the list it fetched). Skipping is fine; the ＋ in the sidebar is always there.
 
 Try it: DM it to write a script (running one triggers an approval); create a group, put a few bots in it and assign work by name (`scout look up today's AI news` — no @ needed); say "check the HN front page every 60 minutes".
 
@@ -168,7 +168,7 @@ Three steps in the UI — no base URL to know, no model name to type:
    Whichever you choose is what gets used. The old rule only fell back to a subscription when no key was stored, so an unrelated saved `OPENAI_API_KEY` silently shadowed the subscription you had just signed into.
 3. **Pick a model** — the engine uses your credential to ask the vendor which models exist right now (`POST /api/models`) and you choose from a dropdown. **If the list cannot be fetched it reports the error and lets you type the name**; it never substitutes an invented list, which is exactly how one ends up on a retired model that only fails when a message is sent.
 
-First run walks you through the same panel once: choose once, apply to every teammate that has no model yet. Each of them can be changed individually afterwards.
+First run walks you through the same panel once: choose once, apply to every member that has no model yet. Each of them can be changed individually afterwards.
 
 ## Configuring multiple models (bots.yaml)
 
@@ -487,13 +487,13 @@ Hit "Update" on an installed plugin to upgrade it in place: a git source is pull
 |---|---|
 | `mcpServers` (in the manifest) or a root `.mcp.json` | Registered as MCP plugins, scoped by the package name (`notes` inside the `acme` package becomes `acme_notes`). `${CLAUDE_PLUGIN_ROOT}` expands to the real installed path |
 | `skills/` | Merged into the skill library, attributed to the package |
-| `agents/*.md` | **Becomes a teammate template.** The frontmatter's name/description fill in the new-bot form, and the body lands in "detailed role instructions" (appended to the system prompt) |
+| `agents/*.md` | **Becomes a member template.** The frontmatter's name/description fill in the new-bot form, and the body lands in "detailed role instructions" (appended to the system prompt) |
 | `commands/` | Not supported — Bot Bureau has no slash commands; ask the bot in chat instead |
 | `hooks/` | Not supported — there is no hook system; the four permission tiers cover the safety side |
 
 Whatever is not supported is **listed explicitly** after installing, rather than half the package quietly doing nothing.
 
-That `agents/` row is Bot Bureau's own: the same package elsewhere can only degrade an agent into a subagent, while here it becomes an actual colleague — with its own workspace, memory and standing on the task board, able to be @-mentioned and assigned work.
+That `agents/` row is Bot Bureau's own: the same package elsewhere can only degrade an agent into a subagent, while here it becomes an actual member — with its own workspace, memory and standing on the task board, able to be @-mentioned and assigned work.
 
 ## Will I be notified when quota runs out?
 
