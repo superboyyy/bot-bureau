@@ -235,8 +235,7 @@ app/                     Electron client
     locales/zh.js        Chinese translations (the main process reads this same file)
   scripts/               dev-mode identity fix (Dock name and icon)
 assets/make_icon.py      mark and icon generation (SVG, dark + light, macOS squircle mask)
-bots.yaml                seed team definition (ships empty)
-legacy-python/           the original Python terminal build (still runs; deletable)
+bots.example.yaml        team definition template (copy to bots.yaml; that one is gitignored)
 ```
 
 The files in `engine` are genuinely coupled — the bus holds workers and the workers use the bus — so splitting them would only manufacture interfaces. Keeping them in one package is the design, not laziness.

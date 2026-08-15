@@ -235,8 +235,7 @@ app/                     Electron 客户端
     locales/zh.js        中文译文表（主进程也读这一份）
   scripts/               开发态身份修正（Dock 名字与图标）
 assets/make_icon.py      标记与图标生成（SVG + 深/浅两套 + macOS 超椭圆裁形）
-bots.yaml                团队定义种子（出厂为空）
-legacy-python/           首版 Python 终端实现（保留可跑，也可删）
+bots.example.yaml        团队定义模板（拷成 bots.yaml 用；后者不进版本库）
 ```
 
 `engine` 里那几个文件是真耦合——总线持有 worker，worker 反过来用总线——拆开只会逼出一堆没意义的接口，所以它们留在一个包里是设计不是偷懒。
