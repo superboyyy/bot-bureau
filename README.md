@@ -172,7 +172,7 @@ First run walks you through the same panel once: choose once, apply to every tea
 
 ## Configuring multiple models (bots.yaml)
 
-Everything done in the UI lands in this file, which you can also write by hand:
+Everything done in the UI lands in this file, which you can also write by hand. `bots.example.yaml` in the repo root is a fuller annotated template — `bots.yaml` itself is gitignored, since it holds your own choices:
 
 ```yaml
 bots:
@@ -270,7 +270,7 @@ Two layers, each covering what the other cannot:
 
 1. Open Icon Composer (inside Xcode, at `Xcode.app/Contents/Applications/`) and drop in the flat layers from `assets/icon-layers/` — one ground and one mark per appearance
 2. Save it as `assets/AppIcon.icon`
-3. Run `npm run dist:mac` as usual; the hook picks it up on its own
+3. Package as usual (`npm run dist:mac:arm64` or similar); the hook picks it up on its own
 
 What the hook does: `actool` compiles the `.icon` into an `Assets.car`, which is copied into `Contents/Resources/`, and `CFBundleIconName` is added to Info.plist. **`CFBundleIconFile` is left alone** — that is electron-builder's `.icns`, the fallback for macOS below 26. The two icons coexist, each serving the systems that understand it, so this needs no second package.
 
@@ -289,9 +289,13 @@ With no `assets/AppIcon.icon`, or on a machine without full Xcode (`actool` ship
 ```bash
 cd app
 npm install           # once, to get electron-builder
-npm run dist:mac      # one universal dmg (Intel and Apple Silicon both)
-npm run dist:win      # nsis installer, x64
-npm run dist:linux    # AppImage + deb, x64
+npm run dist:mac:arm64      # dmg, Apple Silicon
+npm run dist:mac:x64        # dmg, Intel
+npm run dist:mac:universal  # one dmg for both (roughly twice the size)
+npm run dist:win:x64        # nsis installer
+npm run dist:win:arm64
+npm run dist:linux:x64      # AppImage + deb
+npm run dist:linux:arm64
 ```
 
 All three share one Electron client, with the Go engine started as a child process of the app. What comes out:
@@ -301,7 +305,6 @@ Bot Bureau.app/Contents/
   MacOS/Bot Bureau                   the Electron executable
   Resources/app.asar                 main.js + preload.js + renderer/ (read-only)
   Resources/app.asar.unpacked/bin/   botbureau-backend (the engine — must live outside the asar)
-  Resources/bots.yaml                seed config, copied to the user-data directory on first launch
 ```
 
 Two traps, written down so nobody walks into them again:

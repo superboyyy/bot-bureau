@@ -19,7 +19,7 @@
 
 | 能力 | 实现 |
 |---|---|
-| 像同事一样发消息 | **群聊**（@点名派活，不点名默认给 chief；bot 协作全程可见）+ **私聊**（一对一独立干活） |
+| 像同事一样发消息 | **群聊**（直接喊名字或 @ 都能派活，谁都没点到时由群里第一位成员接手；bot 协作全程可见）+ **私聊**（一对一独立干活） |
 | 每个 Bot 自己的电脑 | 每个 bot 独立工作目录 `data/workspaces/<bot>/`，bash / 文件读写限制在内 |
 | 自主多步任务、always-on | 每个 bot 是常驻 goroutine，各自跑智能体循环，互不阻塞 |
 | 需要人工决策时回来找你 | 非只读操作挂起等审批，就地一键 批准 / 拒绝（可附原因） |
@@ -51,7 +51,7 @@
 
 ## 快速开始
 
-依赖：Node.js ≥ 20（跑 Electron）。macOS Apple Silicon 已附带编译好的后端二进制；其他平台需装 Go ≥ 1.22 后 `npm run build:backend` 重编译。
+依赖：Node.js ≥ 20（跑 Electron）。还需要 Go ≥ 1.22：仓库里不放编译产物，引擎一律从源码编，`npm run build:backend` 即可（打包脚本会自动跑）。
 
 ```bash
 cd bot-bureau/app
@@ -170,7 +170,7 @@ bot 干活时哪些动作要先问你，分四档。**边界都是引擎真能�
 
 ## 配置多模型（bots.yaml）
 
-界面上做的事最终都落到这个文件，也可以直接手写：
+界面上做的事最终都落到这个文件，也可以直接手写。仓库根目录的 `bots.example.yaml` 是一份注释更全的模板；`bots.yaml` 本身不进版本库，因为里面是你自己的选择：
 
 ```yaml
 bots:
@@ -270,7 +270,7 @@ bots.example.yaml        团队定义模板（拷成 bots.yaml 用；后者不�
 
 1. 打开 Icon Composer（在 Xcode 里，`Xcode.app/Contents/Applications/`），把 `assets/icon-layers/` 那几张扁平层拖进去——底色一张、标记一张，深浅各一套
 2. 存成 `assets/AppIcon.icon`
-3. `npm run dist:mac` 照常打包，钩子自己会认出它
+3. 照常打包（`npm run dist:mac:arm64` 之类），钩子自己会认出它
 
 钩子做的事：`actool` 把 `.icon` 编成 `Assets.car`，拷进 `Contents/Resources/`，再往 Info.plist 里加一个 `CFBundleIconName`。**`CFBundleIconFile` 不动**——那是 electron-builder 放的 `.icns`，留给 macOS 26 以下的系统兜底。两张图标并存不冲突，各管各的系统，不用为此分两个包。
 
@@ -289,9 +289,13 @@ electron-builder 只认一个 `afterPack`，所以配置里挂的是 `app/script
 ```bash
 cd app
 npm install           # 首次需要，装 electron-builder
-npm run dist:mac      # 一个通用 dmg（Intel + Apple Silicon 通吃）
-npm run dist:win      # nsis 安装包，x64
-npm run dist:linux    # AppImage + deb，x64
+npm run dist:mac:arm64      # dmg，Apple Silicon
+npm run dist:mac:x64        # dmg，Intel
+npm run dist:mac:universal  # 一个 dmg 两种机器通吃（体积约翻倍）
+npm run dist:win:x64        # nsis 安装包
+npm run dist:win:arm64
+npm run dist:linux:x64      # AppImage + deb
+npm run dist:linux:arm64
 ```
 
 三端共用同一份 Electron 客户端，Go 引擎作为子进程随 app 启动。产物结构：
@@ -301,7 +305,6 @@ Bot Bureau.app/Contents/
   MacOS/Bot Bureau                   Electron 主程序
   Resources/app.asar                 main.js + preload.js + renderer/（只读）
   Resources/app.asar.unpacked/bin/   botbureau-backend（引擎，必须在 asar 外）
-  Resources/bots.yaml                种子配置，首次启动拷进用户数据目录
 ```
 
 两个坑写在这儿免得重踩：
