@@ -1,0 +1,45 @@
+# Bot Bureau — MCP plugin template.
+#
+# Copy this file to mcp.yaml and edit it. mcp.yaml is gitignored, since a real one names local paths
+# and credential entries.
+#
+#   cp mcp.example.yaml mcp.yaml
+#
+# A server listed here is not handed to every bot: each bot's own `mcp:` list decides which of these
+# it may use. Nothing is enabled by default.
+#
+# Credentials are referenced, never written inline. A value starting with $ is resolved from the key
+# store (data/keys.json) or the environment, so this file stays safe to share.
+
+servers:
+  # 本地进程，用 stdio 通信 / A local process, spoken to over stdio.
+  - name: filesystem
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/a/directory"]
+
+  # 需要凭据的本地进程 / A local process that needs a credential.
+  - name: github
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: $GITHUB_TOKEN   # $ 开头 = 从密钥仓库/环境变量解析 / $ = resolved from the key store or env
+    # 只放出用得上的工具。GitHub 官方 server 有九十多个，整包塞进去既吃上下文，
+    # 也会明显拉低模型选对工具的概率。
+    #
+    # Expose only the tools actually needed. The official GitHub server has ninety-odd; pushing all of
+    # them in both eats context and measurably lowers the odds of the model picking the right one.
+    tools:
+      - search_repositories
+      - get_file_contents
+      - create_issue
+
+  # 远程连接器，静态令牌 / A remote connector with a static token.
+  - name: notes
+    url: https://example.com/mcp
+    bearer_key: NOTES_TOKEN         # 密钥仓库/环境变量名，不是令牌本身 / a key name, not the token itself
+
+  # 远程连接器，令牌由 OAuth 流程管理（动态注册 + 授权码 + PKCE）
+  # A remote connector whose token is managed by the OAuth flow (dynamic registration, code, PKCE).
+  - name: calendar
+    url: https://example.com/mcp
+    auth: oauth

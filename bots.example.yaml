@@ -1,0 +1,52 @@
+# Bot Bureau — bot roster template.
+#
+# Copy this file to bots.yaml and edit it. bots.yaml is gitignored: it carries your own model
+# choices, permission tiers and workspace paths, none of which belong in a shared repository.
+#
+#   cp bots.example.yaml bots.yaml
+#
+# Editing this file by hand is optional — the app writes bots.yaml for you when you create or edit a
+# bot in the UI. This template exists so a fresh clone shows what the format looks like, and so a
+# setup can be shared without shipping anybody's private configuration.
+#
+# API keys are never stored here. They live in data/keys.json (written by the app, mode 0600), or in
+# an environment variable named by api_key_env.
+
+bots:
+  # 最小可用配置：只有 name 是必填的。/ Minimal usable entry: only name is required.
+  - name: scout
+    role: Research assistant
+    description: Reads documentation and summarises findings.
+    provider_id: anthropic          # 服务商目录里的条目 / catalog entry: anthropic, openai, xai, …
+    model: claude-sonnet-5
+    permission: ask                 # ask | edit | auto | full
+
+  # 完整字段示例 / A fully populated entry.
+  - name: builder
+    display_name: Builder           # 界面上显示的名字；name 始终是 @提及 用的 id
+                                    # Name shown in the UI; name stays the @mention id
+    avatar: "🔧"
+    role: Implementation engineer
+    description: Writes and refactors code inside its own workspace.
+    role_en: Implementation engineer
+    description_en: Writes and refactors code inside its own workspace.
+    provider_id: openai
+    model: gpt-5
+    auth: key                       # key（默认）| chatgpt | xai | none
+    api_key_env: OPENAI_API_KEY     # 可选：改从环境变量取 key / optional: read the key from an env var
+    permission: edit
+    effort: high                    # low | medium | high；留空 = 用服务商默认 / empty = vendor default
+    mcp:                            # 这个 bot 能用的插件，对应 mcp.yaml 里的 name
+      - filesystem                  # Plugins this bot may use, matching names in mcp.yaml
+    prompt: |
+      Prefer small, reviewable changes. Explain any change that touches more than one package.
+
+  # 自建 / 兼容 OpenAI 接口的服务 / A self-hosted or OpenAI-compatible endpoint.
+  - name: local
+    role: Offline helper
+    description: Runs against a model served on this machine.
+    provider: openai-compatible
+    base_url: http://127.0.0.1:11434/v1
+    model: qwen3
+    auth: none
+    permission: ask
