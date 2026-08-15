@@ -500,26 +500,6 @@ function previewOf(ev) {
   return ev.text || "";
 }
 
-const ICON_PENCIL = "M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17v3Z";
-const ICON_TRASH = "M4 7h16M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7m2 0v12a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 19V7";
-
-function glyphBtn(d, title, onclick, cls) {
-  const b = el("button", cls || "");
-  b.type = "button";
-  b.title = title;
-  const svg = document.createElementNS(NS_SVG, "svg");
-  svg.setAttribute("width", "14"); svg.setAttribute("height", "14");
-  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "1.6");
-  svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
-  const path = document.createElementNS(NS_SVG, "path");
-  path.setAttribute("d", d);
-  svg.append(path);
-  b.append(svg);
-  b.onclick = (e) => { e.stopPropagation(); onclick(); };
-  return b;
-}
-
 function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
   const row = el("div", "conv" + (current === id ? " active" : ""));
   const body = el("div", "body");
@@ -533,11 +513,23 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
   body.append(line, el("div", "prev", empty));
   row.append(av, body);
   if (badge) row.append(el("span", "badge", String(badge)));
-  const acts = el("div", "conv-acts");
-    acts.append(glyphBtn(ICON_PENCIL, t("Settings"),
-    () => (isGroupChatId(id) ? openGroupModal(id) : openBotModal(id.slice(3)))));
+  // 设置和删除走右键菜单，不在行里放按钮。
+  // 行内按钮悬停才出现，出现的位置正好压在会话预览和时间上——为了给它们腾地方，
+  // 之前还得在悬停时把时间和未读数整个 opacity:0 掉。也就是说，想看清一行的内容，
+  // 恰恰不能把鼠标放上去。菜单里给的是文字，比两个小图标也更说得清做什么。
+  // 发现性没丢：标题栏点一下同样打开设置（见 renderHeader）。
+  //
+  // Settings and delete move into a right-click menu instead of buttons living in the row. Those
+  // buttons only appeared on hover, and they appeared exactly on top of the preview text and the
+  // timestamp — so much so that making room for them meant fading the time and the unread badge to
+  // opacity:0 while hovering. Which is to say: reading a row was impossible precisely while pointing at
+  // it. Text in a menu also says what each action does better than two small glyphs ever did.
+  // Nothing is lost in discoverability: clicking the chat header opens the same settings (renderHeader).
+  const menu = [
+    [t("Settings"), "", () => (isGroupChatId(id) ? openGroupModal(id) : openBotModal(id.slice(3)))],
+  ];
   if (groupDel) {
-    acts.append(glyphBtn(ICON_TRASH, t("Delete this group"), async () => {
+    menu.push([t("Delete this group"), "danger", async () => {
       const ok = await ask({
         title: t("Delete \"%s\"", name),
         hint: t("Messages in this group are kept."),
@@ -548,10 +540,10 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
         await api("/api/groups/delete", { id }).catch((err) => toast(err.message));
         if (current === id) switchChat("group");
       }
-    }, "danger"));
+    }]);
   }
   if (deletable) {
-    acts.append(glyphBtn(ICON_TRASH, t("Remove this bot"), async () => {
+    menu.push([t("Remove this bot"), "danger", async () => {
       const ok = await ask({
         title: t("Remove %s", name),
         hint: t("Its workspace and memory stay under data/."),
@@ -559,9 +551,9 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
         danger: true,
       });
       if (ok) api("/api/bots/delete", { name: id.slice(3) }).catch((err) => toast(err.message));
-    }, "danger"));
+    }]);
   }
-  row.append(acts);
+  row.oncontextmenu = (e) => contextMenu(e, menu);
   row.onclick = () => switchChat(id);
   return row;
 }
@@ -1425,6 +1417,31 @@ function closePop() {
 document.addEventListener("click", (e) => {
   if (pop && !pop.contains(e.target) && e.target.closest("#plusBtn") === null) closePop();
 });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && pop) closePop(); });
+
+// 光标处弹出的操作菜单。外观和"点别处就关"直接复用 .pop 那一套，只有定位不同。
+// items 是 [标签, 类名, 回调] 的数组。
+// A menu that opens at the cursor. Appearance and click-away dismissal come straight from the .pop
+// machinery; only the positioning differs. items is an array of [label, className, onclick].
+function contextMenu(ev, items) {
+  ev.preventDefault();
+  closePop();
+  pop = el("div", "pop");
+  for (const [label, cls, onclick] of items) {
+    const b = el("button", cls || "");
+    b.type = "button";
+    b.append(document.createTextNode(label));
+    b.onclick = () => { closePop(); onclick(); };
+    pop.append(b);
+  }
+  document.body.append(pop);
+  // 先塞进 DOM 再量尺寸，然后夹回可视区——靠近右下角右键时，菜单不能有一半在窗口外
+  // Measure only once it is in the DOM, then clamp: right-clicking near the bottom-right corner must
+  // not leave half the menu outside the window
+  const r = pop.getBoundingClientRect();
+  pop.style.left = Math.max(8, Math.min(ev.clientX, window.innerWidth - r.width - 8)) + "px";
+  pop.style.top = Math.max(8, Math.min(ev.clientY, window.innerHeight - r.height - 8)) + "px";
+}
 
 $("plusBtn").onclick = (e) => {
   e.stopPropagation();

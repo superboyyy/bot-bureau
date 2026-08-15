@@ -497,20 +497,11 @@ button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
   border-radius: 10px; font-size: 10.5px; font-weight: 700;
   padding: 1px 6px; min-width: 18px; text-align: center;
 }
-.conv .conv-acts {
-  position: absolute; right: 7px; top: 50%; margin-top: -12px;
-  display: none; gap: 2px;
-}
-.conv:hover .conv-acts, .conv.active .conv-acts { display: flex; }
-.conv:hover .time, .conv.active .time,
-.conv:hover .badge, .conv.active .badge { opacity: 0; }
-.conv .conv-acts button {
-  border: 0; background: var(--glass-3); color: var(--text-2);
-  cursor: pointer; padding: 5px; border-radius: 7px;
-  display: grid; place-items: center;
-}
-.conv .conv-acts button:hover { color: var(--text); background: var(--glass-2); }
-.conv .conv-acts button.danger:hover { color: var(--danger); }
+/* 行内不再有操作按钮（改成右键菜单），所以时间和未读数在悬停时也不用再让位了——
+   之前它们是被 opacity:0 掉去给按钮腾地方的。
+   No action buttons in the row any more (they became a right-click menu), so the timestamp and the
+   unread badge no longer have to get out of the way on hover — they used to be faded to opacity:0 to
+   make room. */
 
 /* ---- 头像 / Avatar ----
    圆形脸：底色区分身份，两只眼睛构成识别度高的剪影
@@ -831,6 +822,11 @@ header .spacer { flex: 1; }
   padding: 7px 9px; border-radius: 9px; color: var(--text); font-size: 13px;
 }
 .pop button:hover { background: var(--glass-2); }
+/* 菜单里的破坏性项：静止时就红着，不是等悬停才红——不然"删除"和"设置"在扫一眼时长得一样
+   A destructive entry is red at rest, not only on hover: otherwise Delete and Settings look identical
+   at a glance */
+.pop button.danger { color: var(--danger); }
+.pop button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .pop .meta { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
 
 /* ---- 侧栏工作台 / Sidebar workbench ---- */
