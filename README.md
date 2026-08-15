@@ -20,7 +20,7 @@ A **Go engine + a cross-platform Electron desktop client**, wired to whichever m
 
 | Capability | How it works |
 |---|---|
-| Message bots like colleagues | **Group chat** (@mention to assign; unmentioned messages default to chief; bot collaboration fully visible) + **DMs** (one-on-one independent work) |
+| Message bots like colleagues | **Group chat** (call a bot by plain name or @mention it; with nobody named, the first member of the group takes it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
 | Each Bot has its own computer | Each bot gets an isolated workspace `data/workspaces/<bot>/`; bash / file I/O confined inside |
 | Autonomous multi-step tasks, always-on | Each bot is a resident goroutine running its own agent loop, never blocking the others |
 | Comes back when human judgment is needed | Non-read-only commands suspend for approval; one-click approve / reject in the sidebar (with optional reason) |
@@ -52,7 +52,7 @@ A **Go engine + a cross-platform Electron desktop client**, wired to whichever m
 
 ## Quick start
 
-Requirements: Node.js ≥ 20 (to run Electron). A compiled backend binary for macOS Apple Silicon ships with the repo; on other platforms install Go ≥ 1.22 and run `npm run build:backend`.
+Requirements: Node.js ≥ 20 (to run Electron). Go ≥ 1.22 as well: no binary is committed, so the engine is built from source. `npm start` and the packaging scripts run `npm run build:backend` for you.
 
 ```bash
 cd bot-bureau/app
