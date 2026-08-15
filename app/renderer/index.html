@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <!-- connect-src 必须放开任意 http/https：引擎地址由用户配置（本机 / 局域网 / Tailscale / 自有服务器）。
+       脚本仍限 'self'，页面只用 textContent 渲染，无远程代码执行面。 -->
+  <!-- connect-src must allow any http/https: the engine address is user-configured (local / LAN / Tailscale / own server).
+       Scripts stay 'self' and the page renders via textContent only, so there is no remote-code-execution surface. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; connect-src http: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>Bot Bureau</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="side-top">
+      <button id="newBtn" class="icon-btn" title="New" data-i18n-title="New">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+      <input id="search" type="search" placeholder="Search" data-i18n-ph="Search" autocomplete="off">
+    </div>
+
+    <div id="sideBody">
+      <div id="chatList" class="side-scroll"></div>
+      <div id="sideSplit" role="separator" aria-orientation="horizontal" title="Drag to resize" data-i18n-title="Drag to resize"></div>
+      <div id="panel">
+        <div class="panel-top">
+          <span class="title" data-i18n="Workbench">Workbench</span>
+        </div>
+        <div class="panel-scroll">
+          <div class="group-head"><span data-i18n="Task board">Task board</span>
+            <button id="clearDoneBtn" class="text-btn" data-i18n="Clear done">Clear done</button>
+          </div>
+          <div id="tasks" class="card"></div>
+
+          <div class="group-head"><span data-i18n="Routines">Routines</span></div>
+          <div id="routines" class="card"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-foot">
+      <div id="pairHint" class="pair-hint" hidden></div>
+      <button type="button" id="mcpBtn" class="foot-row">
+        <svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6 8h12v4a6 6 0 0 1-12 0V8ZM12 18v3"/></svg>
+        <span class="label" data-i18n="Plugins">Plugins</span>
+        <span class="note" id="mcpNote"></span>
+      </button>
+      <button type="button" id="settingsBtn" class="foot-row">
+        <span class="status-dot" id="engineDot"></span>
+        <span class="label" id="engineLabel"></span>
+        <svg class="glyph" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1Z"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main>
+    <div id="offlineBanner" hidden>
+      <span id="offlineText"></span>
+      <button type="button" id="retryBtn" data-i18n="Retry now">Retry now</button>
+      <button type="button" id="takeLocalBtn" hidden></button>
+    </div>
+    <!-- stage 是标题栏浮在消息流之上的定位参照：消息从 y=0 开始滚动，从毛玻璃标题栏底下穿过。
+         离线横幅留在 stage 外的常规流里，所以它出现时是把整块下推，而不是被浮层盖住。
+         The stage is the positioning context that lets the header float over the message stream:
+         messages start at y=0 and scroll underneath the frosted bar. The offline banner stays outside
+         the stage in normal flow, so when it appears it pushes the stage down instead of being covered. -->
+    <div class="stage">
+      <header id="chatHeader"></header>
+      <div id="msgs"></div>
+      <form id="composer">
+        <div class="composer-pill">
+          <button type="button" id="plusBtn" class="round-btn plus" title="Mention a teammate" data-i18n-title="Mention a teammate">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M16 12v1.6a2.4 2.4 0 0 0 4.8 0V12a8.8 8.8 0 1 0-3.5 7"/></svg>
+          </button>
+          <textarea id="input" rows="1" placeholder="Type a message…" data-i18n-ph="Type a message…"></textarea>
+          <button type="submit" class="round-btn send" title="Send" data-i18n-title="Send">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+</div>
+
+<dialog id="botModal">
+  <form id="botForm" method="dialog">
+    <h3 id="botModalTitle" data-i18n="New Bot">New Bot</h3>
+    <div class="body">
+      <div class="av-edit">
+        <span id="botAvPreview"></span>
+        <div class="av-pick">
+          <div class="swatches" id="botSwatches"></div>
+          <div class="av-btns">
+            <button type="button" id="botAvUpload" data-i18n="Upload image">Upload image</button>
+            <button type="button" id="botAvReset" data-i18n="Reset">Reset</button>
+          </div>
+        </div>
+        <input type="file" id="botAvFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+
+      <label><span data-i18n="Name">Name</span><input name="display_name" placeholder="e.g. Wren" data-i18n-ph="e.g. Wren"></label>
+      <p class="hint field-note" id="botIdNote"></p>
+      <label id="botIdRow" hidden><span data-i18n="@mention id (lowercase letters, digits, - and _)">@mention id (lowercase letters, digits, - and _)</span><input name="name" pattern="[a-z0-9_-]{1,24}" placeholder="e.g. writer" data-i18n-ph="e.g. writer"></label>
+      <label><span data-i18n="Role">Role</span><input name="role" placeholder="e.g. copywriter" data-i18n-ph="e.g. copywriter"></label>
+      <label><span data-i18n="Persona / responsibilities">Persona / responsibilities</span><textarea name="description" rows="3" placeholder="What it is good at and responsible for" data-i18n-ph="What it is good at and responsible for"></textarea></label>
+      <details id="botPromptRow">
+        <summary data-i18n="Detailed role instructions (optional)">Detailed role instructions (optional)</summary>
+        <p class="hint" data-i18n="Appended to this bot's system prompt. Importing a teammate from a plugin fills this in.">Appended to this bot's system prompt. Importing a teammate from a plugin fills this in.</p>
+        <label><textarea name="prompt" rows="6" placeholder="e.g. Always check the tests before saying a task is done." data-i18n-ph="e.g. Always check the tests before saying a task is done."></textarea></label>
+      </details>
+
+      <h3 class="sub-head" data-i18n="Model">Model</h3>
+      <div id="botModelPicker"></div>
+
+      <label><span data-i18n="Thinking">Thinking</span>
+        <select name="effort" id="botEffortSel"></select>
+      </label>
+      <p class="hint" id="botEffortNote"></p>
+
+      <h3 class="sub-head" data-i18n="Permissions">Permissions</h3>
+      <label><span data-i18n="What this bot needs your approval for">What this bot needs your approval for</span>
+        <select name="permission" id="botPermSel"></select>
+      </label>
+      <p class="hint" id="botPermNote"></p>
+
+      <h3 class="sub-head" data-i18n="Plugins">Plugins</h3>
+      <div id="botMcp" class="card"></div>
+      <p class="hint" id="botEditNote" hidden data-i18n="Saving restarts this bot with the new config. Switching provider family (Claude ↔ OpenAI-compatible) resets the conversation; changing persona, avatar or model name keeps it."></p>
+      <p class="err" id="botErr"></p>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate data-i18n="Cancel">Cancel</button>
+      <button id="botSubmit" value="default" class="primary" data-i18n="Create">Create</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="groupModal">
+  <form id="groupForm" method="dialog">
+    <h3 data-i18n="Group chat settings">Group chat settings</h3>
+    <div class="body">
+      <div class="av-edit">
+        <span id="groupAvPreview"></span>
+        <div class="av-pick">
+          <div class="swatches" id="groupSwatches"></div>
+          <div class="av-btns">
+            <button type="button" id="groupAvUpload" data-i18n="Upload image">Upload image</button>
+            <button type="button" id="groupAvReset" data-i18n="Reset">Reset</button>
+          </div>
+        </div>
+        <input type="file" id="groupAvFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+      </div>
+      <label><span data-i18n="Name (blank means &quot;Group chat&quot;)">Name (blank means &quot;Group chat&quot;)</span><input name="group_title" placeholder="e.g. War room" data-i18n-ph="e.g. War room"></label>
+      <p class="hint" data-i18n="The default avatar stacks the first two members' faces and follows changes in membership.">The default avatar stacks the first two members' faces and follows changes in membership.</p>
+
+      <div class="group-head" style="padding-top:14px"><span data-i18n="Members">Members</span></div>
+      <div id="groupMembers" class="card"></div>
+      <p class="hint" data-i18n="A bot that is not in the group receives no group chat messages, cannot be @-mentioned, and will not be assigned tasks; DMs are unaffected.">A bot that is not in the group receives no group chat messages, cannot be @-mentioned, and will not be assigned tasks; DMs are unaffected.</p>
+      <p class="err" id="groupErr"></p>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate data-i18n="Cancel">Cancel</button>
+      <button value="default" class="primary" data-i18n="Save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="keysModal">
+  <form id="keysForm" method="dialog">
+    <h3 data-i18n="Settings">Settings</h3>
+    <nav class="settings-nav">
+      <button type="button" data-tab="general" class="on" data-i18n="General">General</button>
+      <button type="button" data-tab="connect" data-i18n="Connection">Connection</button>
+      <button type="button" data-tab="perm" data-i18n="Permissions">Permissions</button>
+      <button type="button" data-tab="keys" data-i18n="Keys">Keys</button>
+      <button type="button" data-tab="telegram">Telegram</button>
+    </nav>
+    <div class="body">
+      <section data-pane="general">
+        <label><span data-i18n="Appearance">Appearance</span>
+          <select id="themeSel">
+            <option value="auto" data-i18n="Follow system">Follow system</option>
+            <option value="light" data-i18n="Light">Light</option>
+            <option value="dark" data-i18n="Dark">Dark</option>
+          </select>
+        </label>
+        <label><span data-i18n="Language">Language</span>
+          <select id="langSel">
+            <option value="auto" data-i18n="Follow system">Follow system</option>
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </section>
+      <section data-pane="perm" hidden>
+        <p class="hint" data-i18n="Which actions need your approval while a bot works. This is the team-wide default; each bot can override it in its own settings.">Which actions need your approval while a bot works. This is the team-wide default; each bot can override it in its own settings.</p>
+        <div id="permLevels" class="perm-list"></div>
+        <p class="err" id="permErr"></p>
+      </section>
+      <section data-pane="connect" hidden>
+        <p class="hint" id="pairInfo"></p>
+        <label><span data-i18n="Connect to a remote engine (across networks, join a mesh such as Tailscale first and enter its IP)">Connect to a remote engine (across networks, join a mesh such as Tailscale first and enter its IP)</span>
+          <input id="raddr" placeholder="http://100.64.x.x:8973 or http://192.168.x.x:8973" data-i18n-ph="http://100.64.x.x:8973 or http://192.168.x.x:8973"></label>
+        <div class="inline-actions">
+          <button type="button" id="connectRemoteBtn" class="primary" data-i18n="Connect">Connect</button>
+          <button type="button" id="backLocalBtn" hidden data-i18n="Use local engine">Use local engine</button>
+        </div>
+        <p class="err" id="remoteErr"></p>
+      </section>
+      <section data-pane="keys" hidden>
+        <p class="hint" data-i18n="ChatGPT Plus/Pro or SuperGrok can sign in directly — no separate API key.">ChatGPT Plus/Pro or SuperGrok can sign in directly — no separate API key.</p>
+        <div class="mp-sub">
+          <span class="status-dot" id="chatgptDot"></span>
+          <span class="mp-sub-text" id="chatgptOAuthStatus"></span>
+          <button type="button" id="chatgptLogoutBtn" hidden data-i18n="Sign out">Sign out</button>
+          <button type="button" id="chatgptLoginBtn" data-i18n="Sign in to ChatGPT Plus/Pro">Sign in to ChatGPT Plus/Pro</button>
+        </div>
+        <p class="hint" id="chatgptOAuthHint" hidden></p>
+        <div class="mp-sub">
+          <span class="status-dot" id="xaiDot"></span>
+          <span class="mp-sub-text" id="xaiOAuthStatus"></span>
+          <button type="button" id="xaiLogoutBtn" hidden data-i18n="Sign out">Sign out</button>
+          <button type="button" id="xaiLoginBtn" data-i18n="Sign in to SuperGrok">Sign in to SuperGrok</button>
+        </div>
+        <p class="hint" id="xaiOAuthHint" hidden></p>
+        <h3 class="sub-head" data-i18n="API keys">API keys</h3>
+        <p class="hint" data-i18n="Stored locally in data/keys.json (readable only by the current user); the UI only ever shows a mask. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.">Stored locally in data/keys.json (readable only by the current user); the UI only ever shows a mask. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.</p>
+        <div id="keysList" class="card" style="margin-bottom:12px"></div>
+        <label><span data-i18n="Name (env-var style)">Name (env-var style)</span><input name="kname" placeholder="e.g. ANTHROPIC_API_KEY / XAI_API_KEY" data-i18n-ph="e.g. ANTHROPIC_API_KEY / XAI_API_KEY" list="keyNames">
+          <datalist id="keyNames">
+            <option value="ANTHROPIC_API_KEY"></option>
+            <option value="OPENAI_API_KEY"></option>
+            <option value="XAI_API_KEY"></option>
+            <option value="DEEPSEEK_API_KEY"></option>
+            <option value="MOONSHOT_API_KEY"></option>
+            <option value="OPENCODE_API_KEY"></option>
+            <option value="GITHUB_PERSONAL_ACCESS_TOKEN"></option>
+            <option value="TELEGRAM_BOT_TOKEN"></option>
+          </datalist>
+        </label>
+        <label><span data-i18n="Key value">Key value</span><input name="kvalue" type="password" placeholder="Paste the API key (an existing name is overwritten)" data-i18n-ph="Paste the API key (an existing name is overwritten)"></label>
+        <p class="err" id="keysErr"></p>
+      </section>
+      <section data-pane="telegram" hidden>
+        <p class="hint"><span data-i18n="In Telegram, create a bot with @BotFather and save its token as TELEGRAM_BOT_TOKEN (Keys tab). Once enabled, send /start to your bot to link it (the first to link claims it). After that you can chat and tap buttons to approve straight from your phone.">In Telegram, create a bot with @BotFather and save its token as TELEGRAM_BOT_TOKEN (Keys tab). Once enabled, send /start to your bot to link it (the first to link claims it). After that you can chat and tap buttons to approve straight from your phone.</span></p>
+        <div class="inline-actions">
+          <button type="button" id="tgToggleBtn" class="primary" data-i18n="Enable">Enable</button>
+          <span id="tgStatus" class="hint" style="margin:0"></span>
+        </div>
+      </section>
+    </div>
+    <menu>
+      <button type="button" id="groupDeleteBtn" hidden data-i18n="Delete group">Delete group</button>
+      <button value="cancel" formnovalidate data-i18n="Cancel">Cancel</button>
+      <button value="default" id="keysSaveBtn" class="primary" data-i18n="Save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="mcpModal">
+  <form id="mcpForm" method="dialog">
+    <h3 data-i18n="Plugins (MCP servers / connectors)">Plugins (MCP servers / connectors)</h3>
+    <div class="body">
+      <p class="hint"><span data-i18n="A plugin gives every bot on the team a set of tools. Tools are exposed with an mcp_{plugin}_ prefix to the bots that have it checked, and any non-read-only operation needs your approval first.">A plugin gives every bot on the team a set of tools. Tools are exposed with an mcp_{plugin}_ prefix to the bots that have it checked, and any non-read-only operation needs your approval first.</span></p>
+      <div id="mcpList" class="card" style="margin-bottom:16px"></div>
+      <div class="sec-label" data-i18n="Available to install">Available to install</div>
+      <div id="mcpCatalog" class="card" style="margin-bottom:8px"></div>
+      <p class="err" id="mcpErr"></p>
+
+      <div class="sec-label" data-i18n="Skills">Skills</div>
+      <p class="hint"><span data-i18n="A skill is a written-down procedure. Every bot sees each skill's one-line summary and loads the full text only when it applies, so installing many costs almost no context.">A skill is a written-down procedure. Every bot sees each skill's one-line summary and loads the full text only when it applies, so installing many costs almost no context.</span></p>
+      <div id="skillList" class="card" style="margin-bottom:8px"></div>
+      <div class="inline-actions">
+        <button type="button" id="skillRescanBtn" data-i18n="Rescan">Rescan</button>
+      </div>
+
+      <div class="sec-label" data-i18n="Plugin packages">Plugin packages</div>
+      <p class="hint"><span data-i18n="Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and teammates are all taken in; anything not supported is listed after installing.">Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and teammates are all taken in; anything not supported is listed after installing.</span></p>
+      <div id="bundleList" class="card" style="margin-bottom:8px"></div>
+      <label><span data-i18n="Install from a git URL or a folder on this machine">Install from a git URL or a folder on this machine</span><input name="bundlesrc" id="bundleSrc" placeholder="https://github.com/someone/their-plugin" data-i18n-ph="https://github.com/someone/their-plugin"></label>
+      <div class="inline-actions">
+        <button type="button" id="bundleInstallBtn" data-i18n="Install package">Install package</button>
+      </div>
+      <p class="err" id="bundleErr"></p>
+      <details id="mcpManual">
+        <summary data-i18n="Add one by hand">Add one by hand</summary>
+        <label><span data-i18n="Name (lowercase)">Name (lowercase)</span><input name="mname" placeholder="e.g. fs / github / linear" data-i18n-ph="e.g. fs / github / linear"></label>
+        <label><span data-i18n="Type">Type</span>
+          <select name="mtype" id="mcpTypeSel">
+            <option value="stdio" data-i18n="Local command (stdio)">Local command (stdio)</option>
+            <option value="http" data-i18n="Remote URL (Streamable HTTP)">Remote URL (Streamable HTTP)</option>
+          </select>
+        </label>
+        <div id="mcpStdioRows">
+          <label><span data-i18n="Command">Command</span><input name="mcommand" placeholder="e.g. npx" data-i18n-ph="e.g. npx"></label>
+          <label><span data-i18n="Arguments (space-separated)">Arguments (space-separated)</span><input name="margs" placeholder="e.g. -y @modelcontextprotocol/server-filesystem /Users/you/docs" data-i18n-ph="e.g. -y @modelcontextprotocol/server-filesystem /Users/you/docs"></label>
+        </div>
+        <div id="mcpHttpRows" hidden>
+          <label>URL<input name="murl" placeholder="https://mcp.example.com/mcp"></label>
+          <label><span data-i18n="Bearer key name (optional)">Bearer key name (optional)</span><input name="mbearer" placeholder="A key name saved in Settings, e.g. LINEAR_TOKEN" data-i18n-ph="A key name saved in Settings, e.g. LINEAR_TOKEN"></label>
+        </div>
+        <div class="inline-actions">
+          <button value="default" class="primary" data-i18n="Add plugin">Add plugin</button>
+        </div>
+      </details>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate data-i18n="Close">Close</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="marketModal">
+  <form id="marketForm" method="dialog">
+    <h3 id="marketTitle"></h3>
+    <div class="body">
+      <p class="hint"><span data-i18n="This address lists several plugins. Pick the one you want — you can come back for the others.">This address lists several plugins. Pick the one you want — you can come back for the others.</span></p>
+      <div id="marketList" class="card"></div>
+      <p class="err" id="marketErr"></p>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate data-i18n="Close">Close</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="toolPickModal">
+  <form id="toolPickForm" method="dialog">
+    <h3 id="toolPickTitle"></h3>
+    <div class="body">
+      <p class="hint"><span data-i18n="Only the checked tools are offered to your bots. Leaving everything checked also picks up new tools added by later updates.">Only the checked tools are offered to your bots. Leaving everything checked also picks up new tools added by later updates.</span></p>
+      <div id="toolPickList" class="card"></div>
+      <p class="err" id="toolPickErr"></p>
+    </div>
+    <menu>
+      <button value="cancel" formnovalidate data-i18n="Cancel">Cancel</button>
+      <button type="button" id="toolPickAll" data-i18n="Select all">Select all</button>
+      <button type="button" id="toolPickSave" class="primary" data-i18n="Save">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="onboardModal">
+  <form id="onboardForm" method="dialog">
+    <div class="onboard">
+      <div id="onboardArt" class="onboard-art"></div>
+      <h3 id="onboardTitle"></h3>
+      <p class="onboard-lede" id="onboardLede"></p>
+      <div id="onboardBody"></div>
+      <p class="err" id="onboardErr"></p>
+    </div>
+    <menu>
+      <span class="onboard-dots" id="onboardDots"></span>
+      <button type="button" id="onboardSkip" data-i18n="Skip">Skip</button>
+      <button type="button" id="onboardBack" data-i18n="Back">Back</button>
+      <button type="button" id="onboardNext" class="primary" data-i18n="Next">Next</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="askModal">
+  <form id="askForm" method="dialog">
+    <h3 id="askTitle"></h3>
+    <div class="body">
+      <p class="hint" id="askHint"></p>
+      <label id="askFieldWrap" hidden>
+        <span id="askFieldLabel"></span>
+        <input id="askField" autocomplete="off">
+      </label>
+    </div>
+    <menu>
+      <button value="cancel" id="askCancel" formnovalidate data-i18n="Cancel">Cancel</button>
+      <button value="default" class="primary" id="askOk" data-i18n="OK">OK</button>
+    </menu>
+  </form>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<dialog id="tokenModal">
+  <form id="tokenForm" method="dialog">
+    <h3 data-i18n="Enter pairing code">Enter pairing code</h3>
+    <div class="body">
+      <p class="hint" data-i18n="Connecting to a remote engine requires pairing: open Settings on the device running the engine to see the pairing code (you only enter it once).">Connecting to a remote engine requires pairing: open Settings on the device running the engine to see the pairing code (you only enter it once).</p>
+      <label><span data-i18n="Pairing code">Pairing code</span><input name="tvalue" autocomplete="off" placeholder="e.g. 3f9a1c…" data-i18n-ph="e.g. 3f9a1c…"></label>
+      <p class="err" id="tokenErr"></p>
+    </div>
+    <menu><button value="default" class="primary" data-i18n="Connect">Connect</button></menu>
+  </form>
+</dialog>
+
+<script src="locales/zh.js"></script>
+<script src="i18n.js"></script>
+<script src="markdown.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
