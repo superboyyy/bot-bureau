@@ -262,7 +262,7 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 
 	// 5. 审批 → 内联按钮推送 → 回调批准
 	// 5. engine.Approval → inline button pushed → callback approves
-	ap := app.bus.RequestApproval("chief", "bash: touch x", "group")
+	ap := app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	waitFor(t, "the approval push", func() bool {
 		fake.mu.Lock()
 		defer fake.mu.Unlock()

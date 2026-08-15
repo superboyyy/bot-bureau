@@ -24,7 +24,7 @@ type scriptedSession struct {
 
 func (s *scriptedSession) MarkTurn() { s.tracker.markTurn(len(s.history)) }
 func (s *scriptedSession) Rollback() { s.history = s.history[:s.tracker.rollbackTo()] }
-func (s *scriptedSession) AddUser(text string) {
+func (s *scriptedSession) AddUser(text string, _ ...ResultImage) {
 	s.tracker.addCut(len(s.history))
 	s.history = append(s.history, "user:"+text)
 }

@@ -134,6 +134,35 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 	}
 }
 
+// 群里引用某位成员的发言，就等于在跟 ta 说话：不必再敲一遍名字，也不该落回默认接单人。
+// Quoting a member's line in the group is addressing them: the name need not be typed again, and the
+// message must not fall back to the default responder.
+func TestQuoteReplyAddressesTheQuotedBot(t *testing.T) {
+	_, srv := newTestApp(t)
+
+	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "@scout take a look"})
+	spoke := waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout"
+	})
+
+	id, _ := spoke["id"].(float64)
+	postJSON(t, srv.URL+"/api/send", map[string]any{
+		"chat": "group", "text": "carry on with that", "reply_to": int(id),
+	})
+	quoted := waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["source"] == "user" && ev["text"] == "carry on with that"
+	})
+	if quoted["reply_to"] == nil || quoted["reply_src"] != "scout" {
+		t.Fatalf("the sent message should carry the quotation: %+v", quoted)
+	}
+	// chief 是默认接单人，所以"scout 回了这句"才说明引用把话指对了人
+	// chief is the default responder, so scout answering this one is what proves the quotation aimed it
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		text, _ := ev["text"].(string)
+		return ev["kind"] == "msg" && ev["source"] == "scout" && strings.Contains(text, "carry on with that")
+	})
+}
+
 func TestHTTPBotCRUD(t *testing.T) {
 	app, srv := newTestApp(t)
 
@@ -181,7 +210,7 @@ func TestHTTPApprovalFlow(t *testing.T) {
 	app, srv := newTestApp(t)
 	// 手工造一个审批（等价于 bot 里 bash 走审批）
 	// Manually create an approval (equivalent to bash going through approval inside a bot)
-	go app.bus.RequestApproval("chief", "bash: touch x", "group")
+	go app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	var id int
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		if ev["kind"] == "approval" {
@@ -200,7 +229,7 @@ func TestHTTPApprovalFlow(t *testing.T) {
 
 func TestHTTPCancel(t *testing.T) {
 	app, srv := newTestApp(t)
-	go app.bus.RequestApproval("chief", "bash: touch x", "group")
+	go app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	waitForEvent(t, srv, func(ev engine.Event) bool { return ev["kind"] == "approval" })
 	if code, _ := postJSON(t, srv.URL+"/api/cancel", map[string]any{"name": "chief"}); code != 200 {
 		t.Fatal("cancel should succeed")
@@ -372,6 +401,104 @@ func TestGroupMetaSurvivesLocaleChange(t *testing.T) {
 	i18n.SetLocale("zh") // 复原，别影响其他用例 / restore so other tests are unaffected
 }
 
+// 置顶：群聊和私聊走同一个口，存在引擎里（换设备连上来还是那几个），
+// 会话没了置顶也跟着走——否则 settings.json 里会攒下一堆界面上既看不见也取消不掉的 id。
+//
+// Pinning: group chats and DMs go through the same endpoint and live in the engine (connect from
+// another device and the same ones are on top). A pin leaves with its conversation, or settings.json
+// would collect ids that are invisible in the UI and impossible to take back.
+func TestPinnedConversations(t *testing.T) {
+	app, srv := newTestApp(t)
+
+	code, out := postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "dm:scout", "pinned": true})
+	if code != 200 {
+		t.Fatalf("pinning a DM failed: %d %v", code, out)
+	}
+	if code, out = postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "group", "pinned": true}); code != 200 {
+		t.Fatalf("pinning the group chat failed: %d %v", code, out)
+	}
+	if got := pinsIn(t, out); len(got) != 2 || got[0] != "dm:scout" || got[1] != "group" {
+		t.Fatalf("wrong pins in the reply: %v", got)
+	}
+	if got := statePins(t, srv); len(got) != 2 {
+		t.Fatalf("the state should carry both pins, got %v", got)
+	}
+
+	// 不存在的会话钉不住：打错的 id 会永远留在设置里，界面上根本没有那一行去取消它
+	// A conversation that is not there cannot be pinned: a mistyped id would stay in settings forever,
+	// with no row in the UI to take it back from
+	if code, _ := postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "dm:ghost", "pinned": true}); code != 404 {
+		t.Fatalf("pinning a nonexistent conversation should 404, got %d", code)
+	}
+	if code, _ := postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "", "pinned": true}); code != 400 {
+		t.Fatalf("an empty conversation id should 400, got %d", code)
+	}
+
+	// 重启引擎后还在
+	// Still there after a restart
+	if got := config.NewSettings(app.dataDir).Pins(); len(got) != 2 {
+		t.Fatalf("the pins did not survive a reload: %v", got)
+	}
+
+	// 取消置顶
+	// Unpin
+	_, out = postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "group", "pinned": false})
+	if got := pinsIn(t, out); len(got) != 1 || got[0] != "dm:scout" {
+		t.Fatalf("unpinning left the wrong set: %v", got)
+	}
+
+	// 群没了，它的置顶也没了
+	// The group goes, and its pin with it
+	_, made := postJSON(t, srv.URL+"/api/groups", map[string]any{"title": "War Room", "members": []string{"chief"}})
+	id, _ := made["id"].(string)
+	if id == "" {
+		t.Fatalf("creating a group failed: %v", made)
+	}
+	postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": id, "pinned": true})
+	postJSON(t, srv.URL+"/api/groups/delete", map[string]any{"id": id})
+	for _, c := range statePins(t, srv) {
+		if c == id {
+			t.Fatal("the deleted group is still pinned")
+		}
+	}
+
+	// bot 走人，它的私聊置顶也一样
+	// A member leaves, and the pin on their DM goes too
+	if _, err := app.RemoveBot("scout", true); err != nil {
+		t.Fatalf("removing scout failed: %v", err)
+	}
+	if got := statePins(t, srv); len(got) != 0 {
+		t.Fatalf("a removed bot left its pin behind: %v", got)
+	}
+}
+
+func pinsIn(t *testing.T, out map[string]any) []string {
+	t.Helper()
+	raw, _ := out["pins"].([]any)
+	got := make([]string, 0, len(raw))
+	for _, v := range raw {
+		s, _ := v.(string)
+		got = append(got, s)
+	}
+	return got
+}
+
+func statePins(t *testing.T, srv *httptest.Server) []string {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st struct {
+		Pins []string `json:"pins"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	return st.Pins
+}
+
 // 团队可以删空：空团队是新装用户的初始状态，客户端会显示引导。
 // 早先这里是"最后一个不许删"，那是因为引擎当时拒绝空 bots.yaml 启动。
 //
@@ -382,7 +509,7 @@ func TestRemoveBotCanEmptyTheTeam(t *testing.T) {
 	defer srv.Close()
 
 	for _, name := range []string{"scout", "chief"} {
-		if err := app.RemoveBot(name); err != nil {
+		if _, err := app.RemoveBot(name, false); err != nil {
 			t.Fatalf("removing %s failed: %v", name, err)
 		}
 	}
@@ -398,8 +525,175 @@ func TestRemoveBotCanEmptyTheTeam(t *testing.T) {
 	if len(saved) != 0 {
 		t.Fatalf("should be empty, got %+v", saved)
 	}
-	if err := app.RemoveBot("nobody"); err == nil {
+	if _, err := app.RemoveBot("nobody", false); err == nil {
 		t.Fatal("removing a nonexistent bot should error")
+	}
+}
+
+// 默认移除保留资料：工作目录改名成离职档案，之后能在「已离职成员」里找到。
+// 顺带确认例程跟着人走——那是行为，不是档案。
+//
+// A removal keeps the files by default: the workspace is renamed into an archive that turns up under
+// "Former members". Also confirms routines leave with their owner — those are behaviour, not records.
+func TestRemoveBotArchivesWorkspaceByDefault(t *testing.T) {
+	app, srv := newTestApp(t)
+	defer srv.Close()
+
+	ws := engine.WorkspaceDir(app.dataDir, "scout")
+	if err := os.WriteFile(filepath.Join(ws, "MEMORY.md"), []byte("- 老板讨厌 emoji\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, "notes.md"), []byte("draft"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app.sched.Add("daily", "scout", "check the news", 60)
+	app.sched.Add("weekly", "chief", "write the summary", 600)
+
+	if _, err := app.RemoveBot("scout", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ws); !os.IsNotExist(err) {
+		t.Fatalf("the live workspace should be gone after archiving, stat gave %v", err)
+	}
+	departed := engine.ListDeparted(app.dataDir)
+	if len(departed) != 1 {
+		t.Fatalf("want one archive, got %+v", departed)
+	}
+	d := departed[0]
+	if d.ID != "scout" || !d.HasMemory || d.Files < 2 || d.RemovedAt == 0 {
+		t.Fatalf("the archive does not describe what was kept: %+v", d)
+	}
+	// 例程只剩别人的那条 / only the other bot's routine survives
+	left := app.sched.List()
+	if len(left) != 1 || left[0].Bot != "chief" {
+		t.Fatalf("scout's routines should be gone, left: %+v", left)
+	}
+}
+
+// 用户明确选了"一并删除"就真的删干净，不留档案。
+// Choosing "delete the files too" really deletes them, leaving no archive behind.
+func TestRemoveBotPurgesWorkspaceWhenAsked(t *testing.T) {
+	app, srv := newTestApp(t)
+	defer srv.Close()
+
+	ws := engine.WorkspaceDir(app.dataDir, "scout")
+	if err := os.WriteFile(filepath.Join(ws, "MEMORY.md"), []byte("secrets"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RemoveBot("scout", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(ws); !os.IsNotExist(err) {
+		t.Fatalf("the workspace should be deleted, stat gave %v", err)
+	}
+	if d := engine.ListDeparted(app.dataDir); len(d) != 0 {
+		t.Fatalf("nothing should have been archived, got %+v", d)
+	}
+}
+
+// 离职档案能列、能看、能删；目录名是从 HTTP 进来的，所以顺带盯住它不能被拿来跳出 workspaces。
+// Archives can be listed, viewed and deleted; the directory name arrives over HTTP, so this also
+// pins down that it cannot be used to climb out of the workspaces directory.
+func TestDepartedArchivesAreListedViewedAndDeleted(t *testing.T) {
+	app, srv := newTestApp(t)
+	defer srv.Close()
+
+	ws := engine.WorkspaceDir(app.dataDir, "scout")
+	if err := os.WriteFile(filepath.Join(ws, "MEMORY.md"), []byte("- 周报周五交\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.RemoveBot("scout", false); err != nil {
+		t.Fatal(err)
+	}
+
+	code, body := postJSON(t, srv.URL+"/api/bots/departed", nil)
+	if code != 200 {
+		t.Fatalf("listing archives gave %d: %v", code, body)
+	}
+	list, _ := body["departed"].([]any)
+	if len(list) != 1 {
+		t.Fatalf("want one archive, got %v", body["departed"])
+	}
+	dir, _ := list[0].(map[string]any)["dir"].(string)
+	if !strings.HasPrefix(dir, "scout.removed-") {
+		t.Fatalf("unexpected archive name %q", dir)
+	}
+
+	code, body = postJSON(t, srv.URL+"/api/bots/departed/detail", map[string]any{"dir": dir})
+	if code != 200 {
+		t.Fatalf("viewing the archive gave %d: %v", code, body)
+	}
+	if mem, _ := body["memory"].(string); !strings.Contains(mem, "周报周五交") {
+		t.Fatalf("the memory should be readable, got %q", body["memory"])
+	}
+
+	// 越界的目录名要在拼进 RemoveAll 之前就被挡住 / a climbing name is refused before any RemoveAll
+	for _, bad := range []string{"..", "../..", "scout", "scout.removed-x", filepath.Join("..", "keys.json")} {
+		if code, _ := postJSON(t, srv.URL+"/api/bots/departed/delete", map[string]any{"dir": bad}); code != 400 {
+			t.Fatalf("deleting %q should have been refused, got %d", bad, code)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(app.dataDir, "workspaces")); err != nil {
+		t.Fatalf("the workspaces directory should still be there: %v", err)
+	}
+
+	if code, body := postJSON(t, srv.URL+"/api/bots/departed/delete", map[string]any{"dir": dir}); code != 200 {
+		t.Fatalf("deleting the archive gave %d: %v", code, body)
+	}
+	if d := engine.ListDeparted(app.dataDir); len(d) != 0 {
+		t.Fatalf("the archive should be gone, got %+v", d)
+	}
+}
+
+// 例程能就地改派给别人，且不会因为换人就重新计时。
+// A routine can be handed to someone else in place, without the clock restarting.
+func TestRoutineCanBeReassigned(t *testing.T) {
+	app, srv := newTestApp(t)
+	defer srv.Close()
+
+	r := app.sched.Add("daily", "scout", "check the news", 60)
+	due := r.NextRun
+
+	if code, body := postJSON(t, srv.URL+"/api/routines/update", map[string]any{"name": "daily", "bot": "chief"}); code != 200 {
+		t.Fatalf("reassigning gave %d: %v", code, body)
+	}
+	got := app.sched.List()
+	if len(got) != 1 || got[0].Bot != "chief" {
+		t.Fatalf("the routine should belong to chief now: %+v", got)
+	}
+	if got[0].NextRun != due {
+		t.Fatalf("reassigning must not reschedule: was %d, now %d", due, got[0].NextRun)
+	}
+	// 派给不存在的人要挡住，否则这条例程到点只会被跳过
+	// Handing it to nobody must be refused, or it would only ever be skipped when due
+	if code, _ := postJSON(t, srv.URL+"/api/routines/update", map[string]any{"name": "daily", "bot": "ghost"}); code != 400 {
+		t.Fatal("reassigning to a nonexistent bot should 400")
+	}
+	if code, _ := postJSON(t, srv.URL+"/api/routines/update", map[string]any{"name": "nope", "bot": "chief"}); code != 404 {
+		t.Fatal("reassigning a nonexistent routine should 404")
+	}
+}
+
+// 两位成员不能重名：群里点名 id 和显示名都算，重名等于一句话把同一件活派了两遍。
+// Two members cannot share a name: a group call matches ids and display names alike, so a duplicate
+// hands the same job out twice.
+func TestDuplicateDisplayNameIsRejected(t *testing.T) {
+	app, srv := newTestApp(t)
+	defer srv.Close()
+
+	if err := app.UpdateBot(config.BotConfig{Name: "chief", Role: "Lead", Provider: "fake", DisplayName: "吴敏"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.AddBot(config.BotConfig{Name: "wumin-k3f9a", Role: "r", Provider: "fake", DisplayName: "吴敏"}); err == nil {
+		t.Fatal("a second 吴敏 should have been refused")
+	}
+	// 撞上别人的 id 一样会被同时点到 / colliding with someone's id calls on both, too
+	if _, err := app.AddBot(config.BotConfig{Name: "newbie", Role: "r", Provider: "fake", DisplayName: "scout"}); err == nil {
+		t.Fatal("a display name equal to another member's id should have been refused")
+	}
+	// 自己改自己不算撞名 / a bot keeping its own name is not a clash
+	if err := app.UpdateBot(config.BotConfig{Name: "chief", Role: "Boss", Provider: "fake", DisplayName: "吴敏"}); err != nil {
+		t.Fatalf("editing a bot without changing its display name should be fine: %v", err)
 	}
 }
 
@@ -426,7 +720,7 @@ func TestNewBotDoesNotAutoJoinGroups(t *testing.T) {
 	}
 	// 用户主动拉进去就该生效
 	// Adding it deliberately must work
-	if !app.bus.SetGroupMemberIn("group", "newbie", true) {
+	if ok, changed := app.bus.SetGroupMemberIn("group", "newbie", true); !ok || !changed {
 		t.Fatal("adding it to the group should succeed")
 	}
 	if !app.bus.IsGroupMemberOf("group", "newbie") {
@@ -524,5 +818,110 @@ func TestLocalModeStillRequiresToken(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		t.Fatalf("a request carrying the pairing code should be 200, got %d", res.StatusCode)
+	}
+}
+
+// 工作目录清单必须在 state 里露出来，而且撤销要真的撤得掉——
+// 权限档位说的"工作目录内免审批"，用户只能靠这两样去核对和收回。
+//
+// The working-directory list has to surface in state and revocation has to actually revoke: those two
+// are the user's only means of checking, and taking back, what "no approvals inside the workspace"
+// grants.
+func TestBotRootsSurfaceInStateAndCanBeRevoked(t *testing.T) {
+	app, srv := newTestApp(t)
+	proj := t.TempDir()
+
+	w := app.bus.Bot("chief")
+	if !w.Roots().Add(proj) {
+		t.Fatal("a plain project directory should be granted")
+	}
+	granted := w.Roots().List()[0]
+
+	fetchState := func(t *testing.T, srv *httptest.Server) map[string]any {
+		t.Helper()
+		resp, err := http.Get(srv.URL + "/api/state")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
+	botIn := func(state map[string]any) map[string]any {
+		for _, raw := range state["bots"].([]any) {
+			b := raw.(map[string]any)
+			if b["name"] == "chief" {
+				return b
+			}
+		}
+		t.Fatal("chief missing from state")
+		return nil
+	}
+
+	b := botIn(fetchState(t, srv))
+	if ws, _ := b["workspace"].(string); ws == "" {
+		t.Fatal("每位成员自己的工作目录也要印出来 / a member's own workspace must be printed too")
+	}
+	roots := b["roots"].([]any)
+	if len(roots) != 1 || roots[0] != granted {
+		t.Fatalf("granted directory missing from state: %v", roots)
+	}
+
+	// 别人的目录撤不掉，不存在的目录也报错——撤销接口收的是 HTTP 请求
+	// Another member's list is untouched and an unknown directory errors: this endpoint takes HTTP input
+	if code, _ := postJSON(t, srv.URL+"/api/bots/roots/remove", map[string]any{"name": "scout", "dir": granted}); code != 404 {
+		t.Fatalf("removing from a member who was never granted it should 404, got %d", code)
+	}
+	if code, _ := postJSON(t, srv.URL+"/api/bots/roots/remove", map[string]any{"name": "chief", "dir": "/nope"}); code != 404 {
+		t.Fatalf("removing an unknown directory should 404, got %d", code)
+	}
+
+	if code, _ := postJSON(t, srv.URL+"/api/bots/roots/remove", map[string]any{"name": "chief", "dir": granted}); code != 200 {
+		t.Fatalf("removing a granted directory should succeed, got %d", code)
+	}
+	if n := len(w.Roots().List()); n != 0 {
+		t.Fatalf("撤销之后清单该空了 / the list should be empty after revocation: %d", n)
+	}
+	if n := len(botIn(fetchState(t, srv))["roots"].([]any)); n != 0 {
+		t.Fatalf("state should reflect the revocation: %d", n)
+	}
+}
+
+// 审批卡上的「批准并设为工作目录」：一次点击既放行这条命令，也让同一目录里往后的命令不再问。
+// 这是「把 bot-bureau 当工作目录」那种说法唯一能可靠落地的地方——到审批这一刻，
+// 是哪个目录已经写在命令里了，不用猜。
+//
+// "Approve and make this a working directory" on the approval card: one click both lets this command
+// through and stops the questions about that directory. It is the only place a phrasing like "treat
+// bot-bureau as your working directory" can land reliably — by approval time the command spells the
+// directory out and nothing has to be guessed.
+func TestApproveCanGrantTheDirectoryOnTheCard(t *testing.T) {
+	app, srv := newTestApp(t)
+	proj := t.TempDir()
+
+	w := app.bus.Bot("chief")
+	ap := app.bus.RequestApproval("chief", "bash: ls "+proj, "group", proj)
+
+	// 没有可授目录的审批不能被当成授权用
+	// An approval with no grantable directory cannot be used as one
+	bare := app.bus.RequestApproval("chief", "bash: touch x", "group", "")
+	if code, _ := postJSON(t, srv.URL+"/api/approve", map[string]any{"id": bare.ID, "approved": true, "grant": true}); code != 400 {
+		t.Fatalf("granting from an approval with no directory should 400, got %d", code)
+	}
+	app.bus.Decide(bare.ID, false, "")
+
+	code, out := postJSON(t, srv.URL+"/api/approve", map[string]any{"id": ap.ID, "approved": true, "grant": true})
+	if code != 200 {
+		t.Fatalf("approve+grant should succeed: %d %v", code, out)
+	}
+	if got, _ := out["granted"].(string); got == "" {
+		t.Fatalf("the response should name the directory it granted: %v", out)
+	}
+	if approved, _, _ := ap.WaitCtx(nil); !approved {
+		t.Fatal("the command itself should still be approved")
+	}
+	if !w.Roots().Contains(proj) {
+		t.Fatalf("the granted directory should be in bounds now: %v", w.Roots().List())
 	}
 }

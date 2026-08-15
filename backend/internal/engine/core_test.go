@@ -32,7 +32,7 @@ type scriptedSession struct {
 
 func (s *scriptedSession) MarkTurn() { s.mark = len(s.history) }
 func (s *scriptedSession) Rollback() { s.history = s.history[:s.mark] }
-func (s *scriptedSession) AddUser(text string) {
+func (s *scriptedSession) AddUser(text string, _ ...model.ResultImage) {
 	s.history = append(s.history, "user:"+text)
 }
 func (s *scriptedSession) AddToolResults(rs []model.ToolResult) {
@@ -405,9 +405,148 @@ func TestAgentLoopMaxTokensOrphanRepair(t *testing.T) {
 	sess := w.session("dm").(*scriptedSession)
 	sess.MarkTurn()
 	sess.AddUser("do something")
-	w.agentLoop(context.Background(), "dm", w.sessions["dm"])
+	w.agentLoop(context.Background(), "dm", w.sessions["dm"], Msg{Sender: "user", Content: "do something", Chat: "dm", Respond: true})
 	if len(sess.toolResults) != 1 || !sess.toolResults[0][0].IsError || sess.toolResults[0][0].ID != "t1" {
 		t.Fatalf("a max_tokens cut must append a paired is_error tool_result: %+v", sess.toolResults)
+	}
+}
+
+// ---- 干活途中的插话 ----
+// ---- Interjecting mid-turn ----
+
+// gatedSession 把每次请求卡在测试手里：先报"我要发请求了"，再等测试把结果递回来。
+// 只有这样才能精确地在两次请求之间投递一条消息，看它是并进了本轮还是排到了下一轮——
+// 换成脚本化 provider，整轮会在测试来得及插话之前就跑完了。
+//
+// gatedSession puts every request in the test's hands: it announces "about to send" and then waits
+// for the test to hand back a result. Only that makes it possible to deliver a message exactly
+// between two requests and see whether it joined the running turn or queued behind it — with the
+// scripted provider the whole turn finishes before the test can interject at all.
+type gatedProvider struct{ sess *gatedSession }
+
+func (p *gatedProvider) SupportsWebTools() bool    { return false }
+func (p *gatedProvider) Label() string             { return "gated" }
+func (p *gatedProvider) NewSession() model.Session { return p.sess }
+
+type gatedSession struct {
+	scriptedSession
+	entered chan struct{}
+	results chan model.StepResult
+}
+
+func (s *gatedSession) Step(context.Context, string, []model.ToolDef, bool) (model.StepResult, error) {
+	s.entered <- struct{}{}
+	res := <-s.results
+	s.history = append(s.history, "assistant")
+	return res, nil
+}
+
+func newGated() *gatedSession {
+	return &gatedSession{entered: make(chan struct{}), results: make(chan model.StepResult)}
+}
+
+func TestInterjectionJoinsTheRunningTurn(t *testing.T) {
+	sess := newGated()
+	w, bus, _ := newTestWorker(t, "a", &gatedProvider{sess: sess})
+	trigger := Msg{Sender: "user", Content: "rewrite every file in here", Chat: "dm", Respond: true, ID: 7}
+	sess.MarkTurn()
+	sess.AddUser(w.renderMsg(trigger))
+
+	done := make(chan bool, 1)
+	go func() { done <- w.agentLoop(context.Background(), "dm", sess, trigger) }()
+
+	<-sess.entered // 第一次请求发出去了：这一轮已经开工 / the first request is out: the turn is under way
+
+	// 用户改主意，同时一个例程到点了
+	// The user changes their mind, and a routine fires at the same moment
+	bus.DeliverMsg("a", Msg{Sender: "user", Content: "stop, not the config file", Chat: "dm", Respond: true, ID: 9})
+	bus.DeliverMsg("a", Msg{Sender: "routine:nightly", Content: "run the nightly report", Chat: "dm", Respond: true})
+	sess.results <- model.StepResult{StopReason: "tool_use", ToolCalls: []model.ToolCall{
+		{ID: "t1", Name: "read_file", Input: map[string]any{"path": "notes.txt"}},
+	}}
+
+	<-sess.entered // 第二次请求：插话应该已经在上下文里了 / the second request: the interjection should be in context by now
+	got := strings.Join(sess.history, " | ")
+	if !strings.Contains(got, "stop, not the config file") {
+		t.Fatalf("the interjection should have joined the running turn: %s", got)
+	}
+	// 插话前面带着说明：不标的话它和一条崭新的用户消息长得一样，模型答完就收工，
+	// 而它手上那件事引擎根本没记，没人会把它捡回来
+	// The interjection carries its own note: unmarked it looks like a fresh user message, the model
+	// answers and calls the turn done, and the job it was in the middle of is recorded nowhere and never
+	// picked back up
+	if !strings.Contains(got, "broke in while you were working") {
+		t.Fatalf("an interjection must announce itself as one: %s", got)
+	}
+	if len(w.deferred) != 1 || !strings.HasPrefix(w.deferred[0].Sender, "routine:") {
+		t.Fatalf("a routine trigger is new work, not a correction, and must wait its turn: %+v", w.deferred)
+	}
+	if w.Queued() != 1 {
+		t.Fatalf("what is waiting should still be reported as queued: %d", w.Queued())
+	}
+
+	sess.results <- model.StepResult{StopReason: "end_turn", Texts: []string{"stopped, config untouched"}}
+	<-done
+
+	// 回复要指回最后那句插话，而不是本轮最初的那条：这时候答的已经是新问题
+	// The reply points at the last interjection rather than the message that opened the turn: by now
+	// it is answering the new question
+	var replied Event
+	for _, ev := range bus.Recent(50) {
+		if ev["kind"] == "msg" && ev["source"] == "a" {
+			replied = ev
+		}
+	}
+	if replied == nil || replied["reply_to"] != 9 {
+		t.Fatalf("the reply should quote the interjection (id 9): %+v", replied)
+	}
+}
+
+// 例程触发这类不在事件流里的消息没有可指之处，回复就不该硬挂一条引文。
+// A message that never entered the event stream (a routine trigger) has nothing to point at, and the
+// reply must not invent a quotation for it.
+func TestReplyWithoutSomethingToQuote(t *testing.T) {
+	sess := newGated()
+	w, bus, _ := newTestWorker(t, "a", &gatedProvider{sess: sess})
+	go w.agentLoop(context.Background(), "dm", sess,
+		Msg{Sender: "routine:nightly", Content: "run the nightly report", Chat: "dm", Respond: true})
+	<-sess.entered
+	sess.results <- model.StepResult{StopReason: "end_turn", Texts: []string{"done"}}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("the reply never arrived")
+		default:
+		}
+		for _, ev := range bus.Recent(50) {
+			if ev["kind"] == "msg" && ev["source"] == "a" {
+				if _, ok := ev["reply_to"]; ok {
+					t.Fatalf("nothing to quote, so no quotation: %+v", ev)
+				}
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// 引用回复要让模型看见原话，否则它只收到孤零零一句"就按这个来"。
+// A quote reply has to put the original in front of the model, or all it receives is a bare "go with
+// this one".
+func TestQuotedReplyCarriesTheOriginal(t *testing.T) {
+	w, bus, _ := newTestWorker(t, "a", nil)
+	ev := bus.Emit("msg", "dm:a", "a", "Two options: rewrite it, or leave it alone", nil)
+	got := w.renderMsg(Msg{
+		Sender: "user", Content: "go with the second", Chat: "dm", Respond: true,
+		Quote: QuoteEvent(ev),
+	})
+	if !strings.Contains(got, "rewrite it, or leave it alone") || !strings.Contains(got, "go with the second") {
+		t.Fatalf("the quoted original should reach the model along with the reply: %q", got)
+	}
+	if QuoteEvent(bus.Emit("tool", "dm:a", "a", "$ ls", nil)) != nil {
+		t.Fatal("a tool line is not something anyone said, so it cannot be quoted")
 	}
 }
 
@@ -673,9 +812,11 @@ func (quotaFailProvider) NewSession() model.Session { return &quotaFailSession{}
 
 type quotaFailSession struct{ history []string }
 
-func (s *quotaFailSession) MarkTurn()                            {}
-func (s *quotaFailSession) Rollback()                            {}
-func (s *quotaFailSession) AddUser(text string)                  { s.history = append(s.history, text) }
+func (s *quotaFailSession) MarkTurn() {}
+func (s *quotaFailSession) Rollback() {}
+func (s *quotaFailSession) AddUser(text string, _ ...model.ResultImage) {
+	s.history = append(s.history, text)
+}
 func (s *quotaFailSession) AddToolResults(rs []model.ToolResult) {}
 func (s *quotaFailSession) Trim(limit int)                       {}
 func (s *quotaFailSession) Snapshot() json.RawMessage            { return nil }
@@ -718,6 +859,39 @@ func TestEmptyGroupStaysHidden(t *testing.T) {
 	bus.SetGroupMemberIn("group", "solo", false)
 	if got := bus.Groups(); len(got) != 0 {
 		t.Fatalf("it should hide again once emptied, got %+v", got)
+	}
+}
+
+// 把成员设成它本来就是的样子不算改动：保存群设置时每个 bot 都会被提交一遍，
+// 只有真的进出群的那个才该被播报，否则改一个人会刷出满屏"被拉进群聊"。
+//
+// Setting a member to what it already is counts as no change: saving the group settings submits every
+// bot, and only the one that actually joined or left should be announced — otherwise changing one
+// person fills the chat with "was added to the group chat".
+func TestSetGroupMemberReportsOnlyRealChanges(t *testing.T) {
+	dataDir := t.TempDir()
+	bus := NewBus()
+	sched := NewScheduler(bus, filepath.Join(dataDir, "routines.json"))
+	w, err := NewBotWorker(config.BotConfig{Name: "solo", Role: "r", Provider: "fake"}, bus, sched, dataDir, newTestDeps(t, dataDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus.Register(w)
+
+	if ok, changed := bus.SetGroupMemberIn("group", "solo", true); !ok || !changed {
+		t.Fatalf("the first add should be a change, got ok=%v changed=%v", ok, changed)
+	}
+	if ok, changed := bus.SetGroupMemberIn("group", "solo", true); !ok || changed {
+		t.Fatalf("re-adding a member should change nothing, got ok=%v changed=%v", ok, changed)
+	}
+	if ok, changed := bus.SetGroupMemberIn("group", "solo", false); !ok || !changed {
+		t.Fatalf("the removal should be a change, got ok=%v changed=%v", ok, changed)
+	}
+	if ok, changed := bus.SetGroupMemberIn("group", "solo", false); !ok || changed {
+		t.Fatalf("removing a non-member should change nothing, got ok=%v changed=%v", ok, changed)
+	}
+	if ok, _ := bus.SetGroupMemberIn("group", "ghost", true); ok {
+		t.Fatal("a bot that does not exist should not be reported as ok")
 	}
 }
 

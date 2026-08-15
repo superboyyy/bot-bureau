@@ -18,12 +18,44 @@ const (
 	// Opus 5 默认开思考，思考 token 也计入，不要设太小
 	// Opus 5 enables thinking by default and thinking tokens count too, so don't set this too small
 	MaxTokens = 16000
-	// 单条消息触发的智能体循环上限（防失控）
-	// Cap on agent-loop iterations triggered by a single message (runaway guard)
-	MaxToolIterations = 30
-	HistoryLimit      = 60 // 每个会话上下文的消息数上限 / max messages per conversation context
-	BashTimeout       = 120 * time.Second
-	ToolOutputLimit   = 20000 // 工具输出截断长度（字符） / tool output truncation length (chars)
+	// 单条消息触发的智能体循环上限。这是兜底，不是工作量上限——真正拦住原地打转的是
+	// MaxRepeatedCalls，它按"有没有进展"判，而这个数按"跑了多少圈"判。
+	//
+	// 原来是 30。30 圈对"审查整个仓库的文档"这类活远远不够，于是用户要反复说「继续」；
+	// 而它对死循环也没什么用——一个认真干活的任务和一个空转的任务，在圈数眼里一模一样。
+	// 分成两个数之后各司其职：空转由下面那个掐，这个只防"变着花样转"的极端情况。
+	//
+	// Cap on agent-loop iterations triggered by a single message. A backstop rather than a budget for
+	// work: what actually stops a bot going in circles is MaxRepeatedCalls below, which judges progress,
+	// where this one only counts laps.
+	//
+	// It used to be 30. Thirty laps is nowhere near enough for something like "review every document in
+	// this repository", so the user ends up saying "carry on" over and over — while doing little against
+	// a real loop, since a task working hard and a task spinning look identical to a lap counter. Split
+	// in two, each does its own job: spinning is cut below, and this catches only the extreme case of a
+	// loop that varies its arguments every time.
+	MaxToolIterations = 200
+	// 同一个工具、同样的参数连着调这么多次就掐掉本轮。
+	//
+	// 这才是"失控"真正的样子：工具报错 → 原样再调一次 → 又报错 → 再调。参数一个字没变，
+	// 结果也就不会变，再跑一百圈也一样。auto 档是无人看管跑的，这种空转烧的是用户的额度。
+	//
+	// 定 5 而不是 2、3：偶尔重试一次是正常的（网络抖动、文件刚被写完还没落盘），
+	// 连着五次一模一样就不是重试了。
+	//
+	// Cut the turn once the same tool has been called with the same arguments this many times in a row.
+	//
+	// This is what running away actually looks like: a tool errors, the identical call goes out again,
+	// errors again, and again. Not one argument changed, so nothing about the result will either, and a
+	// hundred more laps would go the same way. The auto tier runs unattended, and that spinning burns
+	// the user's quota.
+	//
+	// Five rather than two or three: retrying once is ordinary (a network blip, a file written a moment
+	// ago and not yet visible). Five identical calls in a row is no longer a retry.
+	MaxRepeatedCalls = 5
+	HistoryLimit     = 60 // 每个会话上下文的消息数上限 / max messages per conversation context
+	BashTimeout      = 120 * time.Second
+	ToolOutputLimit  = 20000 // 工具输出截断长度（字符） / tool output truncation length (chars)
 )
 
 // 待审批操作无人处理时自动拒绝的时限。测试里会改短，所以它是原子量而不是普通变量：
@@ -61,8 +93,8 @@ var (
 const (
 	AvatarMaxBytes = 250000
 	DisplayNameMax = 32
-	// 自定义角色说明的上限。导入的同事模板正文动辄几千字，但它每轮都要发一遍。
-	// Cap on the custom role instructions. An imported teammate template easily runs to thousands of
+	// 自定义角色说明的上限。导入的成员模板正文动辄几千字，但它每轮都要发一遍。
+	// Cap on the custom role instructions. An imported member template easily runs to thousands of
 	// characters, and it is sent again on every single turn.
 	PromptMax = 8000
 )
@@ -148,29 +180,42 @@ func ThinkingBudget(effort string) int64 {
 // than the rest, minimal. xAI's reasoning models accept only low and high; handing them medium is an
 // outright error. The four tiers used to go to every provider alike, so picking an unsupported one
 // produced an inscrutable 400 and the only way out was falling back to "vendor default".
+// 档位的名字就是接口上那个词本身——minimal / low / medium / high 原样显示，不翻译，也不
+// 另起"快 / 均衡 / 充分"这类自造的名字。那套名字是在原词之上又加一层：用户在服务商文档里
+// 读到的、填进 bots.yaml 的、出错时被引擎回嘴的都是 low，界面上却写着"快"，对不上号。
+// 每档下面那行说明才是解释它的地方，那行照旧翻译。
+//
+// A tier is named by the word the API itself uses — minimal / low / medium / high, shown verbatim and
+// untranslated, rather than under invented names like Quick / Balanced / Thorough. Those names were a
+// second layer on top of the real one: what the user reads in the vendor's docs, writes into
+// bots.yaml, and gets quoted back in an error is low, while the screen said "Quick". The note under
+// each tier is where the explaining belongs, and it stays translated.
 func effortTier(id string) map[string]any {
 	switch id {
 	case EffortMinimal:
-		return map[string]any{"id": EffortMinimal, "label": i18n.T("Fastest"),
+		return map[string]any{"id": EffortMinimal, "label": EffortMinimal,
 			"note": i18n.T("Barely thinks at all; cheapest and quickest")}
 	case EffortLow:
-		return map[string]any{"id": EffortLow, "label": i18n.T("Quick"),
+		return map[string]any{"id": EffortLow, "label": EffortLow,
 			"note": i18n.T("Answers sooner and costs less; good for chores and short questions")}
 	case EffortMedium:
-		return map[string]any{"id": EffortMedium, "label": i18n.T("Balanced"),
+		return map[string]any{"id": EffortMedium, "label": EffortMedium,
 			"note": i18n.T("Thinks before most answers")}
 	case EffortHigh:
-		return map[string]any{"id": EffortHigh, "label": i18n.T("Thorough"),
+		return map[string]any{"id": EffortHigh, "label": EffortHigh,
 			"note": i18n.T("Thinks the longest on hard problems; slower and pricier")}
 	}
-	return map[string]any{"id": "", "label": i18n.T("Vendor default"),
+	// 这一档没有对应的接口取值——它恰恰是"什么都不发"，所以只能给它一个说人话的名字
+	// This one has no API value behind it — it is precisely "send nothing", so a spoken name is all
+	// there is to give it
+	return map[string]any{"id": "", "label": i18n.T("Default"),
 		"note": i18n.T("Send no thinking setting at all — the safest choice, and the only one every model accepts")}
 }
 
-// EffortOptionsFor 给出某个服务商能用的档位，第一个永远是"服务商默认"。
+// EffortOptionsFor 给出某个服务商能用的档位，第一个永远是"默认"。
 // 未知的服务商（自建、本地模型）按 OpenAI 兼容处理，那是这类接口的通行写法。
 //
-// EffortOptionsFor lists the tiers a provider accepts, always leading with "vendor default".
+// EffortOptionsFor lists the tiers a provider accepts, always leading with the default.
 // An unknown provider (self-hosted, local models) is treated as OpenAI-compatible, which is the usual
 // spelling for that class of endpoint.
 func EffortOptionsFor(providerID string) []map[string]any {
@@ -255,7 +300,7 @@ type BotConfig struct {
 	// 放在末尾而不是开头：团队协作、权限、记忆那些规则是引擎的底线，不该被导入的提示词覆盖掉。
 	//
 	// Extra instructions appended to the end of the system prompt. The body of an agents/*.md file from
-	// a plugin bundle lands here — a "subagent" elsewhere becomes a real teammate in Bot Bureau, and its
+	// a plugin bundle lands here — a "subagent" elsewhere becomes a real member in Bot Bureau, and its
 	// role description needs somewhere to live. Appended rather than prepended: the collaboration,
 	// permission and memory rules are the engine's floor and must not be overridden by imported text.
 	Prompt string `yaml:"prompt,omitempty" json:"prompt,omitempty"`

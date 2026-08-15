@@ -181,11 +181,19 @@ func (b *Bus) displayNameOf(name string) string {
 	return ""
 }
 
-func (b *Bus) SetGroupMemberIn(chat, name string, in bool) bool {
+// SetGroupMemberIn 把某个 bot 拉进/移出群聊。
+// ok 表示这个 bot（和这个群）确实存在，changed 表示成员表真的动了——
+// 已经在群里的人被再"拉"一次不算变化，调用方靠它决定要不要播报"XX 被拉进群聊"。
+//
+// SetGroupMemberIn adds a bot to a group chat or removes it from one.
+// ok reports that the bot (and the group) exists; changed reports that the membership list actually
+// moved — re-"adding" someone who is already in is not a change. Callers use it to decide whether to
+// announce "X was added to the group chat".
+func (b *Bus) SetGroupMemberIn(chat, name string, in bool) (ok, changed bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.bots[name]; !ok {
-		return false
+	if _, exists := b.bots[name]; !exists {
+		return false, false
 	}
 	g := b.groupLocked(chat)
 	if g == nil {
@@ -196,14 +204,14 @@ func (b *Bus) SetGroupMemberIn(chat, name string, in bool) bool {
 		// exist, yet "add someone to the group chat" should bring it into being, or the very first add
 		// fails silently. Not so for user-created groups: those must exist before anyone joins.
 		if chat != "" && chat != "group" {
-			return false
+			return false, false
 		}
 		g = b.defaultGroupLocked()
 	}
 	if in {
 		for _, n := range g.Members {
 			if n == name {
-				return true
+				return true, false
 			}
 		}
 		g.Members = append(g.Members, name)
@@ -214,10 +222,13 @@ func (b *Bus) SetGroupMemberIn(chat, name string, in bool) bool {
 				kept = append(kept, n)
 			}
 		}
+		if len(kept) == len(g.Members) {
+			return true, false
+		}
 		g.Members = kept
 	}
 	b.saveGroupsLocked()
-	return true
+	return true, true
 }
 
 func (b *Bus) CreateGroup(title, avatar string, members []string) (*Group, error) {
@@ -284,20 +295,64 @@ func (b *Bus) DeleteGroup(id string) error {
 // as context. This is what keeps the division of labor from collapsing — otherwise one message
 // would wake the entire group at once.
 func (b *Bus) PostGroupTo(chat, sender, text string, respondTargets []string) {
+	b.PostGroupQuoted(chat, sender, text, respondTargets, nil)
+}
+
+// PostGroupUser 是用户往群里发的一条消息：可能引用了谁，可能带着附件。
+// 附件每位收件人各得一份——它是发到这个房间里的，不是交给某一个人的。
+//
+// PostGroupUser is one message the user posts to a group: possibly quoting someone, possibly carrying
+// attachments. Every recipient gets its own copy of those: an attachment is posted to the room rather
+// than handed to one person.
+func (b *Bus) PostGroupUser(chat, text string, respondTargets []string, q *Quote, files []Attachment) Event {
+	return b.postGroup(chat, "user", text, respondTargets, q, files)
+}
+
+// PostGroupQuoted 同 PostGroupTo，但这条发言引用了群里更早的某条消息。
+// 引用两边都要送到：写进事件（界面画成一条引文）之外，还要随消息进每个收件人的上下文，
+// 否则模型只看得到孤零零一句"那就照第二个方案办"，不知道第二个方案是谁说的哪一句。
+//
+// PostGroupQuoted is PostGroupTo for a message that quotes an earlier one in the group.
+// The quotation has to reach both sides: it goes into the event (where the UI draws it as a
+// quotation) and into every recipient's context, or the model sees a bare "go with the second one"
+// without knowing whose second one, or where.
+func (b *Bus) PostGroupQuoted(chat, sender, text string, respondTargets []string, q *Quote) Event {
+	return b.postGroup(chat, sender, text, respondTargets, q, nil)
+}
+
+func (b *Bus) postGroup(chat, sender, text string, respondTargets []string, q *Quote, files []Attachment) Event {
 	if chat == "" {
 		chat = "group"
 	}
-	b.Emit("msg", chat, sender, text, nil)
+	ev := b.Emit("msg", chat, sender, text, MsgExtra(q, files))
 	targets := map[string]bool{}
 	for _, t := range respondTargets {
 		targets[t] = true
 	}
+	// 用户在群里一个人都没点名时，他指定的目录是说给全群的。
+	//
+	// 这里重算一次点名，而不是看 respondTargets：调用方在没人被点名时会填上默认收件人，
+	// 到这儿就分不出"用户点了默认那位"和"用户谁都没点、活落给了默认那位"了。
+	// 而这两种情况下这句授权该给谁，答案正好相反。
+	//
+	// When the user named nobody in the group, the directories they named are named to everyone.
+	//
+	// Mentions are recomputed here rather than read off respondTargets: with nobody named the caller
+	// fills in the default recipient, and by this point "the user named the default member" and "the
+	// user named no one and the job fell to the default member" are indistinguishable — yet those two
+	// cases want opposite answers about who the grant reaches.
+	broadcast := sender == "user" && len(b.MentionedBotsIn(chat, text)) == 0
 	for _, name := range b.GroupMembersOf(chat) {
 		if name == sender {
 			continue
 		}
-		b.Deliver(sender, name, chat, text, targets[name])
+		b.DeliverMsg(name, Msg{
+			Sender: sender, Content: text, Chat: chat, Respond: targets[name],
+			ID: EventID(ev), Quote: q, Files: files,
+			GrantRoots: sender == "user" && (targets[name] || broadcast),
+		})
 	}
+	return ev
 }
 
 // LoadGroups 装载群聊：优先读新的 groups.json；没有就把旧的单群 group.json 迁移过来，

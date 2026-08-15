@@ -34,6 +34,130 @@ type Msg struct {
 	// false = 只作为群聊背景写入上下文，不触发回应
 	// false = written into context as group chat background only; does not trigger a response
 	Respond bool
+	// 这条消息在事件流里的 id（0 = 不在事件流里，例如例程触发）。
+	// bot 回复时靠它指回"我在答哪一条"。
+	// This message's id in the event stream (0 = not in the stream, e.g. a routine trigger).
+	// A bot's reply points back through it to say which message it is answering.
+	ID int
+	// 这条消息本身引用了更早的哪一条（用户引用回复时带上）
+	// Which earlier message this one quotes (set when the user replies to a specific message)
+	Quote *Quote
+	// 这条消息里用户指名的目录，该不该收进这位收件人的活动范围（见 roots.go）。
+	//
+	// 和 Respond 分开，因为两个问题不一样：Respond 问的是"这活是不是派给你的"，
+	// 这个问的是"这句授权是不是说给你的"。群里点了名，只有被点到的人算；一个人都没点名，
+	// 全群都算——「把 /Users/me/proj 当工作目录」在群里说，就是说给全群听的。
+	//
+	// Whether the directories the user named in this message should be taken into this recipient's
+	// working area (see roots.go).
+	//
+	// Separate from Respond because the two answer different questions: Respond asks "is this job
+	// yours", this one asks "was that grant addressed to you". Name someone in the group and only they
+	// count; name nobody and everyone does — "treat /Users/me/proj as your working directory", said in
+	// a group, is said to the group.
+	GrantRoots bool
+	// 用户随这条消息传上来的文件。到达时会被放进收件人自己的工作目录（见 attach.go），
+	// 图片另外还会作为图片块进模型的上下文。
+	// Files the user attached to this message. On arrival they are placed in the recipient's own
+	// workspace (see attach.go), and images additionally enter the model's context as image blocks.
+	Files []Attachment
+	// 这条消息是在收件人干活途中插进来的（pumpInbox 在安全点收下的）。
+	// 只在本轮之内有意义，所以由 pumpInbox 现场标上，不随投递保存。
+	// Set when this message broke into the middle of the recipient's turn (taken by pumpInbox at a safe
+	// point). It only means anything within that turn, so pumpInbox stamps it there rather than it
+	// travelling with the delivery.
+	Interject bool
+}
+
+// Quote 是一条被引用的消息：事件 id、谁说的、截短的原文。
+// 存原文而不是只存 id，是因为事件流会滚动截断（见 Emit），
+// 而一条引文不该因为原消息被挤出去就变成空白。
+//
+// Quote is a quoted message: its event id, who said it, and a shortened copy of the text.
+// The text is stored rather than just the id because the event stream is trimmed as it grows (see
+// Emit), and a quotation must not go blank just because the original scrolled out of the log.
+type Quote struct {
+	ID   int    `json:"id"`
+	From string `json:"from"`
+	Text string `json:"text"`
+}
+
+// 引文只留一行的量：它是"指回哪一条"的路标，不是原文的副本。
+// A quotation keeps about a line: it is a signpost back to the original, not a copy of it.
+const quoteLimit = 160
+
+// QuoteEvent 把事件流里的一条消息变成引用。只有消息类事件可以被引用——
+// 引一行工具日志或一条系统提示，指过去也没有"原话"可看。
+//
+// QuoteEvent turns a message in the event stream into a quotation. Only msg events qualify: pointing
+// at a tool line or a system notice leads back to nothing anyone said.
+func QuoteEvent(ev Event) *Quote {
+	if ev == nil {
+		return nil
+	}
+	if kind, _ := ev["kind"].(string); kind != "msg" {
+		return nil
+	}
+	text, _ := ev["text"].(string)
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	from, _ := ev["source"].(string)
+	return &Quote{ID: EventID(ev), From: from, Text: quoteSnippet(text)}
+}
+
+// quoteOf 把"触发这一轮的那条消息"变成一条引用，好让回复指回去。
+// 不在事件流里的消息（例程触发）没有可指之处，也就没有引用。
+//
+// quoteOf turns the message that triggered a turn into a quotation the reply can point back at.
+// A message that never entered the event stream (a routine trigger) has nothing to point at.
+func quoteOf(m Msg) *Quote {
+	if m.ID == 0 || strings.TrimSpace(m.Content) == "" {
+		return nil
+	}
+	return &Quote{ID: m.ID, From: m.Sender, Text: quoteSnippet(m.Content)}
+}
+
+// Extra 把引用摊平成事件上的三个字段。nil 引用返回 nil，Emit 原样接受，
+// 于是"带不带引用"在调用处不必分叉。
+//
+// Extra flattens a quotation into three event fields. A nil quotation returns nil, which Emit accepts
+// as-is, so callers never have to branch on whether there is one.
+func (q *Quote) Extra() map[string]any {
+	if q == nil {
+		return nil
+	}
+	return map[string]any{"reply_to": q.ID, "reply_src": q.From, "reply_text": q.Text}
+}
+
+// MsgExtra 把引用和附件摊成事件上的字段。两者都没有时返回 nil，Emit 原样接受，
+// 于是调用处不必为"这条有没有带东西"分叉。
+//
+// MsgExtra flattens a quotation and any attachments into fields on the event. With neither it returns
+// nil, which Emit accepts as-is, so callers never branch on whether this message carries anything.
+func MsgExtra(q *Quote, files []Attachment) map[string]any {
+	extra := q.Extra()
+	if len(files) == 0 {
+		return extra
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	// 只放元数据。正文躺在 data/uploads 下，界面按 id 去 /api/file 取——
+	// base64 进了 events.json，几张截图就能把整份聊天记录撑爆。
+	// Metadata only. The bytes lie under data/uploads and the UI fetches them from /api/file by id:
+	// base64 inside events.json would blow the whole chat log apart after a few screenshots.
+	extra["files"] = files
+	return extra
+}
+
+func quoteSnippet(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	r := []rune(s)
+	if len(r) > quoteLimit {
+		return string(r[:quoteLimit]) + "…"
+	}
+	return s
 }
 
 const stopSentinel = "__stop__"
@@ -45,6 +169,11 @@ type Approval struct {
 	Bot    string `json:"bot"`
 	Action string `json:"action"`
 	Chat   string `json:"chat"`
+	// 把这个目录设为工作目录，这次动作就不再越界；没有这种目录时是空串。
+	// 界面据此在"批准/拒绝"之外多给一个"批准并设为工作目录"。
+	// The directory which, made a working directory, would stop this action from escaping; empty when
+	// there is none. The UI turns it into a third choice beside Approve and Reject.
+	Dir string `json:"dir,omitempty"`
 
 	decided  chan struct{}
 	approved bool
@@ -156,7 +285,7 @@ func (b *Bus) LoadGroupMembers(path string) {
 	b.LoadGroups(path, path, "", "")
 }
 
-func (b *Bus) SetGroupMember(name string, in bool) bool {
+func (b *Bus) SetGroupMember(name string, in bool) (ok, changed bool) {
 	return b.SetGroupMemberIn("group", name, in)
 }
 
@@ -177,14 +306,14 @@ func (b *Bus) Bot(name string) *BotWorker {
 // Resolve 把"人看到的名字"翻译回内部 id。
 //
 // 界面上只有一个名字，工作目录、任务归属、群成员这些键用的却是 id——那是创建时定死的，改不了，
-// 因为改它等于搬走一位同事的整个工作目录。两者不一致时（比如 id 是 test，显示名是"吴敏"），
+// 因为改它等于搬走一位成员的整个工作目录。两者不一致时（比如 id 是 test，显示名是"吴敏"），
 // 模型看到的是"吴敏"，它调 message_bot 时自然也传"吴敏"，这里负责翻回 test。
 // 找不到就原样返回，让调用方照常报"查无此人"。
 //
 // Resolve maps the name people see back to the internal id.
 //
 // The UI shows a single name, while workspaces, task ownership and group membership are keyed by the
-// id — fixed at creation, because changing it would mean relocating a teammate's whole working
+// id — fixed at creation, because changing it would mean relocating a member's whole working
 // directory. When the two differ (id "test", display name "Wren"), the model sees "Wren" and passes
 // "Wren" to message_bot; this translates it back. An unknown name is returned unchanged, so callers
 // still report "no such bot" as usual.
@@ -375,6 +504,29 @@ func (b *Bus) QuotaAlert(label, msg string) bool {
 	return true
 }
 
+// EventID 读事件的 id。事件是个 map，取值处处要断言，这里收成一个口子。
+// EventID reads an event's id. Events are maps, so the assertion would otherwise be repeated everywhere.
+func EventID(ev Event) int {
+	id, _ := ev["id"].(int)
+	return id
+}
+
+// EventByID 按 id 取一条事件（引用回复要照着原文截取引文）。
+// 从后往前找：被引用的多半是刚说过的话。
+//
+// EventByID looks one event up by id (a quote reply needs the original text to excerpt).
+// It scans backwards, since what people quote is usually what was just said.
+func (b *Bus) EventByID(id int) (Event, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := len(b.events) - 1; i >= 0; i-- {
+		if EventID(b.events[i]) == id {
+			return b.events[i], true
+		}
+	}
+	return nil, false
+}
+
 func (b *Bus) LatestID() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -397,17 +549,34 @@ func (b *Bus) Recent(limit int) []Event {
 // ---- message delivery ----
 
 func (b *Bus) Deliver(sender, target, chat, content string, respond bool) bool {
+	return b.DeliverFiles(sender, target, chat, content, respond, nil)
+}
+
+// DeliverFiles 同上，外加用户附上的文件。
+// DeliverFiles is the same, plus the files the user attached.
+func (b *Bus) DeliverFiles(sender, target, chat, content string, respond bool, files []Attachment) bool {
+	// 私聊里只有你们两个，你说的目录就是说给它的
+	// In a DM there are only the two of you, so a directory you name is named to it
+	return b.DeliverMsg(target, Msg{
+		Sender: sender, Content: content, Chat: chat, Respond: respond,
+		GrantRoots: sender == "user", Files: files,
+	})
+}
+
+// DeliverMsg 投递一条已经拼好的消息（要带事件 id 或引用时走它）。
+// DeliverMsg delivers an already-assembled message (used when it carries an event id or a quotation).
+func (b *Bus) DeliverMsg(target string, m Msg) bool {
 	w := b.Bot(target)
 	if w == nil {
 		return false
 	}
 	select {
-	case w.inbox <- Msg{Sender: sender, Content: content, Chat: chat, Respond: respond}:
+	case w.inbox <- m:
 		return true
 	// 收件箱满（256 条积压）——丢弃并告警，绝不阻塞投递方
 	// inbox full (256-message backlog) — drop the message and alert; never block the sender
 	default:
-		b.Emit("system", chat, "system",
+		b.Emit("system", m.Chat, "system",
 			fmt.Sprintf(i18n.T("%s's inbox is full, the message was dropped"), target), nil)
 		return false
 	}
@@ -480,13 +649,13 @@ func mentionAt(text, needle string, checkLeft bool) bool {
 // ---- 审批 ----
 // ---- approvals ----
 
-func (b *Bus) RequestApproval(bot, action, chat string) *Approval {
+func (b *Bus) RequestApproval(bot, action, chat, dir string) *Approval {
 	b.mu.Lock()
-	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, decided: make(chan struct{})}
+	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, Dir: dir, decided: make(chan struct{})}
 	b.nextApproval++
 	b.approvals[a.ID] = a
 	b.mu.Unlock()
-	b.Emit("approval", chat, bot, action, map[string]any{"approval_id": a.ID})
+	b.Emit("approval", chat, bot, action, map[string]any{"approval_id": a.ID, "approval_dir": dir})
 	go func() {
 		t := time.NewTimer(config.ApprovalTimeout())
 		defer t.Stop()
@@ -542,6 +711,16 @@ func (b *Bus) RejectBotApprovals(bot, reason string) {
 	for _, id := range ids {
 		b.Decide(id, false, reason)
 	}
+}
+
+// Approval 按 id 取出一次审批（已裁决的也还在，直到被清掉）。
+// 「批准并把这个目录设为工作目录」要在裁决之前读到它的 Bot 和 Dir。
+// Approval fetches one approval by id (decided ones remain until cleared).
+// "Approve and make this a working directory" needs its Bot and Dir before the decision goes through.
+func (b *Bus) Approval(id int) *Approval {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.approvals[id]
 }
 
 func (b *Bus) PendingApprovals() []*Approval {

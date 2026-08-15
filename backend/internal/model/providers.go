@@ -89,9 +89,14 @@ type StepResult struct {
 // Session 持有一段对话的历史（provider 原生形状），并保证回合级回滚与安全修剪。
 // Session holds the history of one conversation (in the provider's native shape) and guarantees turn-level rollback and safe trimming.
 type Session interface {
-	MarkTurn()           // 记录回合起点（AddUser 之前调用） / mark the turn start (call before AddUser)
-	Rollback()           // 回滚到回合起点（refusal 时用） / roll back to turn start (on refusal)
-	AddUser(text string) // 追加一条用户/背景消息 / append a user/background message
+	MarkTurn() // 记录回合起点（AddUser 之前调用） / mark the turn start (call before AddUser)
+	Rollback() // 回滚到回合起点（refusal 时用） / roll back to turn start (on refusal)
+	// AddUser 追加一条用户/背景消息。images 是用户随这条消息一起发上来的图片，
+	// 绝大多数消息没有，所以做成可变参数——十几处调用点一个字都不用改。
+	// AddUser appends a user/background message. images are those the user attached to it; the
+	// overwhelming majority of messages have none, hence the variadic form — not one of the dozen call
+	// sites has to change.
+	AddUser(text string, images ...ResultImage)
 	AddToolResults(rs []ToolResult)
 	Step(ctx context.Context, system string, tools []ToolDef, includeWeb bool) (StepResult, error)
 	// 历史修剪（只在完整用户回合边界切）
@@ -285,9 +290,23 @@ func (s *anthropicSession) MarkTurn() { s.tracker.markTurn(len(s.history)) }
 
 func (s *anthropicSession) Rollback() { s.history = s.history[:s.tracker.rollbackTo()] }
 
-func (s *anthropicSession) AddUser(text string) {
+func (s *anthropicSession) AddUser(text string, images ...ResultImage) {
 	s.tracker.addCut(len(s.history))
-	s.history = append(s.history, anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(text)))
+	blocks := make([]anthropic.BetaContentBlockParamUnion, 0, len(images)+1)
+	blocks = append(blocks, anthropic.NewBetaTextBlock(text))
+	for _, img := range images {
+		blocks = append(blocks, anthropic.BetaContentBlockParamUnion{
+			OfImage: &anthropic.BetaImageBlockParam{
+				Source: anthropic.BetaImageBlockParamSourceUnion{
+					OfBase64: &anthropic.BetaBase64ImageSourceParam{
+						Data:      img.Base64,
+						MediaType: anthropic.BetaBase64ImageSourceMediaType(img.MIME),
+					},
+				},
+			},
+		})
+	}
+	s.history = append(s.history, anthropic.NewBetaUserMessage(blocks...))
 }
 
 func (s *anthropicSession) AddToolResults(rs []ToolResult) {
@@ -602,9 +621,36 @@ type openAISession struct {
 func (s *openAISession) MarkTurn() { s.tracker.markTurn(len(s.history)) }
 func (s *openAISession) Rollback() { s.history = s.history[:s.tracker.rollbackTo()] }
 
-func (s *openAISession) AddUser(text string) {
+func (s *openAISession) AddUser(text string, images ...ResultImage) {
 	s.tracker.addCut(len(s.history))
-	s.history = append(s.history, oaiMessage{Role: "user", Content: oaiText(text)})
+	s.history = append(s.history, oaiMessage{Role: "user", Content: oaiUserContent(text, images)})
+}
+
+// oaiUserContent 拼 user 消息的 content。没有图就还是一个普通字符串——绝大多数消息走这条路，
+// 而本地跑的小模型对"content 是个数组"经常直接 400，不该让所有人替极少数带图的消息付这个代价。
+//
+// oaiUserContent assembles a user message's content. With no images it stays a plain string, which is
+// the path almost every message takes — and small locally-run models often answer 400 to a content
+// array outright, so everyone else should not pay for the rare message that carries a picture.
+func oaiUserContent(text string, images []ResultImage) json.RawMessage {
+	if len(images) == 0 {
+		return oaiText(text)
+	}
+	parts := make([]map[string]any, 0, len(images)+1)
+	if strings.TrimSpace(text) != "" {
+		parts = append(parts, map[string]any{"type": "text", "text": text})
+	}
+	for _, img := range images {
+		parts = append(parts, map[string]any{
+			"type":      "image_url",
+			"image_url": map[string]any{"url": "data:" + img.MIME + ";base64," + img.Base64},
+		})
+	}
+	raw, err := json.Marshal(parts)
+	if err != nil {
+		return oaiText(text)
+	}
+	return raw
 }
 
 // OpenAI 兼容端点这边图片进不去工具结果：role:"tool" 的消息 content 只接受字符串，
@@ -752,7 +798,7 @@ func responsesInput(history []oaiMessage) []map[string]any {
 	for _, m := range history {
 		switch m.Role {
 		case "user":
-			items = append(items, map[string]any{"role": "user", "content": decodeOAIContent(m.Content)})
+			items = append(items, map[string]any{"role": "user", "content": responsesUserContent(m.Content)})
 		case "assistant":
 			if text := decodeOAIContent(m.Content); strings.TrimSpace(text) != "" {
 				items = append(items, map[string]any{"role": "assistant", "content": text})
@@ -771,6 +817,39 @@ func responsesInput(history []oaiMessage) []map[string]any {
 		}
 	}
 	return items
+}
+
+// responsesUserContent 把 chat-completions 形状的 user content 翻成 Responses API 的形状。
+// 两边的块名不一样：text→input_text、image_url→input_image，而且图片的地址直接挂在块上。
+// 没有图的消息 content 本来就是个字符串，原样返回。
+//
+// responsesUserContent restates a chat-completions user content in the shape the Responses API wants.
+// The block names differ — text becomes input_text, image_url becomes input_image — and an image's
+// address hangs directly off the block. A message with no images is already a string and passes through.
+func responsesUserContent(raw json.RawMessage) any {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return decodeOAIContent(raw)
+	}
+	out := make([]map[string]any, 0, len(parts))
+	for _, p := range parts {
+		if p.Type == "image_url" {
+			out = append(out, map[string]any{"type": "input_image", "image_url": p.ImageURL.URL})
+			continue
+		}
+		out = append(out, map[string]any{"type": "input_text", "text": p.Text})
+	}
+	return out
 }
 
 func (s *openAISession) stepResponses(ctx context.Context, system string, tools []ToolDef, key string) (StepResult, error) {
@@ -1030,7 +1109,7 @@ type unsetSession struct {
 
 func (s *unsetSession) MarkTurn() { s.tracker.markTurn(len(s.history)) }
 func (s *unsetSession) Rollback() { s.history = s.history[:s.tracker.rollbackTo()] }
-func (s *unsetSession) AddUser(text string) {
+func (s *unsetSession) AddUser(text string, _ ...ResultImage) {
 	s.tracker.addCut(len(s.history))
 	s.history = append(s.history, "user: "+text)
 }
@@ -1082,7 +1161,7 @@ type fakeSession struct {
 
 func (s *fakeSession) MarkTurn() { s.tracker.markTurn(len(s.history)) }
 func (s *fakeSession) Rollback() { s.history = s.history[:s.tracker.rollbackTo()] }
-func (s *fakeSession) AddUser(text string) {
+func (s *fakeSession) AddUser(text string, _ ...ResultImage) {
 	s.tracker.addCut(len(s.history))
 	s.history = append(s.history, "user: "+text)
 }

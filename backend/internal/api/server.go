@@ -12,6 +12,7 @@ import (
 
 	"botbureau/backend/internal/i18n"
 
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -168,6 +169,9 @@ func (a *App) validateBot(cfg *config.BotConfig) error {
 	if utf8.RuneCountInString(cfg.DisplayName) > config.DisplayNameMax {
 		return fmt.Errorf(i18n.T("The display name may be at most %d characters"), config.DisplayNameMax)
 	}
+	if err := a.checkNameClash(*cfg); err != nil {
+		return err
+	}
 	if !config.ValidEffort(cfg.Effort) {
 		return errors.New(i18n.T("The reasoning effort must be minimal / low / medium / high, or empty for the vendor default"))
 	}
@@ -197,21 +201,81 @@ func (a *App) validateBot(cfg *config.BotConfig) error {
 	return nil
 }
 
-// RemoveBot 把一个 bot 移出团队。最后一个不许删：bots.yaml 变成空表后引擎下次直接拒绝启动
-// （config.LoadBotConfigs 会报 "没有定义任何 bot"），用户就只能手改 yaml 才能把应用救回来。
+// checkNameClash 不让两位成员顶着同一个名字。
 //
-// RemoveBot takes a bot off the team. The last one cannot be removed: an empty bots.yaml makes the
-// engine refuse to start next time (config.LoadBotConfigs reports "no bots are defined"), leaving the user
-// to hand-edit YAML to get the app back.
-func (a *App) RemoveBot(name string) error {
+// id 藏起来之后，显示名成了用户唯一的抓手，而群里点名是 id 和显示名两条都算的
+// （见 Bus.MentionedBotsIn）：两个「吴敏」意味着喊一声、两个人各干一遍同一件活，
+// 而会话列表里那两行长得一模一样，用户连是哪两位重了都分不出来。名字撞了就当场说，
+// 让他换一个——代价只是改个名，比事后排查一件活为什么做了两遍便宜太多。
+//
+// checkNameClash keeps two members from wearing the same name.
+//
+// With ids hidden, the display name is the user's only handle, and calling someone in a group matches
+// both the id and the display name (see Bus.MentionedBotsIn): two "Wu Min"s mean one shout and the
+// same job done twice, while the two rows in the conversation list look identical and the user cannot
+// even tell which pair collided. Say so at the point of naming and let them pick another — renaming
+// costs nothing next to working out why a task ran twice.
+func (a *App) checkNameClash(cfg config.BotConfig) error {
+	name := strings.TrimSpace(cfg.DisplayName)
+	if name == "" {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, c := range a.cfgs {
+		if c.Name == cfg.Name {
+			continue // 编辑时跳过自己 / skip the bot being edited
+		}
+		// id 也要比：显示名撞上别人的 id，点名时一样会同时点到两个人
+		// Ids count too: a display name colliding with someone else's id calls on both just the same
+		if strings.EqualFold(strings.TrimSpace(c.DisplayName), name) || strings.EqualFold(c.Name, name) {
+			return fmt.Errorf(i18n.T("Another member is already called %s — pick a different name"), name)
+		}
+	}
+	return nil
+}
+
+// RemoveBot 把一个 bot 移出团队。团队可以被删空——那正是新装用户的起点，客户端会显示引导。
+//
+// purge 决定这位成员的记忆和工作文件怎么办，由用户在移除对话框里当场选：
+// true 是连人带资料一起删干净；false 把工作目录改名成离职档案留在 data/workspaces 下，
+// 之后能在设置的「已离职成员」里翻出来看、也能在那里彻底删掉。默认保留是因为那些文件是
+// 他干过的活的产物，删人不该顺手销毁它们——但既然 id 是一次性的随机串，谁也不会再来接手，
+// 保留就必须配一个能看见、能清理的入口，否则只是在 data/ 里堆无人认领的垃圾。
+//
+// 指派给他的例程无论哪种选择都一并撤掉（见 Scheduler.RemoveByBot）。
+//
+// RemoveBot takes a bot off the team. The team may be emptied — that is exactly where a fresh install
+// starts, and the client shows onboarding there.
+//
+// purge decides what happens to this member's memory and work files, chosen by the user in the
+// removal dialog: true deletes them along with the member, false renames the workspace into an
+// archive under data/workspaces, which settings then lists under "Former members" for viewing or
+// permanent deletion. Keeping is the default because those files are what they produced, and removing
+// a member should not quietly destroy them — but since an id is a one-shot random string that nobody
+// will ever inherit, keeping only makes sense alongside somewhere to see and clear the archives;
+// otherwise it just piles unclaimed junk into data/.
+//
+// Either way, routines assigned to them are revoked (see Scheduler.RemoveByBot).
+// 返回值里的字符串是「移除办成了，但有件事得告诉你」——比如资料没删干净。这种事不该
+// 变成 error（那等于说人没移除掉），也不该咽下去，所以单独走一路带回客户端弹一条提示。
+//
+// The returned string is "the removal went through, but you should know something" — files that would
+// not delete, say. That belongs neither in error (which would claim the member is still here) nor in
+// silence, so it travels back on its own and surfaces as a toast in the client.
+func (a *App) RemoveBot(name string, purge bool) (string, error) {
 	if a.bus.Bot(name) == nil {
-		return fmt.Errorf(i18n.T("No bot named %s exists"), name)
+		return "", fmt.Errorf(i18n.T("No bot named %s exists"), name)
 	}
 	w := a.bus.Unregister(name)
 	if w == nil {
-		return fmt.Errorf(i18n.T("No bot named %s exists"), name)
+		return "", fmt.Errorf(i18n.T("No bot named %s exists"), name)
 	}
+	// 先停人再动目录：Stop 会把会话快照写回工作目录，改名/删除必须排在它后面
+	// Stop first, then touch the directory: Stop writes the session snapshot back into the workspace,
+	// so the rename or delete has to come after it
 	w.Stop()
+	a.sched.RemoveByBot(name)
 	a.mu.Lock()
 	kept := a.cfgs[:0]
 	for _, c := range a.cfgs {
@@ -222,8 +286,84 @@ func (a *App) RemoveBot(name string) error {
 	a.cfgs = kept
 	_ = config.SaveBotConfigs(a.cfgPath, a.cfgs)
 	a.mu.Unlock()
-	a.bus.Emit("refresh", "", "system", name+i18n.T(" was removed from the team"), nil)
-	return nil
+	// 置顶跟着会话一起走：留下来的只是一个再也没有行的 id，而 id 从不露面，
+	// 用户既看不见它、也无从取消。
+	//
+	// The pin leaves with the conversation: what would stay is an id with no row behind it, and since
+	// ids never surface the user could neither see it nor take it back.
+	a.settings.SetPinned("dm:"+name, false)
+	warning := a.settleWorkspace(w.Cfg, purge)
+	a.bus.Emit("refresh", "", "system", w.Cfg.Title()+i18n.T(" was removed from the team"), nil)
+	return warning, nil
+}
+
+// settleWorkspace 按用户的选择处置工作目录，返回一句要转告用户的话（顺利就是空串）。
+//
+// 工作目录动不了不算移除失败：人已经离开团队了，此时返回 error 只会让调用方以为整件事没做成。
+// 而删除失败时会退回归档——留下一个既没删掉、又不带 .removed- 后缀的目录，等于把它从
+// 「已离职成员」里藏起来，用户再也没有入口去收拾它。宁可留成一份看得见的档案，配一句说明。
+//
+// settleWorkspace disposes of the workspace as the user chose and returns a line to pass on (empty
+// when all went well).
+//
+// A workspace that will not budge is not a failed removal: the member is already off the team, and
+// returning an error here would say nothing happened at all. A failed delete falls back to archiving —
+// leaving a directory that is neither gone nor suffixed .removed- would hide it from "Former
+// members", stranding the user with no way to finish the job. Better a visible archive and a note.
+func (a *App) settleWorkspace(cfg config.BotConfig, purge bool) string {
+	if purge {
+		err := engine.PurgeWorkspace(a.dataDir, cfg.Name)
+		if err == nil {
+			return ""
+		}
+		if _, arch := engine.ArchiveWorkspace(a.dataDir, cfg); arch == nil {
+			return fmt.Sprintf(i18n.T("%s's files could not be deleted, so they were kept under Former members: %v"), cfg.Title(), err)
+		}
+		return fmt.Sprintf(i18n.T("Could not tidy up %s's files: %v"), cfg.Title(), err)
+	}
+	if _, err := engine.ArchiveWorkspace(a.dataDir, cfg); err != nil {
+		return fmt.Sprintf(i18n.T("Could not tidy up %s's files: %v"), cfg.Title(), err)
+	}
+	return ""
+}
+
+// chatExists 判断这个会话 id 眼下是不是真的对应着一个会话。
+// 群按可见列表算：空着的默认群在列表里不露面，自然也没什么可置顶的。
+//
+// chatExists reports whether a conversation id currently names a real conversation.
+// Groups are judged by the visible list: an empty default group never shows up in it, so there is
+// nothing there to pin.
+func (a *App) chatExists(chat string) bool {
+	if name, ok := strings.CutPrefix(chat, "dm:"); ok {
+		return a.bus.Bot(name) != nil
+	}
+	for _, g := range a.bus.Groups() {
+		if g.ID == chat {
+			return true
+		}
+	}
+	return false
+}
+
+// quotedIn 取出被引用的那条消息。引用必须来自同一个会话——跨会话的 id 只可能是
+// 界面拿串了，与其把别处的话搬进来，不如当没引用照常发出去。
+//
+// quotedIn resolves the message being quoted. It has to come from the same conversation: an id from
+// another one can only mean the UI got its wires crossed, and dropping the quotation is better than
+// dragging someone else's words in.
+func (a *App) quotedIn(chat string, id int) *engine.Quote {
+	if id <= 0 {
+		return nil
+	}
+	ev, ok := a.bus.EventByID(id)
+	if !ok {
+		return nil
+	}
+	evChat, _ := ev["chat"].(string)
+	if evChat != chat && !(chat == "" && evChat == "group") {
+		return nil
+	}
+	return engine.QuoteEvent(ev)
 }
 
 func (a *App) State() map[string]any {
@@ -235,10 +375,20 @@ func (a *App) State() map[string]any {
 		}
 		cfg := w.Cfg
 		cfg.MCP = mcpList
+		roots := w.Roots().List()
+		if roots == nil {
+			roots = []string{}
+		}
 		bots = append(bots, map[string]any{
 			"name": w.Name(), "role": w.Cfg.RoleText(), "description": w.Cfg.DescText(),
 			"provider": w.ProviderLabel(), "busy": w.Busy(), "queued": w.Queued(),
 			"mcp": mcpList,
+			// 用户在对话里指定过、这位成员因此能自由活动的目录。放进 state 而不是单开一个接口：
+			// 它就该和权限档位一起被看见——档位说"工作目录内免审批"，这里才说得清那是哪。
+			// Directories the user named, which this member may therefore move around in freely. Part of
+			// state rather than an endpoint of its own: it belongs next to the permission tier, which
+			// promises "no approvals inside the workspace" without this list being able to say where that is.
+			"roots": roots, "workspace": w.Workspace(),
 			// 编辑表单要的是未本地化的原始配置，不能拿上面那份显示用的覆盖回去
 			// The edit form needs the raw, unlocalized config — writing the display copy back would clobber it
 			"config": cfg,
@@ -250,7 +400,7 @@ func (a *App) State() map[string]any {
 	approvals := []map[string]any{}
 	for _, ap := range a.bus.PendingApprovals() {
 		approvals = append(approvals, map[string]any{
-			"id": ap.ID, "bot": ap.Bot, "action": ap.Action, "chat": ap.Chat,
+			"id": ap.ID, "bot": ap.Bot, "action": ap.Action, "chat": ap.Chat, "dir": ap.Dir,
 		})
 	}
 	routines := []map[string]any{}
@@ -271,7 +421,8 @@ func (a *App) State() map[string]any {
 	tasks := a.deps.Board.List()
 	return map[string]any{
 		"bots": bots, "default_bot": a.bus.DefaultGroupMember(),
-		"group_members": members, "groups": a.bus.Groups(), "tasks": tasks, "keys": a.deps.KS.List(),
+		"group_members": members, "groups": a.bus.Groups(), "pins": a.settings.Pins(),
+		"tasks": tasks, "keys": a.deps.KS.List(),
 		"mcp":       a.deps.MCP.Status(),
 		"skills":    a.deps.Skills.List(),
 		"plugins":   a.deps.Bundles.List(),
@@ -338,16 +489,56 @@ func (a *App) Handler() http.Handler {
 		var body struct {
 			Chat string `json:"chat"`
 			Text string `json:"text"`
+			// 引用回复：被引的那条消息的事件 id
+			// Quote reply: the event id of the message being answered
+			ReplyTo int `json:"reply_to"`
+			// 聊天框里带上来的文件，正文是 base64。走 JSON 而不是 multipart：
+			// 这个接口对外只有一种形状，客户端（Electron、将来的手机端）也就只有一条路要写。
+			// Files attached in the composer, their bytes base64-encoded. JSON rather than multipart, so
+			// this endpoint keeps one shape and every client — Electron, a phone app later — has one path
+			// to implement.
+			Files []struct {
+				Name string `json:"name"`
+				MIME string `json:"mime"`
+				Data string `json:"data"`
+			} `json:"files"`
 		}
 		if err := httpx.ReadJSON(r, &body); err != nil {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
 			return
 		}
 		text := strings.TrimSpace(body.Text)
-		if text == "" {
+		// 只有附件、一个字没写也算一条消息——把一张图丢进来本身就是要说的话
+		// Attachments with not a word typed still make a message: dropping in a picture is itself the thing being said
+		if text == "" && len(body.Files) == 0 {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Message is empty")})
 			return
 		}
+		if len(body.Files) > engine.MaxAttachments {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": fmt.Sprintf(i18n.T("At most %d files can go with one message"), engine.MaxAttachments)})
+			return
+		}
+		var files []engine.Attachment
+		var total int
+		for _, f := range body.Files {
+			raw, err := base64.StdEncoding.DecodeString(f.Data)
+			if err != nil {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("An attachment could not be decoded")})
+				return
+			}
+			total += len(raw)
+			if total > engine.MaxAttachmentsBytes {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Those files come to more than one message can carry")})
+				return
+			}
+			saved, err := a.deps.Uploads.Put(f.Name, f.MIME, raw)
+			if err != nil {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": err.Error()})
+				return
+			}
+			files = append(files, saved)
+		}
+		quote := a.quotedIn(body.Chat, body.ReplyTo)
 		switch {
 		case engine.IsGroupChat(body.Chat) || body.Chat == "":
 			chat := body.Chat
@@ -355,6 +546,13 @@ func (a *App) Handler() http.Handler {
 				chat = "group"
 			}
 			targets := a.bus.MentionedBotsIn(chat, text)
+			// 谁都没点名，但这句是在回某个 bot 的发言 —— 那就是在跟 ta 说话，
+			// 不必再敲一次名字。引用本身就是指名。
+			// Nobody was named, but the message answers a bot's own line — then it is addressed to
+			// them, and typing the name again is redundant. The quotation is the address.
+			if len(targets) == 0 && quote != nil && quote.From != "user" && a.bus.IsGroupMemberOf(chat, quote.From) {
+				targets = []string{quote.From}
+			}
 			if len(targets) == 0 {
 				def := a.bus.DefaultGroupMemberOf(chat)
 				if def == "" {
@@ -363,20 +561,53 @@ func (a *App) Handler() http.Handler {
 				}
 				targets = []string{def}
 			}
-			a.bus.PostGroupTo(chat, "user", text, targets)
+			a.bus.PostGroupUser(chat, text, targets, quote, files)
 		case strings.HasPrefix(body.Chat, "dm:"):
 			name := strings.TrimPrefix(body.Chat, "dm:")
 			if a.bus.Bot(name) == nil {
 				httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No bot named ") + name + i18n.T(" exists")})
 				return
 			}
-			a.bus.Emit("msg", body.Chat, "user", text, nil)
-			a.bus.Deliver("user", name, "dm", text, true)
+			ev := a.bus.Emit("msg", body.Chat, "user", text, engine.MsgExtra(quote, files))
+			a.bus.DeliverMsg(name, engine.Msg{
+				Sender: "user", Content: text, Chat: "dm", Respond: true,
+				ID: engine.EventID(ev), Quote: quote, Files: files,
+				GrantRoots: true,
+			})
 		default:
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("chat must be a group or dm:<bot name>")})
 			return
 		}
 		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
+	}))
+
+	// 取回一份附件的正文。界面翻历史时靠它把缩略图画出来——事件里只有元数据。
+	//
+	// 和其余接口一样在配对码后面：这些是用户自己传上来的文件，本机上任何一个网页都能读到
+	// 才是不能接受的。id 的形状在 Uploads.Find 里验，所以 ../ 这类东西进不到 ReadFile。
+	//
+	// Fetch one attachment's bytes. This is how the UI draws a thumbnail while scrolling back through
+	// history, since the event itself carries metadata only.
+	//
+	// Behind the pairing code like everything else: these are the user's own files, and any web page open
+	// on this machine being able to read them would not be acceptable. The id's shape is checked inside
+	// Uploads.Find, so nothing like ../ reaches a ReadFile.
+	mux.HandleFunc("/api/file/", cors(func(rw http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/file/")
+		att, raw, err := a.deps.Uploads.Find(id)
+		if err != nil {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No such attachment")})
+			return
+		}
+		rw.Header().Set("Content-Type", att.MIME)
+		// 内容寻址的文件永远不会变，缓存到底；浏览器就不必为每次滚动重取一遍图
+		// Content-addressed files never change, so cache them for good and the browser stops re-fetching
+		// every image on every scroll
+		rw.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		// 不让浏览器自己猜类型：一份被当成 HTML 渲染的上传文件就是一个脚本执行点
+		// No content sniffing: an upload rendered as HTML is a place for a script to run
+		rw.Header().Set("X-Content-Type-Options", "nosniff")
+		rw.Write(raw)
 	}))
 
 	mux.HandleFunc("/api/cancel", cors(func(rw http.ResponseWriter, r *http.Request) {
@@ -401,16 +632,43 @@ func (a *App) Handler() http.Handler {
 			ID       int    `json:"id"`
 			Approved bool   `json:"approved"`
 			Reason   string `json:"reason"`
+			// 「批准，并把这个目录设为工作目录」——一次点击顶掉之后同一目录里的每一次询问
+			// "Approve, and make this a working directory" — one click instead of every later question
+			// about the same directory
+			Grant bool `json:"grant"`
 		}
 		if err := httpx.ReadJSON(r, &body); err != nil {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
 			return
 		}
+		// 授权要在裁决之前落定：裁决一放行，那位成员立刻就跑起来了，
+		// 而它跑的那条命令该不该再拦，取决于这个目录这时候在不在清单里。
+		//
+		// The grant has to land before the decision: the moment the decision goes through that member
+		// resumes, and whether the command it runs gets stopped again depends on the directory being on
+		// the list by then.
+		granted := ""
+		if body.Grant && body.Approved {
+			ap := a.bus.Approval(body.ID)
+			if ap == nil || ap.Dir == "" {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("This approval has no directory to grant")})
+				return
+			}
+			w := a.bus.Bot(ap.Bot)
+			if w == nil || !w.Roots().Add(ap.Dir) {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("That directory cannot be made a working directory")})
+				return
+			}
+			granted = ap.Dir
+			a.bus.Emit("system", ap.Chat, ap.Bot,
+				fmt.Sprintf(i18n.T("%s counts as a working directory for %s from now on: it may read, write and run commands there without asking, as far as its permission tier allows. Remove it in this member's settings."),
+					ap.Dir, w.Cfg.Title()), nil)
+		}
 		if !a.bus.Decide(body.ID, body.Approved, body.Reason) {
 			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("Approval not found (it may already be handled)")})
 			return
 		}
-		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
+		httpx.WriteJSON(rw, 200, map[string]any{"ok": true, "granted": granted})
 	}))
 
 	mux.HandleFunc("/api/bots", cors(func(rw http.ResponseWriter, r *http.Request) {
@@ -450,12 +708,65 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("/api/bots/delete", cors(func(rw http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name string `json:"name"`
+			// 删不删这位成员的记忆和工作文件，由移除对话框里的复选框决定。
+			// 缺省 false = 保留：漏传这个字段的调用方（老客户端、脚本）不该因此丢数据。
+			//
+			// Whether to delete this member's memory and work files, decided by the checkbox in the
+			// removal dialog. Absent means false — a caller that omits the field (an older client, a
+			// script) must not lose data over it.
+			Purge bool `json:"purge"`
 		}
 		if err := httpx.ReadJSON(r, &body); err != nil || body.Name == "" {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
 			return
 		}
-		if err := a.RemoveBot(body.Name); err != nil {
+		warning, err := a.RemoveBot(body.Name, body.Purge)
+		if err != nil {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		httpx.WriteJSON(rw, 200, map[string]any{"ok": true, "warning": warning})
+	}))
+
+	// 离职档案的三个口：列出、看一份、删一份。
+	// 这是「保留」这个选择的另一半——留下来的东西必须能被看见和清理，否则就是在 data/ 里
+	// 攒一堆用户既找不到、也认不出的目录（id 是随机串且界面上从不显示）。
+	//
+	// Three endpoints for archives: list, view one, delete one.
+	// This is the other half of choosing "keep" — what stays has to be visible and clearable, or it is
+	// just a pile of directories in data/ that the user can neither find nor recognise (ids are random
+	// strings and never shown in the UI).
+	mux.HandleFunc("/api/bots/departed", cors(func(rw http.ResponseWriter, r *http.Request) {
+		httpx.WriteJSON(rw, 200, map[string]any{"departed": engine.ListDeparted(a.dataDir)})
+	}))
+
+	mux.HandleFunc("/api/bots/departed/detail", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Dir string `json:"dir"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil || body.Dir == "" {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		// 记忆正文只取开头这些：这里是"想起这份档案是什么"的预览，不是全文阅读器
+		// Only this much memory text: a reminder of what the archive holds, not a full-text reader
+		mem, files, truncated, err := engine.DepartedDetail(a.dataDir, body.Dir, 20000)
+		if err != nil {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("That archive is gone")})
+			return
+		}
+		httpx.WriteJSON(rw, 200, map[string]any{"memory": mem, "files": files, "truncated": truncated})
+	}))
+
+	mux.HandleFunc("/api/bots/departed/delete", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Dir string `json:"dir"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil || body.Dir == "" {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		if err := engine.DeleteDeparted(a.dataDir, body.Dir); err != nil {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": err.Error()})
 			return
 		}
@@ -524,7 +835,38 @@ func (a *App) Handler() http.Handler {
 	}))
 
 	mux.HandleFunc("/api/permissions", cors(func(rw http.ResponseWriter, r *http.Request) {
-		httpx.WriteJSON(rw, 200, map[string]any{"levels": config.PermOptions(), "default": string(config.DefaultPerm)})
+		httpx.WriteJSON(rw, 200, map[string]any{
+			"levels": config.PermOptions(), "default": string(config.DefaultPerm),
+			"scope_note": config.PermScopeNote(),
+		})
+	}))
+
+	// 撤销一个用户指定的工作目录。只做撤销，不做新增：新增是"你在对话里说出它"这个动作，
+	// 界面上再放一个"添加目录"按钮，就等于把一条本来由用户发起的授权，改成一个随手可点的开关。
+	//
+	// Revokes a working directory the user named. Revocation only, never granting: granting is the act
+	// of naming it in the conversation, and an "add directory" button here would turn an authorization
+	// the user has to state into a switch that is easy to flip without meaning it.
+	mux.HandleFunc("/api/bots/roots/remove", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name string `json:"name"`
+			Dir  string `json:"dir"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		w := a.bus.Bot(body.Name)
+		if w == nil {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No bot named ") + body.Name + i18n.T(" exists")})
+			return
+		}
+		if !w.Roots().Remove(body.Dir) {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("That directory is not on this member's list")})
+			return
+		}
+		a.bus.Emit("refresh", "", "system", "bots", nil)
+		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
 	}))
 
 	mux.HandleFunc("/api/providers", cors(func(rw http.ResponseWriter, r *http.Request) {
@@ -607,15 +949,28 @@ func (a *App) Handler() http.Handler {
 		if chat == "" {
 			chat = "group"
 		}
-		if !a.bus.SetGroupMemberIn(chat, body.Name, body.In) {
+		ok, changed := a.bus.SetGroupMemberIn(chat, body.Name, body.In)
+		if !ok {
 			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No bot named ") + body.Name + i18n.T(" exists")})
 			return
 		}
-		verb := i18n.T("was removed from the group chat")
-		if body.In {
-			verb = i18n.T("was added to the group chat")
+		// 只有成员表真的动了才播报，而且用的是人看得懂的显示名，不是内部 id。
+		// 保存群设置时客户端可能把每个 bot 都提交一遍，照单全播的话一次改动会刷出一整屏。
+		//
+		// Announce only when the membership actually moved, and under the name people see rather than
+		// the internal id. Saving the group settings may submit every bot at once, and announcing each
+		// of them would fill the chat with a screenful of notices for a single change.
+		if changed {
+			who := body.Name
+			if w := a.bus.Bot(body.Name); w != nil {
+				who = w.Cfg.Title()
+			}
+			verb := i18n.T("was removed from the group chat")
+			if body.In {
+				verb = i18n.T("was added to the group chat")
+			}
+			a.bus.Emit("system", chat, "system", who+" "+verb, nil)
 		}
-		a.bus.Emit("system", chat, "system", body.Name+" "+verb, nil)
 		a.bus.Emit("refresh", "", "system", "group_members", nil)
 		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
 	}))
@@ -683,8 +1038,44 @@ func (a *App) Handler() http.Handler {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": err.Error()})
 			return
 		}
+		a.settings.SetPinned(body.ID, false)
 		a.bus.Emit("refresh", "", "system", i18n.T("Group chat deleted"), nil)
 		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
+	}))
+
+	// 置顶：群聊和私聊都能钉在列表最上面，取消置顶走同一个口。
+	//
+	// 置顶的是会话 id 而不是"群"或"bot"，所以两种会话共用这一个接口，客户端也只需要一份
+	// 判断。置顶时要求会话真的存在——否则一个打错的 id 会永久躺在 settings.json 里，界面上
+	// 既看不见也没法取消；取消则一概放行，删掉的会话正是靠它清场。
+	//
+	// Pinning: group chats and DMs alike can be nailed to the top of the list, and unpinning comes back
+	// through the same door.
+	//
+	// What gets pinned is a conversation id rather than "a group" or "a bot", so both kinds share this
+	// one endpoint and the client needs a single notion of pinned. Pinning insists the conversation
+	// exists — a mistyped id would otherwise sit in settings.json forever, invisible in the UI and
+	// impossible to undo. Unpinning is always allowed: that is how a deleted conversation is cleared.
+	mux.HandleFunc("/api/pins", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Chat   string `json:"chat"`
+			Pinned bool   `json:"pinned"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil || strings.TrimSpace(body.Chat) == "" {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		chat := strings.TrimSpace(body.Chat)
+		if body.Pinned && !a.chatExists(chat) {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("There is no such conversation")})
+			return
+		}
+		if a.settings.SetPinned(chat, body.Pinned) {
+			// 别的设备连着同一个引擎，置顶得在它们那边也动起来
+			// Other devices are on the same engine, and the list has to reorder there too
+			a.bus.Emit("refresh", "", "system", "pins", nil)
+		}
+		httpx.WriteJSON(rw, 200, map[string]any{"pins": a.settings.Pins()})
 	}))
 
 	// 语言设置：auto（跟随系统）/ zh / en，影响后端消息与 bot 提示词语言
@@ -997,6 +1388,29 @@ func (a *App) Handler() http.Handler {
 		n := a.deps.Board.ClearDone()
 		a.bus.Emit("refresh", "", "system", fmt.Sprintf(i18n.T("Cleared %d completed task(s)"), n), nil)
 		httpx.WriteJSON(rw, 200, map[string]any{"ok": true, "cleared": n})
+	}))
+
+	mux.HandleFunc("/api/routines/update", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name string `json:"name"`
+			Bot  string `json:"bot"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil || body.Name == "" || body.Bot == "" {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		w := a.bus.Bot(body.Bot)
+		if w == nil {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": fmt.Errorf(i18n.T("There is no bot named %s"), body.Bot).Error()})
+			return
+		}
+		if !a.sched.Reassign(body.Name, body.Bot) {
+			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No routine named ") + body.Name + i18n.T(" exists")})
+			return
+		}
+		a.bus.Emit("refresh", "", "system",
+			fmt.Sprintf(i18n.T("Routine \"%s\" is now assigned to %s"), body.Name, w.Cfg.Title()), nil)
+		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
 	}))
 
 	mux.HandleFunc("/api/routines/delete", cors(func(rw http.ResponseWriter, r *http.Request) {

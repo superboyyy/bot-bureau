@@ -15,33 +15,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
-// 以这些词开头且不含 shell 元字符的 bash 命令视为只读，直接执行；其余命令先提交用户审批。
-// find 不在名单里：它自带 -delete/-exec 等破坏性动作，无需任何元字符即可绕过审批门。
-// Bash commands starting with one of these words and containing no shell metacharacters are treated as read-only and run directly; everything else is submitted for user approval first.
-// find is not on the list: its built-in destructive actions like -delete/-exec could bypass the approval gate without needing any metacharacter.
-var safeBashCommands = map[string]bool{
-	"ls": true, "cat": true, "head": true, "tail": true, "grep": true,
-	"wc": true, "pwd": true, "echo": true, "date": true, "du": true,
-	"file": true, "diff": true,
-}
-
-// 管道/重定向/命令替换等都可能让“只读”首词携带副作用（如 ls $(rm -rf …)、cat x > y）
-// Pipes/redirects/command substitution can all give a "read-only" first word side effects (e.g. ls $(rm -rf ...), cat x > y).
-var shellMetaRe = regexp.MustCompile("[;&|`$<>]|\n")
-
-// 命令替换是另一回事：它让命令真正要碰的路径在执行前无法确定，
-// 逐 token 扫描（bashLeavesWorkspace）对 `cat $(cat target)` 这种完全失效。
-// 所以命令替换一律按“可能越界”处理——auto 档只自动放行目标可知的命令。
+// 命令白名单和分段判读都在 shellscan.go；命令替换让一条命令真正要碰什么在跑之前无法确定，
+// 由 scanBash 报出来，一律按"可能越界"处理——auto 档只自动放行目标可知的命令。
 //
-// Command substitution is a different matter: it makes the paths a command will actually touch
-// undecidable before it runs, and token scanning (bashLeavesWorkspace) is useless against
-// `cat $(cat target)`. So substitution always counts as "may escape" — the auto tier only
-// auto-approves commands whose targets are knowable.
-var cmdSubstRe = regexp.MustCompile("`|\\$\\(")
+// The whitelist and the segment-by-segment reading live in shellscan.go. Command substitution makes
+// what a command will actually touch undecidable before it runs; scanBash reports it and it always
+// counts as "may escape" — the auto tier only auto-approves commands whose targets are knowable.
 
 func truncateOutput(s string) string {
 	if len(s) > config.ToolOutputLimit {
@@ -53,8 +35,10 @@ func truncateOutput(s string) string {
 // Toolbox 是一个 bot 的客户端工具箱。currentChat 由 bot 在处理每条消息前设置。
 // Toolbox is one bot's client-side toolbox. currentChat is set by the bot before each message is handled.
 type Toolbox struct {
-	botName     string
-	workspace   string
+	botName   string
+	workspace string
+	// 用户在对话里指定过的目录，与 workspace 同等对待 / directories the user named, treated like workspace
+	roots       *Roots
 	mem         *Memory            // 个人记忆 / personal memory
 	teamMem     *Memory            // 团队共享记忆（全部 bot 读写同一份） / team memory, one copy shared by all bots
 	board       *TaskBoard         // 团队任务看板 / the team task board
@@ -97,7 +81,7 @@ func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool
 	if !t.perm().NeedsApproval(act) {
 		return "", false, true
 	}
-	req := t.bus.RequestApproval(t.botName, action, t.eventChat())
+	req := t.bus.RequestApproval(t.botName, action, t.eventChat(), act.Dir)
 	t.bus.Emit("tool", t.eventChat(), t.botName, fmt.Sprintf(waitMsg, req.ID), nil)
 	approved, reason := t.awaitApproval(req)
 	if approved {
@@ -115,9 +99,9 @@ func denied(what, reason string) string {
 	return what + i18n.T(", reason: ") + reason
 }
 
-func NewToolbox(botName, workspace string, mem *Memory, deps *TeamDeps, mcpServers []string, bus *Bus, sched *Scheduler, botPerm string) *Toolbox {
+func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *TeamDeps, mcpServers []string, bus *Bus, sched *Scheduler, botPerm string) *Toolbox {
 	return &Toolbox{
-		botName: botName, workspace: workspace, mem: mem,
+		botName: botName, workspace: workspace, roots: roots, mem: mem,
 		teamMem: deps.TeamMem, board: deps.Board, mcp: deps.MCP, mcpServers: mcpServers, skills: deps.Skills,
 		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings,
 	}
@@ -139,20 +123,28 @@ func (t *Toolbox) eventChat() string {
 // Defs 返回客户端工具定义（服务端联网工具由 provider 层按需追加）。
 // Defs returns the client-side tool definitions (server-side web tools are appended by the provider layer as needed).
 func (t *Toolbox) Defs() []model.ToolDef {
-	var teammates []string
+	var members []string
 	for _, n := range t.bus.GroupMembersOf(t.currentChat) {
 		if n != t.botName {
-			teammates = append(teammates, n)
+			members = append(members, n)
 		}
 	}
 	defs := []model.ToolDef{
 		{
 			Name:        "bash",
-			Description: i18n.T("Run a shell command in your workspace. Read-only commands that stay inside the workspace (ls/cat/grep, etc.) run directly; writes, paths outside the workspace, and every other command are submitted to the user for approval first — waiting, being rejected, and being cancelled are all normal."),
+			Description: i18n.T("Run a shell command; it runs in your workspace. Commands that only read run straight away, including pipelines and sequences of them (ls/cat/grep/rg/sort/wc/diff/sed -n/git log, etc.), anywhere inside your working directories or /tmp. Writes, network access, paths outside those directories, and everything else are submitted to the user for approval first — waiting, being rejected, and being cancelled are all normal."),
 			Properties: map[string]any{
 				"command": map[string]any{"type": "string", "description": i18n.T("The shell command to run")},
 			},
 			Required: []string{"command"},
+		},
+		{
+			Name:        "fetch_url",
+			Description: i18n.T("Read a web page or API response and get it back as text (HTML is stripped down to its readable text). This is how you look something up online — it runs straight away and never needs approval, so reach for it rather than curl. It only fetches; it cannot post, log in, or reach addresses on this machine or this local network."),
+			Properties: map[string]any{
+				"url": map[string]any{"type": "string", "description": i18n.T("The http or https address to read")},
+			},
+			Required: []string{"url"},
 		},
 		{
 			Name:        "read_file",
@@ -255,12 +247,12 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			})
 		}
 	}
-	if len(teammates) > 0 {
+	if len(members) > 0 {
 		defs = append(defs, model.ToolDef{
 			Name:        "message_bot",
-			Description: i18n.T("(Group chat only) Hand a subtask off to another AI teammate, or report results to them / ask them a question. The message must be self-contained (they cannot see your context). They handle it asynchronously, and their reply reaches you as a new group chat message."),
+			Description: i18n.T("(Group chat only) Hand a subtask off to another AI member, or report results to them / ask them a question. The message must be self-contained (they cannot see your context). They handle it asynchronously, and their reply reaches you as a new group chat message."),
 			Properties: map[string]any{
-				"to":      map[string]any{"type": "string", "enum": teammates, "description": i18n.T("Recipient bot")},
+				"to":      map[string]any{"type": "string", "enum": members, "description": i18n.T("Recipient bot")},
 				"content": map[string]any{"type": "string", "description": i18n.T("Message content")},
 			},
 			Required: []string{"to", "content"},
@@ -297,6 +289,8 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, bool) {
 	switch name {
 	case "bash":
 		return t.runBash(str("command"))
+	case "fetch_url":
+		return t.runFetchURL(str("url"))
 	case "read_file":
 		return t.runReadFile(str("path"))
 	case "write_file":
@@ -333,36 +327,168 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, bool) {
 	return i18n.T("Unknown tool: ") + name, true
 }
 
+// inBounds 是"里面"的唯一定义：自己的工作目录，加上用户在对话里指定过的目录（见 roots.go）。
+// 越界判定和路径解析都从这里问，两者不该各有一套说法。
+//
+// inBounds is the single definition of "inside": this member's own workspace, plus any directory the
+// user named in conversation (see roots.go). Both the escape check and path resolution ask here, so
+// the two cannot drift apart.
+func (t *Toolbox) inBounds(abs string) bool {
+	c := canonical(abs)
+	return within(c, canonical(t.workspace)) || within(c, scratchDir()) || t.roots.Contains(abs)
+}
+
+// scratchDir 是 /tmp。它算界内，因为它就是中间文件该待的地方——下一个网页、解一个包、
+// 摊开一份 JSON，模型第一反应写的就是 /tmp/xxx，而为这个每次问一遍，问的是一件没有后果的事。
+// Codex 的 workspace-write 也是这么划的：工作目录加临时目录。
+//
+// 只放 /tmp，不放 $TMPDIR。macOS 上 $TMPDIR 是 /var/folders/…/T，别的应用把私有缓存放在那底下，
+// 一并放开等于顺手把它们也交出去了；而 /tmp 本来就是所有人共用的草稿纸。
+//
+// scratchDir is /tmp. It counts as inside because it is where intermediate files belong — fetch a page,
+// unpack an archive, dump some JSON, and the model's first instinct is /tmp/something. Asking about
+// that every time is asking about something with no consequences. Codex draws workspace-write the same way:
+// the working directory plus temporary directories.
+//
+// /tmp only, never $TMPDIR. On macOS $TMPDIR is /var/folders/…/T, where other applications keep private
+// caches, and opening it would hand those over by the way; /tmp is the scratch paper everyone shares
+// already.
+func scratchDir() string { return canonical("/tmp") }
+
+// resolve 把工具参数里的路径变成一个确实在界内的绝对路径。
+//
+// 绝对路径现在按绝对路径办。之前它会被 Join 到工作目录下——read_file("/etc/passwd") 读的其实是
+// <工作目录>/etc/passwd，既读不到东西也不报错，模型只会看到"文件不存在"，然后换个写法再试一遍。
+// 用户指定的目录只能用绝对路径去够，所以这条路必须是真的。
+//
+// resolve turns a path from a tool argument into an absolute path that is genuinely inside.
+//
+// An absolute path is now treated as one. It used to be joined onto the workspace, so
+// read_file("/etc/passwd") actually read <workspace>/etc/passwd — reaching nothing and reporting no
+// error, leaving the model to see "no such file" and try another spelling. A directory the user named
+// is reachable only by absolute path, so that route has to be real.
 func (t *Toolbox) resolve(rel string) (string, error) {
+	if abs, ok := absPath(rel); ok {
+		if t.inBounds(abs) {
+			return abs, nil
+		}
+		return "", fmt.Errorf(i18n.T("Path is outside your workspace and the directories the user pointed you at: %s"), rel)
+	}
 	p := filepath.Clean(filepath.Join(t.workspace, rel))
-	r, err := filepath.Rel(t.workspace, p)
-	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+	if !within(p, t.workspace) {
 		return "", fmt.Errorf(i18n.T("Path escapes the workspace: %s"), rel)
 	}
 	return p, nil
 }
 
-func bashLeavesWorkspace(command string) bool {
-	fields := strings.Fields(command)
-	if len(fields) < 2 {
+// absPath 把一个可能是绝对路径的参数规范出来。和 roots.go 的 absDir 不同，这里不要求它存在：
+// 写一个还不存在的文件，路径照样得先过界内判定。
+//
+// absPath normalises an argument that may be an absolute path. Unlike absDir in roots.go it does not
+// require the path to exist: writing a file that is not there yet still has to clear the bounds check.
+func absPath(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "~" || strings.HasPrefix(raw, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		raw = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(raw, "~"), "/"))
+	}
+	if !filepath.IsAbs(raw) {
+		return "", false
+	}
+	return filepath.Clean(raw), true
+}
+
+// bashEscapes 逐 token 判断一条命令会不会碰到界外的东西。
+// 绝对路径不再一律算越界——落在用户指定的目录里的那些就是界内，否则用户指定目录这件事
+// 对 bash 完全不生效，而 bash 正是干活的主力。
+//
+// bashEscapes decides token by token whether a command may touch something out of bounds.
+// An absolute path no longer counts as escaping on sight: one landing inside a directory the user
+// named is inside. Otherwise naming a directory would mean nothing to bash, and bash is where the work
+// actually happens.
+func (t *Toolbox) bashEscapes(segs []shellSeg) bool {
+	for _, s := range segs {
+		if t.segEscapes(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// segEscapes 判一段命令。跳过段首词：那是命令名不是路径，`/bin/ls foo` 里的 /bin/ls
+// 只是这台机器上的一个程序，不是它要去动的地方。
+//
+// segEscapes judges one segment. The leading word is skipped: it names the command, not a path — the
+// /bin/ls in `/bin/ls foo` is just a program on this machine, not somewhere it intends to reach.
+func (t *Toolbox) segEscapes(s shellSeg) bool {
+	if len(s.words) < 2 {
 		return false
 	}
-	for _, f := range fields[1:] {
-		// 重定向符号可能和目标粘在一起（>/etc/x），先剥掉再判断
-		// A redirect operator can be glued to its target (>/etc/x); strip it before judging
-		f = strings.TrimLeft(f, "<>&|;")
+	for _, f := range s.words[1:] {
 		if f == "" || strings.HasPrefix(f, "-") {
 			continue
 		}
 		if strings.HasPrefix(f, "/") || strings.HasPrefix(f, "~") {
-			return true
+			abs, ok := absPath(f)
+			if !ok || !t.inBounds(abs) {
+				return true
+			}
+			continue
 		}
+		// 相对路径里的 .. 一律算越界。它是相对 cmd.Dir（工作目录）算的，理论上也能落进某个
+		// 已授予的目录，但要判准就得在这里把 shell 的路径语义重演一遍——而这个判断本来就是
+		// 启发式的，宁可多问一次。想去别处，写绝对路径。
+		//
+		// A .. in a relative path always counts as escaping. It resolves against cmd.Dir (the
+		// workspace) and could in principle land in a granted directory, but telling for sure would
+		// mean re-enacting the shell's path semantics here — and this check is a heuristic to begin
+		// with, so it asks one time too many rather than one too few. To go elsewhere, write it out.
 		cleaned := filepath.Clean(f)
 		if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
 			return true
 		}
 	}
 	return false
+}
+
+// escapeDir 挑出这条命令里第一个越界的绝对路径，答"授予哪个目录能让它不再越界"。
+//
+// 只取第一个：审批卡上要印的是一个具体目录，用户点的按钮必须只对应一件事。
+// 一条命令同时伸向好几个不同的地方时，这里给的目录只解决其中一个，剩下的下次再问——
+// 一次点击授出好几处，是用户没法核对的那种"方便"。
+//
+// escapeDir picks the first out-of-bounds absolute path in a command and answers which directory,
+// granted, would stop it escaping.
+//
+// Only the first: the approval card prints one specific directory, and the button the user presses has
+// to mean exactly one thing. When a command reaches into several unrelated places this covers one of
+// them and the rest are asked again later — granting several at one click is the kind of convenience
+// the user cannot check.
+func (t *Toolbox) escapeDir(segs []shellSeg) string {
+	for _, s := range segs {
+		if len(s.words) < 2 {
+			continue
+		}
+		for _, f := range s.words[1:] {
+			if f == "" || strings.HasPrefix(f, "-") {
+				continue
+			}
+			if !strings.HasPrefix(f, "/") && !strings.HasPrefix(f, "~") {
+				continue
+			}
+			abs, ok := absPath(f)
+			if !ok || t.inBounds(abs) {
+				continue
+			}
+			if dir := t.roots.Candidate(abs); dir != "" {
+				return dir
+			}
+		}
+	}
+	return ""
 }
 
 func (t *Toolbox) awaitApproval(req *Approval) (approved bool, reason string) {
@@ -378,28 +504,32 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	if command == "" {
 		return i18n.T("Command is empty"), true
 	}
-	firstWord := strings.Fields(command)[0]
 	// 两个判断分开，因为它们回答的是不同问题：
-	//   ReadOnly —— 这条命令有没有副作用？元字符一律否决（`ls $(rm -rf ~)` 首词是只读的）。
-	//   Escapes  —— 副作用会不会跑到工作目录外？管道和重定向本身不会（cmd.Dir 钉在工作目录，
-	//               相对路径出不去），命令替换会，绝对路径 / .. / ~ 也会。
+	//   ReadOnly —— 这条命令有没有副作用？按段判：每一段都是白名单里的只读命令、没有重定向、
+	//               没有命令替换，整条才算只读。
+	//   Escapes  —— 副作用会不会跑到界外？管道和重定向本身不会（cmd.Dir 钉在工作目录，
+	//               相对路径出不去），命令替换会，指向界外的绝对路径 / .. / ~ 也会。
 	// 混为一谈的话，auto 档会把 `echo x > note.txt && cat note.txt` 也拦下来，
 	// 那这一档就没法干活了。
 	//
 	// The two checks answer different questions:
-	//   ReadOnly — does this command have side effects? Any metacharacter says yes
-	//              (`ls $(rm -rf ~)` has a read-only first word).
-	//   Escapes  — can those side effects land outside the workspace? Pipes and redirects on their own
-	//              cannot (cmd.Dir is pinned to the workspace, so relative paths stay in); command
-	//              substitution can, and so do absolute paths, .. and ~.
+	//   ReadOnly — does this command have side effects? Judged per segment: the whole is read-only only
+	//              when every segment is a whitelisted read-only command with no redirect and no
+	//              substitution anywhere.
+	//   Escapes  — can those side effects land out of bounds? Pipes and redirects on their own cannot
+	//              (cmd.Dir is pinned to the workspace, so relative paths stay in); command substitution
+	//              can, and so do absolute paths, .. and ~ that point outside.
 	// Conflating them would make the auto tier gate `echo x > note.txt && cat note.txt`, which leaves
 	// that tier unable to do any actual work.
-	hasMeta := shellMetaRe.MatchString(command)
-	escapes := bashLeavesWorkspace(command) || cmdSubstRe.MatchString(command)
+	segs, subst, parsed := scanBash(command)
+	escapes := !parsed || subst || t.bashEscapes(segs)
 	act := config.ToolAct{
 		Kind:     config.ActBash,
-		ReadOnly: safeBashCommands[firstWord] && !hasMeta && !escapes,
+		ReadOnly: bashReadOnly(segs, subst, parsed) && !escapes,
 		Escapes:  escapes,
+	}
+	if escapes {
+		act.Dir = t.escapeDir(segs)
 	}
 	if reason, rejected, _ := t.gate(act, "bash: "+command,
 		i18n.T("Command execution requested, waiting for approval #%d: $ ")+command); rejected {
@@ -450,8 +580,9 @@ func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
 		preview = preview[:400] + "…"
 	}
 	action := fmt.Sprintf("write_file: %s (%d bytes)\n%s", rel, len(content), preview)
-	// resolve 已经把路径钉死在工作目录内，所以写文件永远不越界
-	// resolve has already pinned the path inside the workspace, so a write can never escape
+	// resolve 已经把路径钉死在界内（工作目录，或用户指定的目录），所以写文件永远不越界
+	// resolve has already pinned the path inside the bounds (the workspace, or a directory the user
+	// named), so a write can never escape
 	act := config.ToolAct{Kind: config.ActWrite}
 	if reason, rejected, _ := t.gate(act, action,
 		i18n.T("File write requested, waiting for approval #%d: ")+rel); rejected {
