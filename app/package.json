@@ -1,0 +1,66 @@
+{
+  "name": "bot-bureau",
+  "productName": "Bot Bureau",
+  "version": "0.1.0",
+  "description": "Bot Bureau —— 常驻本机的 AI 同事团队，桌面客户端（Go 引擎 + Electron）",
+  "main": "main.js",
+  "scripts": {
+    "prestart": "node scripts/fix-electron-identity.js",
+    "start": "electron .",
+    "build:backend": "node scripts/build-backend.js",
+    "build:icon": "cd .. && python3 assets/make_icon.py",
+    "dist:mac:arm64": "node scripts/build-backend.js --platform darwin --arch arm64 && electron-builder --mac --arm64",
+    "dist:mac:x64": "node scripts/build-backend.js --platform darwin --arch x64 && electron-builder --mac --x64",
+    "dist:mac:universal": "node scripts/build-backend.js --platform darwin && electron-builder --mac --universal",
+    "dist:win:x64": "node scripts/build-backend.js --platform win32 --arch x64 && electron-builder --win --x64",
+    "dist:win:arm64": "node scripts/build-backend.js --platform win32 --arch arm64 && electron-builder --win --arm64",
+    "dist:linux:x64": "node scripts/build-backend.js --platform linux --arch x64 && electron-builder --linux --x64",
+    "dist:linux:arm64": "node scripts/build-backend.js --platform linux --arch arm64 && electron-builder --linux --arm64"
+  },
+  "build": {
+    "appId": "app.botbureau.desktop",
+    "productName": "Bot Bureau",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**",
+      "bin/**",
+      "build/icon.*",
+      "build/icon-light.png"
+    ],
+    "afterPack": "scripts/after-pack.js",
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg"
+      ],
+      "darkModeSupport": true
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "asarUnpack": [
+      "bin/**"
+    ],
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.4.4"
+  }
+}
