@@ -84,3 +84,53 @@ func TestThinkingBudgetShape(t *testing.T) {
 		}
 	}
 }
+
+// 档位是按服务商发的：一张表套所有人时，选中对方不认的那一档就是一个说不清的 400。
+// Tiers are served per provider: with one table for everyone, picking a tier the vendor does not take
+// produced an inscrutable 400.
+func TestEffortOptionsFollowTheProvider(t *testing.T) {
+	ids := func(provider string) []string {
+		var out []string
+		for _, o := range config.EffortOptionsFor(provider) {
+			out = append(out, o["id"].(string))
+		}
+		return out
+	}
+	// 每一家的第一项都得是"服务商默认"，那是唯一处处都能用的选择
+	// Every provider must lead with "vendor default", the one choice that works everywhere
+	for _, p := range []string{"anthropic", "openai", "xai", "deepseek", "fake", "whatever"} {
+		if got := ids(p); len(got) == 0 || got[0] != "" {
+			t.Fatalf("%s should lead with the vendor default, got %v", p, got)
+		}
+	}
+	// OpenAI 独有 minimal；xAI 的推理模型不认 medium
+	// minimal is OpenAI's alone; xAI's reasoning models do not take medium
+	if !config.EffortSupported("openai", config.EffortMinimal) {
+		t.Fatal("openai should offer minimal")
+	}
+	for _, p := range []string{"anthropic", "xai", "deepseek"} {
+		if config.EffortSupported(p, config.EffortMinimal) {
+			t.Fatalf("%s should not offer minimal", p)
+		}
+	}
+	if config.EffortSupported("xai", config.EffortMedium) {
+		t.Fatal("xai should not offer medium")
+	}
+	if !config.EffortSupported("xai", config.EffortHigh) {
+		t.Fatal("xai should offer high")
+	}
+	// 离线回声没有模型可想；未知服务商按 OpenAI 兼容处理
+	// The offline echo has no model to think with; an unknown provider is treated as OpenAI-compatible
+	if got := ids("fake"); len(got) != 1 {
+		t.Fatalf("fake should offer the default alone, got %v", got)
+	}
+	if !config.EffortSupported("some-self-hosted-thing", config.EffortMedium) {
+		t.Fatal("an unknown provider should behave as OpenAI-compatible")
+	}
+	// 留空处处可用 / empty is accepted everywhere
+	for _, p := range []string{"anthropic", "openai", "xai", "fake"} {
+		if !config.EffortSupported(p, "") {
+			t.Fatalf("%s should accept the vendor default", p)
+		}
+	}
+}

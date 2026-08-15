@@ -169,7 +169,12 @@ func (a *App) validateBot(cfg *config.BotConfig) error {
 		return fmt.Errorf(i18n.T("The display name may be at most %d characters"), config.DisplayNameMax)
 	}
 	if !config.ValidEffort(cfg.Effort) {
-		return errors.New(i18n.T("The reasoning effort must be low / medium / high, or empty for the vendor default"))
+		return errors.New(i18n.T("The reasoning effort must be minimal / low / medium / high, or empty for the vendor default"))
+	}
+	// 档位得是这家服务商真认的那几个：递一个它不认识的过去就是一个说不清的 400。
+	// The tier has to be one this provider actually takes: handing it an unknown one is an inscrutable 400.
+	if !config.EffortSupported(cfg.ProviderID, cfg.Effort) {
+		return fmt.Errorf(i18n.T("%s does not offer the %s reasoning effort"), cfg.ProviderID, cfg.Effort)
 	}
 	if cfg.Permission != "" && !config.ValidPerm(cfg.Permission) {
 		return errors.New(i18n.T("The permission tier must be ask / edit / auto / full, or empty to follow the global setting"))
@@ -514,7 +519,8 @@ func (a *App) Handler() http.Handler {
 	// 思考强度选项，和权限档位一样由引擎给标签
 	// Reasoning-effort options; like the permission tiers, the engine supplies the labels
 	mux.HandleFunc("/api/efforts", cors(func(rw http.ResponseWriter, r *http.Request) {
-		httpx.WriteJSON(rw, 200, map[string]any{"levels": config.EffortOptions()})
+		// 档位随服务商变，所以要带 ?provider= 来问 / the tiers vary by provider, hence ?provider=
+		httpx.WriteJSON(rw, 200, map[string]any{"levels": config.EffortOptionsFor(r.URL.Query().Get("provider"))})
 	}))
 
 	mux.HandleFunc("/api/permissions", cors(func(rw http.ResponseWriter, r *http.Request) {

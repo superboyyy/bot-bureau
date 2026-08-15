@@ -2056,11 +2056,18 @@ function codeChip(code) {
 let permLevels = [];
 let effortLevels = [];
 
-async function loadEffortLevels() {
+// 档位随服务商变（Anthropic 是思考预算，OpenAI 多一档 minimal，xAI 只认 low/high），
+// 所以每次换服务商都要重新问引擎，不能只在启动时取一次。
+//
+// The tiers vary by provider (Anthropic takes a thinking budget, OpenAI has the extra minimal tier,
+// xAI accepts only low and high), so the engine is asked again on every vendor change rather than
+// once at startup.
+async function loadEffortLevels(providerID) {
   try {
-    effortLevels = (await api("/api/efforts")).levels || [];
+    effortLevels = (await api("/api/efforts?provider=" + encodeURIComponent(providerID || ""))).levels || [];
   } catch (err) {
     console.log("effort levels unavailable: " + err.message);
+    effortLevels = [];
   }
 }
 
@@ -2075,8 +2082,21 @@ function fillBotEffortSel(value) {
     o.textContent = e.label;
     return o;
   }));
-  sel.value = value || "";
+  // 换了服务商后原来选的那档可能已经没有了（openai 的 medium → xai 就没有），
+  // 这时退回"服务商默认"，而不是留一个下拉里根本不存在的值。
+  //
+  // After a vendor change the previous tier may be gone (medium on openai, absent on xai); fall back to
+  // "vendor default" rather than leaving a value the dropdown does not contain.
+  const keep = effortLevels.some((e) => e.id === (value || ""));
+  sel.value = keep ? value || "" : "";
   renderBotEffortNote();
+}
+
+// 档位表要重新问引擎（它按服务商给），拿回来再填下拉。
+// The tier table is refetched from the engine (which serves it per provider) before filling the dropdown.
+async function refreshBotEffort(providerID, value) {
+  await loadEffortLevels(providerID);
+  fillBotEffortSel(value);
 }
 
 function renderBotEffortNote() {
@@ -2205,7 +2225,12 @@ function field(labelText, control) {
 
 // 返回一个挂在 root 上的选择器：setConfig 回填、getConfig 取值。
 // Returns a picker mounted on root: setConfig repopulates it, getConfig reads it back.
-function createModelPicker(root) {
+// onVendor（可选）在用户换服务商时回调。思考强度的档位是跟着服务商走的，
+// 选择器自己不管那个，只负责把变化说出去。
+//
+// onVendor (optional) fires when the user changes vendor. The reasoning-effort tiers follow the
+// provider; the picker does not own them and only announces the change.
+function createModelPicker(root, onVendor) {
   let cur = { provider_id: "", auth: "", base_url: "", api_key_env: "", model: "" };
   let models = [];
   let manual = false;
@@ -2253,6 +2278,7 @@ function createModelPicker(root) {
     modelErr = "";
     paint();
     refresh();
+    if (onVendor) onVendor(cur.provider_id);
   };
   refreshBtn.onclick = () => refresh();
   modelSel.onchange = () => { cur.model = modelSel.value; };
@@ -2493,7 +2519,7 @@ function guessProvider(c) {
   return base ? providerOpt("custom") : providerOpt("openai");
 }
 
-const botPicker = createModelPicker($("botModelPicker"));
+const botPicker = createModelPicker($("botModelPicker"), (pid) => refreshBotEffort(pid, ""));
 
 // 侧栏只留一个"＋"：建 bot 和建群都从这里进。
 // 两个并排的加号分不清谁是谁，图标又几乎一样——点开给两个带说明的选项更清楚。
@@ -2634,7 +2660,7 @@ function openBotModal(name, prefill) {
   botPicker.clearKeyInput();
   botPicker.setConfig(c);
   fillBotPermSel(c.permission || "");
-  fillBotEffortSel(c.effort || "");
+  refreshBotEffort(c.provider_id || "", c.effort || "");
   renderBotMcpChoices(c.mcp || []);
   avatarDraft.bot = c.avatar || "";
   paintAvatarEditor("bot", name || "bot");
@@ -2780,7 +2806,6 @@ $("langSel").onchange = async (e) => {
     // The catalog's labels and notes are produced by the engine in its locale, so refetch after switching
     await loadProviderCatalog();
     await loadPermLevels();
-    await loadEffortLevels();
     renderPermLevels();
     botPicker.repaint();
     if (onboardPicker) onboardPicker.repaint();
@@ -3056,7 +3081,7 @@ function boot() {
   wireSideSplit();
   // 服务商目录要先到位，模型选择器才画得出下拉框
   // The vendor catalog has to land first or the model picker has nothing to render
-  Promise.all([loadProviderCatalog(), loadPermLevels(), loadEffortLevels()])
+  Promise.all([loadProviderCatalog(), loadPermLevels()])
     .then(refetchState)
     .then(() => {
       connectSSE();

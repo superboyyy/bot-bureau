@@ -100,14 +100,15 @@ func ValidAvatar(s string) bool {
 // Empty sends no field at all and leaves the vendor's default in place, which matters: not every model
 // accepts a thinking parameter, and forcing one on a model that does not know it is a plain 400.
 const (
-	EffortLow    = "low"
-	EffortMedium = "medium"
-	EffortHigh   = "high"
+	EffortMinimal = "minimal"
+	EffortLow     = "low"
+	EffortMedium  = "medium"
+	EffortHigh    = "high"
 )
 
 func ValidEffort(s string) bool {
 	switch s {
-	case "", EffortLow, EffortMedium, EffortHigh:
+	case "", EffortMinimal, EffortLow, EffortMedium, EffortHigh:
 		return true
 	}
 	return false
@@ -120,6 +121,8 @@ func ValidEffort(s string) bool {
 // It stays below MaxTokens: a budget larger than the total output cap is rejected outright.
 func ThinkingBudget(effort string) int64 {
 	switch effort {
+	case EffortMinimal:
+		return 1024 // Anthropic 接受的最小预算 / the smallest budget Anthropic accepts
 	case EffortLow:
 		return 2048
 	case EffortMedium:
@@ -130,19 +133,82 @@ func ThinkingBudget(effort string) int64 {
 	return 0
 }
 
-// EffortOptions 给客户端渲染选择器用。
-// EffortOptions feeds the client's picker.
-func EffortOptions() []map[string]any {
-	return []map[string]any{
-		{"id": "", "label": i18n.T("Vendor default"),
-			"note": i18n.T("Send no thinking setting at all — the safest choice, and the only one every model accepts")},
-		{"id": EffortLow, "label": i18n.T("Quick"),
-			"note": i18n.T("Answers sooner and costs less; good for chores and short questions")},
-		{"id": EffortMedium, "label": i18n.T("Balanced"),
-			"note": i18n.T("Thinks before most answers")},
-		{"id": EffortHigh, "label": i18n.T("Thorough"),
-			"note": i18n.T("Thinks the longest on hard problems; slower and pricier")},
+// 各家能接受的档位并不一致，所以选择器得按服务商来发，不能一张表套所有人。
+//
+// Anthropic 那边根本没有"档位"这回事，是一个连续的 thinking token 预算，上面那几个数字是本项目
+// 自己切的；OpenAI 走 reasoning_effort，比别人多一档 minimal；xAI 的推理模型只认 low 和 high，
+// 把 medium 递过去是直接报错。以前四个档位不分服务商地发给所有人，选中不被支持的那档就是一个
+// 看不出所以然的 400——用户能做的只有退回"服务商默认"。
+//
+// The tiers each vendor accepts are not the same, so the picker has to be served per provider rather
+// than as one table for everyone.
+//
+// Anthropic has no notion of tiers at all — it takes a continuous thinking-token budget, and the
+// numbers above are this project's own cut of it. OpenAI drives reasoning_effort and has one more tier
+// than the rest, minimal. xAI's reasoning models accept only low and high; handing them medium is an
+// outright error. The four tiers used to go to every provider alike, so picking an unsupported one
+// produced an inscrutable 400 and the only way out was falling back to "vendor default".
+func effortTier(id string) map[string]any {
+	switch id {
+	case EffortMinimal:
+		return map[string]any{"id": EffortMinimal, "label": i18n.T("Fastest"),
+			"note": i18n.T("Barely thinks at all; cheapest and quickest")}
+	case EffortLow:
+		return map[string]any{"id": EffortLow, "label": i18n.T("Quick"),
+			"note": i18n.T("Answers sooner and costs less; good for chores and short questions")}
+	case EffortMedium:
+		return map[string]any{"id": EffortMedium, "label": i18n.T("Balanced"),
+			"note": i18n.T("Thinks before most answers")}
+	case EffortHigh:
+		return map[string]any{"id": EffortHigh, "label": i18n.T("Thorough"),
+			"note": i18n.T("Thinks the longest on hard problems; slower and pricier")}
 	}
+	return map[string]any{"id": "", "label": i18n.T("Vendor default"),
+		"note": i18n.T("Send no thinking setting at all — the safest choice, and the only one every model accepts")}
+}
+
+// EffortOptionsFor 给出某个服务商能用的档位，第一个永远是"服务商默认"。
+// 未知的服务商（自建、本地模型）按 OpenAI 兼容处理，那是这类接口的通行写法。
+//
+// EffortOptionsFor lists the tiers a provider accepts, always leading with "vendor default".
+// An unknown provider (self-hosted, local models) is treated as OpenAI-compatible, which is the usual
+// spelling for that class of endpoint.
+func EffortOptionsFor(providerID string) []map[string]any {
+	var ids []string
+	switch providerID {
+	case "anthropic":
+		ids = []string{EffortLow, EffortMedium, EffortHigh}
+	case "openai":
+		ids = []string{EffortMinimal, EffortLow, EffortMedium, EffortHigh}
+	case "xai":
+		ids = []string{EffortLow, EffortHigh}
+	case "fake":
+		// 离线回声没有模型可想 / the offline echo has no model to think with
+	default:
+		ids = []string{EffortLow, EffortMedium, EffortHigh}
+	}
+	out := []map[string]any{effortTier("")}
+	for _, id := range ids {
+		out = append(out, effortTier(id))
+	}
+	return out
+}
+
+// EffortSupported 判断某档位在某服务商上是否可用。保存时用它兜底：
+// 换服务商时界面会重挑，但配置文件是可以手写的。
+//
+// EffortSupported reports whether a tier is available on a provider. It backstops saving: the UI
+// re-picks when the provider changes, but the config file can also be written by hand.
+func EffortSupported(providerID, effort string) bool {
+	if effort == "" {
+		return true
+	}
+	for _, o := range EffortOptionsFor(providerID) {
+		if o["id"] == effort {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidBotName 校验 @提及 用的 id。这个字母表是被工作目录名、群成员表和
