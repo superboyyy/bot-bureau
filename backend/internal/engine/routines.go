@@ -128,6 +128,60 @@ func (s *Scheduler) Remove(name string) bool {
 	return true
 }
 
+// RemoveByBot 删掉指派给某个 bot 的所有例程，返回删掉的条数。
+//
+// 人走了，指给他的定时任务就该跟着停。留着并不会等来接手的人——id 是一次性的随机串，
+// 任何新成员都不会再叫这个名字——只会每到点往群里丢一条"例程被跳过：负责人不存在"。
+// 工作文件是他干活的产物，该留；例程是一段还活着的行为，该撤。
+//
+// RemoveByBot deletes every routine assigned to a bot and returns how many went.
+//
+// When someone leaves, the schedules pointing at them should stop. Keeping them waits for a successor
+// who can never arrive — ids are one-shot random strings and no new member will ever carry this one
+// again — and only drips "routine skipped: its assignee does not exist" into the group forever. Work
+// files are what they produced and are kept; a routine is live behaviour and is revoked.
+func (s *Scheduler) RemoveByBot(bot string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for name, r := range s.routines {
+		if r.Bot == bot {
+			delete(s.routines, name)
+			n++
+		}
+	}
+	if n > 0 {
+		s.save()
+	}
+	return n
+}
+
+// Reassign 把一条例程改派给另一个 bot。
+//
+// 在此之前"转交"只有一条歪路：让另一位成员按同名再存一遍，靠 Add 整条覆盖顶掉原来那条
+// （见工具描述里那句"同名会被覆盖"）。那要求用户知道这个实现细节、还得把 prompt 一字不差地
+// 重述一遍——而界面上 prompt 超过 90 字就截断显示，根本抄不全。
+//
+// Reassign hands a routine to a different bot.
+//
+// Until now the only way to "transfer" one was sideways: have the other member save it again under
+// the same name and let Add overwrite the entry wholesale (the "same name is overwritten" line in the
+// tool description). That asked the user to know an implementation detail and to restate the prompt
+// word for word — impossible from a UI that truncates it at 90 characters.
+func (s *Scheduler) Reassign(name, bot string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.routines[name]
+	if !ok {
+		return false
+	}
+	// 换人不重新计时：改派的是"这件活归谁"，不是"什么时候做"
+	// Reassigning does not reset the clock: it changes whose job this is, not when it happens
+	r.Bot = bot
+	s.save()
+	return true
+}
+
 func (s *Scheduler) List() []*Routine {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -77,9 +77,19 @@ func SetLocale(l string) {
 }
 
 // detectSystemLocale 从环境变量猜测语言：含 zh 视为中文，其余按英文。
+//
+// BOTBUREAU_LOCALE 排在最前，因为 LANG/LC_ALL 这条路在桌面端根本走不通：从图标启动的
+// GUI 进程一个语言变量都没有，引擎于是一律判成英文，而外壳（Electron 主进程）是知道系统
+// 语言的——所以由它 spawn 时递进来。
+//
 // detectSystemLocale guesses the locale from the environment: anything containing zh means Chinese, otherwise English.
+//
+// BOTBUREAU_LOCALE comes first because the LANG/LC_ALL route does not work on the desktop at all: a GUI
+// process launched from an icon carries no language variables, so the engine always landed on English.
+// The shell around it — the Electron main process — does know the system language, and passes it in at
+// spawn time.
 func DetectSystemLocale() string {
-	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+	for _, k := range []string{"BOTBUREAU_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG"} {
 		if v := strings.ToLower(os.Getenv(k)); v != "" {
 			if strings.Contains(v, "zh") {
 				return "zh"

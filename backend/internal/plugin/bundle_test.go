@@ -9,8 +9,8 @@ import (
 	"botbureau/backend/internal/secret"
 )
 
-// 造一个像样的插件包：清单 + 一个 MCP server + 一个技能 + 一个同事模板 + 两块我们不消费的东西。
-// Build a realistic bundle: a manifest, one MCP server, one skill, one teammate template, and two parts
+// 造一个像样的插件包：清单 + 一个 MCP server + 一个技能 + 一个成员模板 + 两块我们不消费的东西。
+// Build a realistic bundle: a manifest, one MCP server, one skill, one member template, and two parts
 // we do not consume.
 func writeBundle(t *testing.T, dir string) {
 	t.Helper()

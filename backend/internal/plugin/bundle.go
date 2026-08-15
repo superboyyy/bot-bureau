@@ -25,7 +25,7 @@ package plugin
 // The mapping:
 //	mcpServers / .mcp.json  → MCP plugins (the layer the engine already has)
 //	skills/                 → the skill library (the skill package)
-//	agents/                 → teammate templates (Bot Bureau's own dividend: elsewhere these degrade
+//	agents/                 → member templates (Bot Bureau's own dividend: elsewhere these degrade
 //	                          into subagents)
 //	commands/ hooks/        → not supported yet, reported honestly in Ignored
 
@@ -80,8 +80,8 @@ type Bundle struct {
 	Ignored []string `json:"ignored,omitempty"`
 }
 
-// Agent 是包里带的一个「同事模板」：Bot Bureau 可以据此建一个真正的团队成员。
-// Agent is a "teammate template" shipped in a bundle, from which Bot Bureau can create a real member.
+// Agent 是包里带的一个「成员模板」：Bot Bureau 可以据此建一个真正的团队成员。
+// Agent is a "member template" shipped in a bundle, from which Bot Bureau can create a real member.
 type Agent struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
@@ -973,8 +973,8 @@ func (m *BundleManager) SkillRoots() []struct{ Source, Dir string } {
 	return out
 }
 
-// Agents 汇总全部包里的同事模板。
-// Agents gathers the teammate templates from every bundle.
+// Agents 汇总全部包里的成员模板。
+// Agents gathers the member templates from every bundle.
 func (m *BundleManager) Agents() []Agent {
 	m.mu.Lock()
 	defer m.mu.Unlock()

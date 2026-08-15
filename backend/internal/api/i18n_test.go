@@ -41,7 +41,7 @@ func TestTranslate(t *testing.T) {
 }
 
 func TestDetectSystemLocale(t *testing.T) {
-	for _, k := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
+	for _, k := range []string{"BOTBUREAU_LOCALE", "LC_ALL", "LC_MESSAGES", "LANG"} {
 		t.Setenv(k, "")
 	}
 	t.Setenv("LANG", "zh_CN.UTF-8")
@@ -57,6 +57,13 @@ func TestDetectSystemLocale(t *testing.T) {
 	t.Setenv("LC_ALL", "zh_TW.UTF-8")
 	if got := i18n.DetectSystemLocale(); got != "zh" {
 		t.Fatalf("LC_ALL should win: %q", got)
+	}
+	// 外壳递进来的语言压过一切：桌面端就靠这一条，那边根本没有 LANG/LC_ALL
+	// The language handed in by the shell outranks the rest: on the desktop it is the only one there
+	// is, since LANG and LC_ALL are simply absent
+	t.Setenv("BOTBUREAU_LOCALE", "en-AU")
+	if got := i18n.DetectSystemLocale(); got != "en" {
+		t.Fatalf("BOTBUREAU_LOCALE should win over LC_ALL: %q", got)
 	}
 }
 

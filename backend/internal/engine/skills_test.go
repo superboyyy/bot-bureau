@@ -97,10 +97,10 @@ func TestNoSkillsMeansNoSectionAndNoTool(t *testing.T) {
 	}
 }
 
-// 导入来的同事模板（agents/*.md 的正文）必须真的进系统提示，否则"把 agent 变成团队成员"
+// 导入来的成员模板（agents/*.md 的正文）必须真的进系统提示，否则"把 agent 变成团队成员"
 // 就只是抄了个名字。同时它必须在引擎自己那套规则之后，不能覆盖协作与权限的底线。
 //
-// An imported teammate template (the body of an agents/*.md file) has to reach the system prompt, or
+// An imported member template (the body of an agents/*.md file) has to reach the system prompt, or
 // "turning an agent into a team member" is just copying a name across. It must also come after the
 // engine's own rules, never overriding the collaboration and permission floor.
 func TestCustomPromptIsAppendedAfterEngineRules(t *testing.T) {

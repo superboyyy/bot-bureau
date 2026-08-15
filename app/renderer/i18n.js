@@ -42,6 +42,18 @@ function t(en, ...args) {
   return out;
 }
 
+// sentences 把几句话接成一段。分句的间隔由语言决定：英文句号后要空一格，中文不空——
+// 拼出来的「……删除。 指派给 ta 的……」那个半角空格看着就像打错了。
+// 整段只写成一条译文也行，但那样每多一种句子组合就得把同一段长句再抄一遍。
+//
+// sentences joins a few sentences into one paragraph, with the gap decided by the language: English
+// wants a space after the full stop and Chinese wants none — the half-width space in
+// "……删除。 指派给 ta 的……" reads as a typo. Writing each combination out as its own entry would
+// work too, at the cost of copying the same long sentence again for every extra variant.
+function sentences(...parts) {
+  return parts.filter(Boolean).join(LOCALE === "zh" ? "" : " ");
+}
+
 function setLocalePref(pref) {
   if (pref === "auto") localStorage.removeItem(I18N_KEY);
   else localStorage.setItem(I18N_KEY, pref);
