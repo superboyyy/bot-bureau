@@ -7,6 +7,11 @@
   "scripts": {
     "prestart": "node scripts/fix-electron-identity.js",
     "start": "electron .",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "node --test e2e/*.test.js",
+    "test:all": "npm run test:unit && npm run test:e2e",
     "build:backend": "node scripts/build-backend.js",
     "build:icon": "cd .. && python3 assets/make_icon.py",
     "dist:mac:arm64": "node scripts/build-backend.js --platform darwin --arch arm64 && electron-builder --mac --arm64",
@@ -57,8 +62,12 @@
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.10",
     "electron": "^43.4.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.62.1",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "bonjour-service": "^1.4.4"

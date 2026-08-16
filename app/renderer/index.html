@@ -2,15 +2,10 @@
 <html lang="zh">
 <head>
   <meta charset="utf-8">
-  <!-- connect-src 必须放开任意 http/https：引擎地址由用户配置（本机 / 局域网 / Tailscale / 自有服务器）。
-       脚本仍限 'self'，页面只用 textContent 渲染，无远程代码执行面。 -->
+
   <!-- connect-src must allow any http/https: the engine address is user-configured (local / LAN / Tailscale / own server).
        Scripts stay 'self' and the page renders via textContent only, so there is no remote-code-execution surface. -->
-  <!-- img-src 里的 blob: 是给附件缩略图用的。附件接口在配对码后面，<img> 带不了
-       Authorization 头，所以正文是 fetch 下来再转成 blob 地址的（见 app.js 的 fileURL）——
-       另一条路是把配对码拼进 URL，那等于把它写进每一条日志。
-       blob: 只能由本页自己的代码造出来，外面注入不进来，所以这一放很窄。
-       The blob: in img-src is for attachment thumbnails. That endpoint sits behind the pairing code and
+  <!--       The blob: in img-src is for attachment thumbnails. That endpoint sits behind the pairing code and
        an <img> cannot carry an Authorization header, so the bytes are fetched and handed over as a blob
        address instead (see fileURL in app.js) — the alternative being the pairing code in a URL, which
        writes it into every log. A blob: URL can only be minted by this page's own code and cannot be
@@ -74,18 +69,14 @@
       <button type="button" id="retryBtn" data-i18n="Retry now">Retry now</button>
       <button type="button" id="takeLocalBtn" hidden></button>
     </div>
-    <!-- stage 是标题栏浮在消息流之上的定位参照：消息从 y=0 开始滚动，从毛玻璃标题栏底下穿过。
-         离线横幅留在 stage 外的常规流里，所以它出现时是把整块下推，而不是被浮层盖住。
-         The stage is the positioning context that lets the header float over the message stream:
+    <!--         The stage is the positioning context that lets the header float over the message stream:
          messages start at y=0 and scroll underneath the frosted bar. The offline banner stays outside
          the stage in normal flow, so when it appears it pushes the stage down instead of being covered. -->
     <div class="stage">
       <header id="chatHeader"></header>
       <div id="msgs"></div>
       <form id="composer">
-        <!-- 引用条：这次发送在回哪一条。摆在输入框外面而不是框内——它是这条消息的去向，
-             不是内容的一部分，混进框里会被当成已经打好的字。
-             The reply bar: which message this one answers. It sits outside the field rather than
+        <!--             The reply bar: which message this one answers. It sits outside the field rather than
              inside it, because it addresses the message rather than being part of it, and inside the
              field it would read as text already typed. -->
         <div id="replyBar" hidden>
@@ -97,9 +88,7 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
         </div>
-        <!-- 待发送的附件排在输入框上方，和引用条同一层：都是"这条消息还带着什么"，
-             都不是已经打好的字，所以都不进框里。
-             Attachments waiting to be sent sit above the field, on the same level as the reply bar:
+        <!--             Attachments waiting to be sent sit above the field, on the same level as the reply bar:
              both say what else this message carries, neither is text already typed, so neither goes
              inside the field. -->
         <div id="attachTray" hidden></div>
@@ -139,17 +128,15 @@
       </div>
 
       <label><span data-i18n="Name">Name</span><input name="display_name" placeholder="e.g. Wren" data-i18n-ph="e.g. Wren"></label>
-      <!-- 内部 id：从名字派生，不出现在界面上。它是工作目录和任务归属的键，创建后不能改，
-           但用户不该为此多认一个名字——群里喊的就是上面那个名字。
-           Internal id: derived from the name and never shown. It keys the workspace and task ownership
+      <!--           Internal id: derived from the name and never shown. It keys the workspace and task ownership
            and cannot change after creation, but that is no reason to make the user learn a second name —
            the name called in a group is the one above. -->
       <input type="hidden" name="name">
       <label><span data-i18n="Role">Role</span><input name="role" placeholder="e.g. copywriter" data-i18n-ph="e.g. copywriter"></label>
-      <label><span data-i18n="Persona / responsibilities">Persona / responsibilities</span><textarea name="description" rows="3" placeholder="What it is good at and responsible for" data-i18n-ph="What it is good at and responsible for"></textarea></label>
+      <label><span data-i18n="Persona / responsibilities">Persona / responsibilities</span><textarea name="description" rows="3" placeholder="Strengths and responsibilities" data-i18n-ph="Strengths and responsibilities"></textarea></label>
       <details id="botPromptRow">
         <summary data-i18n="Detailed role instructions (optional)">Detailed role instructions (optional)</summary>
-        <p class="hint" data-i18n="Appended to this bot's system prompt. Importing a member from a plugin fills this in.">Appended to this bot's system prompt. Importing a member from a plugin fills this in.</p>
+        <p class="hint" data-i18n="This is appended to the member's system prompt. Importing a member from a plugin fills it in.">This is appended to the member's system prompt. Importing a member from a plugin fills it in.</p>
         <label><textarea name="prompt" rows="6" placeholder="e.g. Always check the tests before saying a task is done." data-i18n-ph="e.g. Always check the tests before saying a task is done."></textarea></label>
       </details>
 
@@ -162,14 +149,12 @@
       <p class="hint" id="botEffortNote"></p>
 
       <h3 class="sub-head" data-i18n="Permissions">Permissions</h3>
-      <label><span data-i18n="What this bot needs your approval for">What this bot needs your approval for</span>
+      <label><span data-i18n="Actions requiring your approval">Actions requiring your approval</span>
         <select name="permission" id="botPermSel"></select>
       </label>
       <p class="hint" id="botPermNote"></p>
 
-      <!-- 工作目录清单。档位说明写着"工作目录内免审批"，这里才说得清那是哪几个目录——
-           三档说明都用得上这一句，所以它挨着选择器放一次，而不是在每一档里重复。
-           The working-directory list. The tier notes promise "no approvals inside the workspace" and
+      <!--           The working-directory list. The tier notes promise "no approvals inside the workspace" and
            this is where which directories those are can actually be said — one line next to the picker,
            since all three tiers need it, rather than repeated inside each. -->
       <h3 class="sub-head" data-i18n="Working directories">Working directories</h3>
@@ -178,7 +163,7 @@
 
       <h3 class="sub-head" data-i18n="Plugins">Plugins</h3>
       <div id="botMcp" class="card"></div>
-      <p class="hint" id="botEditNote" hidden data-i18n="Saving restarts this bot with the new config. Switching provider family (Claude ↔ OpenAI-compatible) resets the conversation; changing persona, avatar or model name keeps it."></p>
+      <p class="hint" id="botEditNote" hidden data-i18n="Saving restarts this member with the new configuration. Switching provider types (Claude ↔ OpenAI-compatible) resets the conversation; changing the persona, avatar, or model name preserves it."></p>
       <p class="err" id="botErr"></p>
     </div>
     <menu>
@@ -204,7 +189,7 @@
         <input type="file" id="groupAvFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
       </div>
       <label><span data-i18n="Name (blank means &quot;Group chat&quot;)">Name (blank means &quot;Group chat&quot;)</span><input name="group_title" placeholder="e.g. War room" data-i18n-ph="e.g. War room"></label>
-      <p class="hint" data-i18n="The default avatar stacks the first two members' faces and follows changes in membership.">The default avatar stacks the first two members' faces and follows changes in membership.</p>
+      <p class="hint" data-i18n="The default avatar stacks the first two members' avatars and updates when membership changes.">The default avatar stacks the first two members' avatars and updates when membership changes.</p>
 
       <div class="group-head" style="padding-top:14px"><span data-i18n="Members">Members</span></div>
       <div id="groupMembers" class="card"></div>
@@ -247,7 +232,7 @@
         </label>
       </section>
       <section data-pane="perm" hidden>
-        <p class="hint" data-i18n="Which actions need your approval while a bot works. This is the team-wide default; each bot can override it in its own settings.">Which actions need your approval while a bot works. This is the team-wide default; each bot can override it in its own settings.</p>
+        <p class="hint" data-i18n="Which actions require approval while a member works. This is the team-wide default; each member can override it in their own settings.">Which actions require approval while a member works. This is the team-wide default; each member can override it in their own settings.</p>
         <div id="permLevels" class="perm-list"></div>
         <p class="err" id="permErr"></p>
       </section>
@@ -278,7 +263,7 @@
         </div>
         <p class="hint" id="xaiOAuthHint" hidden></p>
         <h3 class="sub-head" data-i18n="API keys">API keys</h3>
-        <p class="hint" data-i18n="Stored locally in data/keys.json (readable only by the current user); the UI only ever shows a mask. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.">Stored locally in data/keys.json (readable only by the current user); the UI only ever shows a mask. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.</p>
+        <p class="hint" data-i18n="Stored locally in data/keys.json (readable only by the current user); the UI only shows a masked value. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.">Stored locally in data/keys.json (readable only by the current user); the UI only shows a masked value. api_key_env in bots.yaml is looked up here first, then falls back to the real environment variable.</p>
         <div id="keysList" class="card" style="margin-bottom:12px"></div>
         <label><span data-i18n="Name (env-var style)">Name (env-var style)</span><input name="kname" placeholder="e.g. ANTHROPIC_API_KEY / XAI_API_KEY" data-i18n-ph="e.g. ANTHROPIC_API_KEY / XAI_API_KEY" list="keyNames">
           <datalist id="keyNames">
@@ -296,7 +281,7 @@
         <p class="err" id="keysErr"></p>
       </section>
       <section data-pane="alumni" hidden>
-        <p class="hint" data-i18n="Members you removed but chose to keep. Their memory and work files sit here untouched — nobody can pick them up again, so this is the only place left to read or delete them.">Members you removed but chose to keep. Their memory and work files sit here untouched — nobody can pick them up again, so this is the only place left to read or delete them.</p>
+        <p class="hint" data-i18n="These are members you removed but chose to keep. Their memory and work files remain untouched; nobody can use them again, so this is the only place to read or delete them.">These are members you removed but chose to keep. Their memory and work files remain untouched; nobody can use them again, so this is the only place to read or delete them.</p>
         <div id="departedList" class="card"></div>
       </section>
       <section data-pane="telegram" hidden>
@@ -319,21 +304,21 @@
   <form id="mcpForm" method="dialog">
     <h3 data-i18n="Plugins (MCP servers / connectors)">Plugins (MCP servers / connectors)</h3>
     <div class="body">
-      <p class="hint"><span data-i18n="A plugin gives every bot on the team a set of tools. Tools are exposed with an mcp_{plugin}_ prefix to the bots that have it checked, and any non-read-only operation needs your approval first.">A plugin gives every bot on the team a set of tools. Tools are exposed with an mcp_{plugin}_ prefix to the bots that have it checked, and any non-read-only operation needs your approval first.</span></p>
+      <p class="hint"><span data-i18n="A plugin gives each bot on the team a set of tools. Tools are exposed with the mcp_{plugin}_ prefix to bots that subscribe to it; every non-read-only operation requires your approval.">A plugin gives each bot on the team a set of tools. Tools are exposed with the mcp_{plugin}_ prefix to bots that subscribe to it; every non-read-only operation requires your approval.</span></p>
       <div id="mcpList" class="card" style="margin-bottom:16px"></div>
       <div class="sec-label" data-i18n="Available to install">Available to install</div>
       <div id="mcpCatalog" class="card" style="margin-bottom:8px"></div>
       <p class="err" id="mcpErr"></p>
 
       <div class="sec-label" data-i18n="Skills">Skills</div>
-      <p class="hint"><span data-i18n="A skill is a written-down procedure. Every bot sees each skill's one-line summary and loads the full text only when it applies, so installing many costs almost no context.">A skill is a written-down procedure. Every bot sees each skill's one-line summary and loads the full text only when it applies, so installing many costs almost no context.</span></p>
+      <p class="hint"><span data-i18n="A skill is a documented procedure. Every bot sees its one-line summary and loads the full text only when it applies, so installing many uses very little context.">A skill is a documented procedure. Every bot sees its one-line summary and loads the full text only when it applies, so installing many uses very little context.</span></p>
       <div id="skillList" class="card" style="margin-bottom:8px"></div>
       <div class="inline-actions">
         <button type="button" id="skillRescanBtn" data-i18n="Rescan">Rescan</button>
       </div>
 
       <div class="sec-label" data-i18n="Plugin packages">Plugin packages</div>
-      <p class="hint"><span data-i18n="Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and members are all taken in; anything not supported is listed after installing.">Bot Bureau installs Claude / Codex plugin packages as they are. A package's MCP servers, skills and members are all taken in; anything not supported is listed after installing.</span></p>
+      <p class="hint"><span data-i18n="Bot Bureau installs Claude/Codex plugin packages directly. It imports their MCP servers, skills, and member templates; anything unsupported is listed after installation.">Bot Bureau installs Claude/Codex plugin packages directly. It imports their MCP servers, skills, and member templates; anything unsupported is listed after installation.</span></p>
       <div id="bundleList" class="card" style="margin-bottom:8px"></div>
       <label><span data-i18n="Install from a git URL or a folder on this machine">Install from a git URL or a folder on this machine</span><input name="bundlesrc" id="bundleSrc" placeholder="https://github.com/someone/their-plugin" data-i18n-ph="https://github.com/someone/their-plugin"></label>
       <div class="inline-actions">
@@ -386,7 +371,7 @@
   <form id="toolPickForm" method="dialog">
     <h3 id="toolPickTitle"></h3>
     <div class="body">
-      <p class="hint"><span data-i18n="Only the checked tools are offered to your bots. Leaving everything checked also picks up new tools added by later updates.">Only the checked tools are offered to your bots. Leaving everything checked also picks up new tools added by later updates.</span></p>
+        <p class="hint"><span data-i18n="Only the checked tools are offered to your bots. Leaving all tools checked also includes tools added in later updates.">Only the checked tools are offered to your bots. Leaving all tools checked also includes tools added in later updates.</span></p>
       <div id="toolPickList" class="card"></div>
       <p class="err" id="toolPickErr"></p>
     </div>
@@ -425,9 +410,7 @@
         <span id="askFieldLabel"></span>
         <input id="askField" autocomplete="off">
       </label>
-      <!-- 确认框里的一个可选开关：用在"删掉，但要不要连资料一起删"这种一步说清的选择上，
-           免得为了一个复选框再开一个对话框。/ An optional switch inside the confirmation: for
-           choices like "remove them — and the files too?" that belong in the same step rather than
+      <!--           choices like "remove them — and the files too?" that belong in the same step rather than
            in a second dialog of their own. -->
       <div class="check-row" id="askCheckWrap" hidden>
         <label><input type="checkbox" id="askCheck"><span id="askCheckLabel"></span></label>
@@ -457,6 +440,22 @@
 <script src="locales/zh.js"></script>
 <script src="i18n.js"></script>
 <script src="markdown.js"></script>
+<script src="core/runtime.js"></script>
+<script src="core/dom.js"></script>
+<script src="utils/avatars.js"></script>
+<script src="core/time.js"></script>
+<script src="core/api.js"></script>
+<script src="views/sidebar.js"></script>
+<script src="views/chat.js"></script>
+<script src="views/workbench.js"></script>
+<script src="views/tasks.js"></script>
+<script src="views/plugins.js"></script>
+<script src="views/composer.js"></script>
+<script src="views/context-menu.js"></script>
+<script src="dialogs/bots.js"></script>
+<script src="views/settings.js"></script>
+<script src="dialogs/groups.js"></script>
+<script src="dialogs/onboarding.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,39 +1,28 @@
-/* Bot Bureau 界面样式：深色底 + 细微颗粒、圆形头像会话列表、毛玻璃分层、灰阶气泡。
-   界面主体仍然是灰阶，彩色只有两处：状态点/报错的语义色，和主操作的 --accent。
-   Bot Bureau UI styling: a dark canvas with fine grain, an avatar conversation list, frosted-glass
+/*   Bot Bureau UI styling: a dark canvas with fine grain, an avatar conversation list, frosted-glass
    layering, greyscale bubbles. The body of the interface stays greyscale; colour appears in exactly
    two places — the semantic colours for status and errors, and --accent for the primary action. */
 
-/* 两套主题共用同一组变量名，切换只换值不换规则。
-   跟随系统时靠 prefers-color-scheme；用户在设置里显式选了就钉在 <html data-theme> 上，
-   显式选择必须压过系统——否则改完设置一到晚上又被系统翻回去。
-   Both themes share one set of variable names, so switching swaps values, never rules.
+/*   Both themes share one set of variable names, so switching swaps values, never rules.
    Following the system uses prefers-color-scheme; an explicit choice is stamped on <html data-theme>
    and must beat the system, or a setting made in daylight gets overturned at dusk. */
 
 :root {
   color-scheme: dark;
 
-  /* 两栏不同底：左边是"框"，右边是"纸"。
-     --bg 是画布，侧栏直接露出它；--pane 压在右侧，比画布亮一档。
-     深色下差 10 个灰阶就够，多了两栏会像两个应用。
-     The two panes no longer share a ground: the left is the frame, the right is the paper.
+  /*     The two panes no longer share a ground: the left is the frame, the right is the paper.
      --bg is the canvas and the sidebar simply shows it; --pane sits on the right, one step brighter.
      Ten levels of grey is enough in dark — more and the two halves read as two separate apps. */
   --bg: #0a0a0b;
   --pane: #141417;
-  /* 纸上的一层极淡起伏。气泡要有玻璃质感就必须有它——backdrop-filter 糊一块纯色，
-     糊出来还是那块纯色。纯中性、没有色相，和当初那版彩色 --ambient 不是一回事。
-     不想要就设成 none，代价是气泡退回平涂。
-     A very faint modulation across the paper. Glass on the bubbles requires it: backdrop-filter over a
+  /*     A very faint modulation across the paper. Glass on the bubbles requires it: backdrop-filter over a
      flat colour returns that same flat colour. Strictly neutral, no hue — not the coloured --ambient
      from before. Set it to none to drop it, at the cost of the bubbles going flat again. */
   --pane-wash:
     radial-gradient(900px 620px at 80% -12%, rgba(255, 255, 255, 0.05), transparent 62%),
     radial-gradient(760px 560px at 8% 104%, rgba(255, 255, 255, 0.035), transparent 60%);
-  --surface: #1b1b1d;        /* 气泡、搜索框、卡片 / bubbles, search field, cards */
-  --surface-2: #2a2a2d;      /* 用户气泡、悬停 / user bubble, hover */
-  --surface-3: #343437;      /* 选中行 / selected row */
+  --surface: #1b1b1d;        /* bubbles, search field, cards */
+  --surface-2: #2a2a2d;      /* user bubble, hover */
+  --surface-3: #343437;      /* selected row */
 
   --separator: rgba(255, 255, 255, 0.06);
   --border: rgba(255, 255, 255, 0.09);
@@ -42,22 +31,15 @@
   --text-2: #9d9da4;
   --text-3: #6a6a70;
 
-  --grain: 0.5;              /* 颗粒强度：浅色下几乎不需要 / grain strength; light barely needs any */
+  --grain: 0.5;              /* grain strength; light barely needs any */
   --shadow: 0 30px 80px rgba(0, 0, 0, 0.65);
 
-  /* 主操作色。取的就是审批卡上"需要批准"那行字的褐色（浅色档的 --warn），
-     所以它不是外挂进来的品牌色，是界面里本来就在用的那个暖调。
-     之前主操作填的是 --text——深色下一块纯白、浅色下一块近黑，是整个界面上唯一
-     不透明、零饱和、最大反差的东西，嵌在一片半透明玻璃中间材质对不上。
-     The primary action colour, taken straight from the brown on the approval card's "needs approval"
+  /*     The primary action colour, taken straight from the brown on the approval card's "needs approval"
      line (light mode's --warn), so it is not a brand colour brought in from outside but the warm tone
      the interface was already using. The primary used to be filled with --text — a slab of pure white
      in dark, near-black in light: the one opaque, zero-saturation, maximum-contrast object in an
      interface built out of translucency, which is exactly why it read as foreign.
 
-     两套主题共用一个值：白字在它上面 4.59:1，对深色画布 4.31:1、对浅色画布 3.85:1，
-     都过线，所以不必分档。--warn 仍然是独立的令牌——现在数值撞上了，但一个是"这里要小心"，
-     一个是"这是主操作"，将来要分开走各走各的。
      One value serves both themes: white on it is 4.59:1, and it clears 4.31:1 against the dark canvas
      and 3.85:1 against the light one, so no per-theme step is needed. --warn stays a separate token —
      the values coincide today, but one means "be careful here" and the other means "this is the
@@ -66,24 +48,16 @@
   --accent-ink: #ffffff;
   --accent-glow: rgba(168, 102, 18, 0.26);
 
-  /* 语义色只用于状态点和错误，界面主体保持灰阶 / Semantic colors only for status dots and errors */
+  /* Semantic colors only for status dots and errors */
   --danger: #ff6b60;
   --warn: #e0a44a;
   --ok: #57c96a;
 
-  /* 毛玻璃 / Frosted glass
-     玻璃靠两样东西成立：底下有东西可折射，和一道顶部高光充当"边缘厚度"。
-     现在只剩后者——画布是一块平色，前者关掉了，见下面 --ambient。
+  /*Frosted glass
      Glass rests on two things: something underneath to refract, and a top highlight standing in for
      the thickness of an edge. Only the second is left — the canvas is a flat colour and the first is
      switched off; see --ambient below.
 
-     --ambient 现在关着。它原本是铺在画布上的一层极淡光晕，作用是给 backdrop-filter 一点
-     可折射的东西——模糊一块纯色什么也糊不出来。关掉之后，玻璃在大片空白处退化成一块半透明
-     色板，只在它确实压着内容时（标题栏底下滚过的消息、弹窗盖住的正文）还看得出是玻璃。
-     换来的是一张彻底安静的画布，和"整个界面只有 --accent 一处彩色"。
-     想开回来，填一层低透明度的中性光池即可：深色用白（0.055 / 0.032），浅色反过来，
-     一团淡白加一团淡黑压暗——浅色下亮池会把画布推向玻璃自己的白，反而糊掉分层。
      --ambient is off. It used to lay a very faint wash across the canvas so that backdrop-filter had
      something to refract — blurring a flat colour yields nothing. With it off, the glass degrades to a
      translucent swatch across open space, and only still reads as glass where it genuinely covers
@@ -92,25 +66,18 @@
      To bring it back, fill in low-alpha neutral pools: white in dark (0.055 / 0.032), and inverted in
      light — one faint white and one faint black — because in light a bright pool pushes the canvas
      toward the glass's own white and blurs the separation. */
-  --glass: rgba(255, 255, 255, 0.055);   /* 静止面 / at rest */
-  --glass-2: rgba(255, 255, 255, 0.095); /* 悬停、用户气泡 / hover, user bubble */
-  --glass-3: rgba(255, 255, 255, 0.145); /* 选中 / selected */
-  --glass-panel: rgba(30, 30, 34, 0.62); /* 浮层：盖住正文，透明度要收 / floating layers cover body text, so they stay tighter */
+  --glass: rgba(255, 255, 255, 0.055);   /* at rest */
+  --glass-2: rgba(255, 255, 255, 0.095); /* hover, user bubble */
+  --glass-3: rgba(255, 255, 255, 0.145); /* selected */
+  --glass-panel: rgba(30, 30, 34, 0.62); /* floating layers cover body text, so they stay tighter */
   --glass-line: rgba(255, 255, 255, 0.10);
-  --glass-well: rgba(0, 0, 0, 0.26);     /* 凹进去的地方：代码块、滚动槽 / recessed areas: code blocks, scroll wells */
-  /* 气泡不跟 --glass 走，因为它俩在浅色下方向相反。玻璃是"压在纸上的一层更白的膜"，
-     可纸（--pane）本身已经接近白，白膜贴上去分不出层；iMessage 的做法是反过来——
-     纸是最亮的，收到的气泡比纸暗一档，发出的再暗一档。深色下不存在这个问题，
-     气泡本来就该比背景亮，所以这两档在深色里仍然是加白。
-     Bubbles do not follow --glass, because in light the two want opposite directions. Glass is a whiter
+  --glass-well: rgba(0, 0, 0, 0.26);     /* recessed areas: code blocks, scroll wells */
+  /*     Bubbles do not follow --glass, because in light the two want opposite directions. Glass is a whiter
      film laid on paper — but the paper (--pane) is already close to white, so a white film on it
      separates from nothing. iMessage inverts this: the paper is the brightest thing, an incoming bubble
      sits a step below it and an outgoing one a step below that. Dark never had the problem — there a
      bubble should be lighter than its ground — so both steps stay additive white. */
-  /* 气泡是扁平的：没有高光、没有内圈，一块实色加圆角，全靠底色差站住。
-     所以这一档不能跟着纸走得太近——之前那版几乎和纸同色，是那条 1px 内圈在撑轮廓，
-     边一去掉就什么都不剩了。这里往回压到明确的灰。
-     Bubbles are flat: no highlight, no inner ring, just a solid fill with rounded corners, standing on
+  /*     Bubbles are flat: no highlight, no inner ring, just a solid fill with rounded corners, standing on
      the difference in colour alone. That is why this step cannot sit too close to the paper — the
      previous values were nearly the paper's own colour and it was the 1px ring holding the outline, so
      removing the edge would have left nothing at all. These pull back to a definite grey. */
@@ -119,23 +86,18 @@
   --bubble-edge:
     inset 0 1px 0 rgba(255, 255, 255, 0.10),
     inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-  /* 下拉箭头：appearance:none 把系统箭头一起拿掉了，之前没补回来——下拉框和单行输入框
-     长得一模一样，完全看不出能点开。data URI 里没法用 currentColor，所以按主题各存一份。
-     The select chevron: appearance:none removes the native arrow and nothing replaced it, so a select
+  /*     The select chevron: appearance:none removes the native arrow and nothing replaced it, so a select
      looked exactly like a text input with no hint that it opens. A data URI cannot use currentColor,
      so each theme carries its own. */
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239d9da4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --glass-blur: blur(20px) saturate(180%);
   --glass-blur-strong: blur(34px) saturate(190%);
-  /* 顶部 1px 高光 + 内圈 + 底部回光，合成"一片有厚度的玻璃"而不是"一块半透明色"
-     A 1px top highlight, an inner ring, and a bottom bounce: a pane with thickness, not a tinted rectangle */
+  /*     A 1px top highlight, an inner ring, and a bottom bounce: a pane with thickness, not a tinted rectangle */
   --glass-sheen:
     inset 0 1px 0 rgba(255, 255, 255, 0.11),
     inset 0 0 0 1px rgba(255, 255, 255, 0.04),
     inset 0 -18px 38px rgba(255, 255, 255, 0.03);
-  /* 一行高的东西用这个：--glass-sheen 那道 -18px 的底部回光是按整块面板的高度调的，
-     落到一行上就变成横贯下半部的亮带，行看着像被吹鼓了。条只留顶部高光和内圈。
-     For anything one row tall: the -18px bottom bounce in --glass-sheen is tuned for a full panel, and
+  /*     For anything one row tall: the -18px bottom bounce in --glass-sheen is tuned for a full panel, and
      on a single row it becomes a bright band across the lower half that leaves the row looking
      inflated. A row keeps only the top highlight and the inner ring. */
   --glass-edge:
@@ -144,29 +106,23 @@
   --ambient: none;
 
   --r-row: 10px;
-  /* 气泡比卡片圆，但不到药丸：19px 在单行气泡（约 41px 高）上几乎就是半圆了
-     A bubble is rounder than a card but short of a pill: at 19px a single-line bubble, about 41px
+  /*     A bubble is rounder than a card but short of a pill: at 19px a single-line bubble, about 41px
      tall, was very nearly a capsule */
   --r-bubble: 14px;
-  --r-btn: 9px;              /* 所有按钮共用一个圆角，之前散着 8/9/10 三种 / one radius for every button; there used to be three */
-  --r-field: 10px;           /* 输入框、下拉框 / text fields and selects */
+  --r-btn: 9px;              /* one radius for every button; there used to be three */
+  --r-field: 10px;           /* text fields and selects */
 
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
-  --titlebar: 56px;          /* 无边框窗口顶部留给红绿灯，也是整个界面的呼吸位 / clearance for the traffic lights, and the app's top breathing room */
+  --titlebar: 56px;          /* clearance for the traffic lights, and the app's top breathing room */
 }
 
-/* 浅色：不是把深色数值反过来了事——分隔线改用黑色低透明度，阴影收得很浅，否则在白底上会脏。
-   玻璃这一层的方向也和深色相反：底色染上一点环境光，玻璃是压在上面的一层更白的膜——
-   深色靠"比背景亮"分层，浅色靠"比背景更白、更不透明"分层。
-   Light is not the dark values inverted: separators become low-alpha black and shadows stay shallow,
+/*   Light is not the dark values inverted: separators become low-alpha black and shadows stay shallow,
    or they look like dirt on white. The glass layer inverts too — the canvas takes the ambient tint and
    the glass is a whiter film laid on top. Dark separates by being lighter than the canvas; light
    separates by being whiter and denser. */
 :root[data-theme="light"] {
   color-scheme: light;
-  /* 玻璃改写了浅色的底：白色的膜必须落在有颜色的纸上才分得开层，
-     纯白画布 + 白玻璃 = 什么都看不见。这里把纸调成一层很淡的冷灰。
-     Glass rewrites what light mode's canvas has to be: a white film only separates from paper that
+  /*     Glass rewrites what light mode's canvas has to be: a white film only separates from paper that
      carries some tone. A pure-white canvas under white glass shows nothing at all, so the paper
      itself takes a faint cool grey. */
   --bg: #eceef3;
@@ -187,20 +143,17 @@
   --danger: #d23b2f;
   --warn: #a86612;
   --ok: #1f8b3a;
-  /* 这个红在深浅两套里表现一样，不需要分档 / This red behaves the same in both themes and needs no per-theme step */
+  /* This red behaves the same in both themes and needs no per-theme step */
   --glass: rgba(255, 255, 255, 0.62);
   --glass-2: rgba(255, 255, 255, 0.82);
   --glass-3: rgba(255, 255, 255, 0.96);
   --glass-panel: rgba(255, 255, 255, 0.78);
   --glass-line: rgba(255, 255, 255, 0.72);
   --glass-well: rgba(0, 0, 0, 0.045);
-  /* 中性灰，不带蓝。界面其他的灰（画布、侧栏）都是冷调的，气泡这一档故意脱开——
-     它压在纯白的纸上，不挨着那些冷灰，中性反而更干净；带蓝会显得像“选中态”。
-     Neutral grey, no blue in it. The other greys here (canvas, sidebar) are cool, and the bubbles
+  /*     Neutral grey, no blue in it. The other greys here (canvas, sidebar) are cool, and the bubbles
      deliberately step out of that: they sit on pure white paper, never touching those cool greys, so
      neutral reads cleaner — a blue cast would make them look like a selected state. */
-  /* 半透明的暗膜，不是白膜：纸是白的，白膜贴上去等于没有。
-     A translucent dark film rather than a white one: the paper is white, and a white film on it
+  /*     A translucent dark film rather than a white one: the paper is white, and a white film on it
      amounts to nothing. */
   --bubble: rgba(0, 0, 0, 0.042);
   --bubble-user: rgba(0, 0, 0, 0.075);
@@ -210,8 +163,7 @@
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2362626b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --glass-blur: blur(18px) saturate(135%);
   --glass-blur-strong: blur(28px) saturate(150%);
-  /* 白色内圈在浅色下等于没画：换成一条极淡的深色，玻璃叠玻璃时边缘才站得住
-     A white inner ring draws nothing in light mode; a very faint dark one keeps the edge readable
+  /*     A white inner ring draws nothing in light mode; a very faint dark one keeps the edge readable
      where glass sits on glass */
   --glass-sheen:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
@@ -244,20 +196,17 @@
     --danger: #d23b2f;
     --warn: #a86612;
     --ok: #1f8b3a;
-    /* 这个红在深浅两套里表现一样，不需要分档 / This red behaves the same in both themes and needs no per-theme step */
+    /* This red behaves the same in both themes and needs no per-theme step */
     --glass: rgba(255, 255, 255, 0.62);
     --glass-2: rgba(255, 255, 255, 0.82);
     --glass-3: rgba(255, 255, 255, 0.96);
     --glass-panel: rgba(255, 255, 255, 0.78);
     --glass-line: rgba(255, 255, 255, 0.72);
     --glass-well: rgba(0, 0, 0, 0.045);
-    /* 中性灰，不带蓝。界面其他的灰（画布、侧栏）都是冷调的，气泡这一档故意脱开——
-       它压在纯白的纸上，不挨着那些冷灰，中性反而更干净；带蓝会显得像“选中态”。
-       Neutral grey, no blue in it. The other greys here (canvas, sidebar) are cool, and the bubbles
+    /*       Neutral grey, no blue in it. The other greys here (canvas, sidebar) are cool, and the bubbles
        deliberately step out of that: they sit on pure white paper, never touching those cool greys, so
        neutral reads cleaner — a blue cast would make them look like a selected state. */
-    /* 半透明的暗膜，不是白膜：纸是白的，白膜贴上去等于没有。
-       A translucent dark film rather than a white one: the paper is white, and a white film on it
+    /*       A translucent dark film rather than a white one: the paper is white, and a white film on it
        amounts to nothing. */
     --bubble: rgba(0, 0, 0, 0.042);
     --bubble-user: rgba(0, 0, 0, 0.075);
@@ -267,8 +216,7 @@
     --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2362626b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     --glass-blur: blur(18px) saturate(135%);
     --glass-blur-strong: blur(28px) saturate(150%);
-    /* 白色内圈在浅色下等于没画：换成一条极淡的深色，玻璃叠玻璃时边缘才站得住
-       A white inner ring draws nothing in light mode; a very faint dark one keeps the edge readable
+    /*       A white inner ring draws nothing in light mode; a very faint dark one keeps the edge readable
        where glass sits on glass */
     --glass-sheen:
       inset 0 1px 0 rgba(255, 255, 255, 0.92),
@@ -281,15 +229,11 @@
   }
 }
 
-/* 系统"降低透明度"、或渲染器不支持 backdrop-filter 时，整套玻璃退回实色。
-   玻璃是装饰，可读性不是——两条都直接把变量改回原来的实色分层，规则本身一行不用动。
-   When the system asks for reduced transparency, or the renderer lacks backdrop-filter, the whole
+/*   When the system asks for reduced transparency, or the renderer lacks backdrop-filter, the whole
    glass layer falls back to solids. Glass is decoration; legibility is not. Both cases simply point
    the variables back at the opaque surfaces — not one rule below has to change. */
 @media (prefers-reduced-transparency: reduce) {
-  /* 选择器写成 :root:root:root 是有意的：媒体查询本身不加权重，而上面的 :root[data-theme="light"]
-     是 (0,2,0)，会稳稳压过裸 :root——那样浅色主题下这整块降级等于没写。
-     The tripled :root is deliberate: a media query adds no specificity of its own, and
+  /*     The tripled :root is deliberate: a media query adds no specificity of its own, and
      :root[data-theme="light"] above scores (0,2,0), which would beat a bare :root outright — leaving
      this entire fallback dead in light mode. */
   :root:root:root {
@@ -321,13 +265,11 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-/* hidden 属性必须压得住后面按标签写的 display（比如 dialog input { display:block }）
-   The hidden attribute must beat later element-level display rules (e.g. dialog input { display:block }) */
+/*   The hidden attribute must beat later element-level display rules (e.g. dialog input { display:block }) */
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
-  /* 分开写而不是用 background 简写：--ambient 是多层渐变，简写里的颜色和 repeat 只会落到最后一层
-     Longhands, not the shorthand: --ambient is a multi-layer image list, and a shorthand's color and
+  /*     Longhands, not the shorthand: --ambient is a multi-layer image list, and a shorthand's color and
      repeat would only attach to the last layer */
   background-color: var(--bg);
   background-image: var(--ambient);
@@ -340,31 +282,22 @@ body {
   overflow: hidden;
 }
 
-/* 细微颗粒：整块纯黑会显得死板，一层极淡噪声让大面积暗部有质感
-   Fine grain: a flat black reads as dead; a very faint noise layer gives the darkness texture */
+/*   Fine grain: a flat black reads as dead; a very faint noise layer gives the darkness texture */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
   opacity: var(--grain); mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
 }
 
-/* 侧栏的 macOS 原生 vibrancy（主进程通过 ?vibrancy=1 告知）。
-   画布整个透明，让系统模糊透上来；右侧不受影响——main 自己铺着不透明的 --pane，
-   把模糊挡在了分栏线以左。侧栏再压一层挡光的半透明底：完全裸露的话，桌面上随便一张
-   亮壁纸就能把侧栏的文字吃掉。
-   Native macOS vibrancy for the sidebar (the main process says so via ?vibrancy=1). The canvas goes
+/*   Native macOS vibrancy for the sidebar (the main process says so via ?vibrancy=1). The canvas goes
    fully transparent to let the system blur through; the right half is unaffected, since main paints its
    own opaque --pane and holds the blur back at the divider. The sidebar then takes a translucent scrim
    of its own — left bare, any bright wallpaper on the desktop would swallow its text.
-   颗粒关掉：vibrancy 自带质感，再叠一层 overlay 混合的噪声只会脏。
    The grain goes off: vibrancy brings its own texture, and an overlay-blended noise layer on top of it
    only reads as dirt. */
 :root[data-vibrancy] { --grain: 0; }
 :root[data-vibrancy] body { background-color: transparent; }
-/* 挡光层要同时做两件事才对：颜色往白挪（浅），alpha 往下压（透）。
-   只压 alpha 的话，露出来的是系统材质本身的灰，反而更闷。
-   深色只压 alpha 不提亮度——侧栏在深色下仍然要比右边那张纸暗，它是"框"。
-   The scrim has to move on two axes at once: colour toward white (lighter) and alpha down
+/*   The scrim has to move on two axes at once: colour toward white (lighter) and alpha down
    (more see-through). Dropping alpha alone just exposes more of the system material's own grey, which
    reads heavier, not lighter. In dark only the alpha moves — the sidebar must stay darker than the
    paper on the right, because it is still the frame. */
@@ -373,7 +306,7 @@ body::before {
 @media (prefers-color-scheme: dark) {
   :root[data-vibrancy]:not([data-theme="light"]) aside { background-color: rgba(10, 10, 11, 0.3); }
 }
-/* 系统要求降低透明度时，侧栏变回实色 / When the system asks for reduced transparency the sidebar goes solid */
+/* When the system asks for reduced transparency the sidebar goes solid */
 @media (prefers-reduced-transparency: reduce) {
   :root[data-vibrancy] body { background-color: var(--bg); }
   :root[data-vibrancy]:root:root aside { background-color: transparent; }
@@ -384,12 +317,9 @@ svg { display: block; flex: none; }
 
 #app { display: flex; height: 100vh; position: relative; z-index: 1; }
 
-/* ---- 侧栏 / Sidebar ---- */
+/* Sidebar ---- */
 
-/* 侧栏直接露出画布，不铺任何东西。它现在是两栏里更暗的一侧——"框"，
-   右边那张"纸"靠 --pane 亮出来。也因此这里不需要 backdrop-filter：
-   底下就是画布本身，模糊一块纯色什么也糊不出来，白挂一层合成开销。
-   The sidebar shows the canvas directly and paints nothing of its own. It is now the darker of the two
+/*   The sidebar shows the canvas directly and paints nothing of its own. It is now the darker of the two
    halves — the frame — and the paper on the right lifts away from it via --pane. That also means no
    backdrop-filter here: what is behind it is the canvas itself, and blurring a flat colour yields
    nothing but an extra compositing layer. */
@@ -399,15 +329,11 @@ aside {
   display: flex; flex-direction: column;
 }
 
-/* 顶部空条：无边框窗口里既是拖拽区，也给红绿灯让位
-   Top strip: the window drag region, and clearance for the traffic lights */
+/*   Top strip: the window drag region, and clearance for the traffic lights */
 .side-top {
   height: var(--titlebar); flex: none;
   display: flex; align-items: center; justify-content: flex-end;
-  /* ＋ 要和红绿灯一条水平线上。红绿灯的中心 = main.js 里 trafficLightPosition.y(20)
-     加上按钮直径 12 的一半，也就是 26。这一条 56 高，align-items:center 会把内容摆在 28，
-     所以底部补 4px 内距，把中心从 28 提到 26。改 main.js 里那个 y，这里要跟着改。
-     The ＋ has to sit on the same line as the traffic lights, whose centre is
+/*     The + has to sit on the same line as the traffic lights, whose centre is
      trafficLightPosition.y (20, in main.js) plus half the 12px button, i.e. 26. This strip is 56 tall
      and align-items:center would place its content at 28, so 4px of bottom padding pulls the centre
      from 28 up to 26. Change that y in main.js and this has to follow. */
@@ -423,20 +349,17 @@ button.icon-btn {
 }
 button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
 
-/* 搜索 / Search */
+/* Search */
 .search {
   margin: 4px 10px 10px; position: relative; flex: none;
 }
 .search svg { position: absolute; left: 10px; top: 50%; margin-top: -7px; color: var(--text-3); }
 .search input {
-  /* 和弹窗里的输入框同一套：都是"往里打字的地方"，都往下凹
-     Same treatment as the fields inside the dialogs: both are places you type into, both sink in */
+  /*     Same treatment as the fields inside the dialogs: both are places you type into, both sink in */
   width: 100%; background: var(--glass-well); border: 1px solid var(--border); outline: none;
   color: var(--text); border-radius: var(--r-field);
   padding: 8px 12px 8px 32px; font: inherit;
-  /* 侧栏那层玻璃已经把背后揉过一遍了，这里再 blur 一次是纯开销：
-     叠在实心填充上的 backdrop-filter 什么也改变不了。只留半透明 + 高光。
-     The sidebar pane already blurred what is behind it; blurring again buys nothing — a backdrop-filter
+  /*     The sidebar pane already blurred what is behind it; blurring again buys nothing — a backdrop-filter
      over a flat fill has nothing left to smear. Translucency and the sheen carry it from here. */
   box-shadow: var(--glass-edge);
 }
@@ -470,7 +393,7 @@ button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
   background: var(--text-3);
 }
 
-/* ---- 会话行 / Conversation row ---- */
+/* Conversation row ---- */
 
 .conv {
   display: flex; align-items: center; gap: 11px;
@@ -488,13 +411,10 @@ button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .conv .time { color: var(--text-3); font-size: 11.5px; flex: none; }
-/* 置顶的图钉：跟名字同一行，比时间还淡一点——它是个状态标记，不是要被读的内容
-   The pin marker sits on the name's line and stays fainter than the timestamp: it is a state marker,
+/*   The pin marker sits on the name's line and stays fainter than the timestamp: it is a state marker,
    not something to be read */
 .conv .pin { flex: none; color: var(--text-3); opacity: 0.75; }
-/* 第二行：预览占满，未读数贴右。时间在第一行、未读数在第二行，各自的宽度互不影响，
-   所以一条会话变没变成未读，时间戳都停在原处。
-   Line two: the preview takes the room and the unread count hugs the right. The timestamp lives on
+/*   Line two: the preview takes the room and the unread count hugs the right. The timestamp lives on
    line one and the count on line two, so neither's width touches the other and a conversation going
    unread leaves the timestamp exactly where it was. */
 .conv .foot {
@@ -510,39 +430,34 @@ button.icon-btn:hover { color: var(--text); background: var(--glass-2); }
   border-radius: 10px; font-size: 10.5px; font-weight: 700;
   padding: 1px 6px; min-width: 18px; text-align: center;
 }
-/* 行内不再有操作按钮（改成右键菜单），所以时间和未读数在悬停时也不用再让位了——
-   之前它们是被 opacity:0 掉去给按钮腾地方的。
-   No action buttons in the row any more (they became a right-click menu), so the timestamp and the
+/*   No action buttons in the row any more (they became a right-click menu), so the timestamp and the
    unread badge no longer have to get out of the way on hover — they used to be faded to opacity:0 to
    make room. */
 
-/* ---- 头像 / Avatar ----
-   圆形脸：底色区分身份，两只眼睛构成识别度高的剪影
+/*Avatar ----
    Circular face: the fill distinguishes identity, two eyes give a recognizable silhouette */
-/* inline-block 是必须的：span 默认 inline，宽高不生效，叠放的群头像会散架
-   inline-block is required: a bare span is inline, so width/height are ignored and the stacked
+/*   inline-block is required: a bare span is inline, so width/height are ignored and the stacked
    group avatar collapses out of its box */
 .av { display: inline-block; position: relative; flex: none; vertical-align: middle; }
 .av .face { display: block; border-radius: 50%; }
 img.face { object-fit: cover; background: var(--surface-2); }
-/* 群聊：两张脸叠放，后一张用底色描边打断轮廓 / Group: two stacked faces, the front one outlined in the canvas color */
+/* Group: two stacked faces, the front one outlined in the canvas color */
 .av.stack { width: 40px; height: 40px; }
 .av.stack .face { position: absolute; }
 .av.stack .face:nth-child(1) { left: 0; top: 0; }
 .av.stack .face:nth-child(2) { right: 0; bottom: 0; box-shadow: 0 0 0 2.5px var(--bg); }
 .conv.active .av.stack .face:nth-child(2) { box-shadow: 0 0 0 2.5px var(--surface-3); }
 .conv:hover .av.stack .face:nth-child(2) { box-shadow: 0 0 0 2.5px var(--surface); }
-/* 忙碌：头像外圈慢呼吸 / Busy: the ring around the avatar breathes */
+/* Busy: the ring around the avatar breathes */
 .av.busy::after {
   content: ""; position: absolute; inset: -3px; border-radius: 50%;
   border: 1.5px solid var(--text-2); animation: breathe 1.4s ease-in-out infinite alternate;
 }
 @keyframes breathe { from { opacity: 0.9; transform: scale(1); } to { opacity: 0.15; transform: scale(1.06); } }
 
-/* ---- 侧栏底部 / Sidebar footer ---- */
+/* Sidebar footer ---- */
 
-/* position: relative 是给配对提示当定位参照的，见 .pair-hint
-   Relative purely to anchor the pairing hint; see .pair-hint */
+/*   Relative purely to anchor the pairing hint; see .pair-hint */
 .side-foot { flex: none; padding: 6px 8px 10px; position: relative; }
 .foot-row {
   display: flex; align-items: center; gap: 11px;
@@ -559,7 +474,7 @@ img.face { object-fit: cover; background: var(--surface-2); }
 .foot-row .glyph { color: var(--text-2); }
 .foot-row .status-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
-/* ---- 主区 / Main area ---- */
+/* Main area ---- */
 
 main {
   flex: 1; display: flex; flex-direction: column; min-width: 0;
@@ -576,9 +491,7 @@ main {
 }
 #offlineBanner[hidden] { display: none; }
 #offlineBanner span { flex: 1; }
-/* 离线横幅里的按钮不走下面那套：整条横幅是语义红，按钮得跟着横幅走，不是跟着玻璃走。
-   只有形状对齐。
-   The offline banner's buttons stay out of the shared set below: the whole strip is semantic red and
+/*   The offline banner's buttons stay out of the shared set below: the whole strip is semantic red and
    its buttons follow the banner, not the glass. Only the shape lines up. */
 #offlineBanner button {
   border: 1px solid rgba(255, 157, 148, 0.3); background: none; color: inherit;
@@ -586,9 +499,7 @@ main {
 }
 #offlineBanner button:hover { background: rgba(255, 107, 96, 0.16); }
 
-/* stage 存在的唯一理由：给标题栏一个定位参照，让消息从它底下穿过去。
-   这也是全屏唯一一处 backdrop-filter 真正有事可做的地方——底下有正在动的内容可以揉。
-   The stage exists for one reason: to give the header something to position against so messages pass
+/*   The stage exists for one reason: to give the header something to position against so messages pass
    underneath it. It is also the one place in the app where backdrop-filter has real work to do — there
    is moving content beneath it to smear. */
 .stage { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
@@ -599,17 +510,14 @@ header {
   display: flex; align-items: center; gap: 10px;
   padding: 0 14px 0 22px;
   -webkit-app-region: drag;
-  /* 底色就是 --pane 本身，只是带一点透明度——静止时和下面的消息区一个颜色，看不出这里有一根条；
-     只有消息真的滚到它底下时，那层模糊才现形。所以不画分隔线：有内容穿过时模糊本身就是分隔。
-     The fill is --pane itself, just carrying some transparency: at rest it is the exact colour of the
+  /*     The fill is --pane itself, just carrying some transparency: at rest it is the exact colour of the
      message area below and there is no bar to see. The blur only shows itself once messages actually
      pass underneath. Hence no divider line — when content is crossing, the blur is the divider. */
   background: color-mix(in srgb, var(--pane) 78%, transparent);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
-/* 一个 bot 都没有时 renderHeader 把标题栏清空；空的玻璃条比没有更难看
-   With no bots at all renderHeader empties the header; an empty bar of glass looks worse than none */
+/*   With no bots at all renderHeader empties the header; an empty bar of glass looks worse than none */
 header:empty {
   background: none;
   -webkit-backdrop-filter: none; backdrop-filter: none;
@@ -630,21 +538,16 @@ header .desc {
 }
 header .spacer { flex: 1; }
 
-/* ---- 消息流 / Message stream ---- */
+/* Message stream ---- */
 
-/* 上内边距顶掉浮起来的标题栏；空态没有标题栏，就把这段还回去。
-   下内边距是最后一条消息和输入框之间的呼吸位——它在滚动容器"里面"，
-   属于消息流自己的收尾，和框外面那圈会读成分隔带的间距不是一回事。
-   The top padding clears the floating header; the empty state has no header, so it gets that space back.
+/*   The top padding clears the floating header; the empty state has no header, so it gets that space back.
    The bottom padding is the breathing room between the last message and the composer — it lives inside
    the scroller, as the message stream's own tail, which is a different thing from padding wrapped around
    the frame, where it would read as a divider band. */
 #msgs { flex: 1; overflow-y: auto; padding: calc(var(--titlebar) + 12px) 22px 28px; }
 #msgs:has(.blank) { padding-top: 14px; }
 #msgs::-webkit-scrollbar { width: 10px; }
-/* 这根滑块是唯一压在"纸"上的，不能跟侧栏那几根一样用加白的 --glass-3——白纸上看不见。
-   借气泡那一档：浅色下比纸暗，深色下比纸亮，两边方向都对。
-   This is the only thumb riding on the paper, so it cannot use the additive --glass-3 that the
+/*   This is the only thumb riding on the paper, so it cannot use the additive --glass-3 that the
    sidebar's use — that is invisible on white. It borrows the bubble step instead: darker than the
    paper in light, lighter in dark, correct in both directions. */
 #msgs::-webkit-scrollbar-thumb {
@@ -652,11 +555,8 @@ header .spacer { flex: 1; }
   border: 3px solid transparent; background-clip: content-box;
 }
 
-/* 同一发言人的连续气泡贴紧，换人才拉开距离
-   Consecutive bubbles from one speaker sit tight; a change of speaker opens the gap */
-/* 群聊：头像单独占一列。头像和名字顶对齐，而不是和气泡对齐——名字是这段发言的开头，
-   头像贴着开头才读得出"这一段是谁说的"；贴着气泡的话，一段多句发言里它会飘在中间。
-   Group chat: the avatar gets a column of its own, top-aligned with the name rather than with the
+/*   Consecutive bubbles from one speaker sit tight; a change of speaker opens the gap */
+/*   Group chat: the avatar gets a column of its own, top-aligned with the name rather than with the
    bubble. The name is where the statement begins, and the avatar belongs at the beginning so it reads
    as "this run is from them"; aligned to the bubble it would float mid-run on a multi-line statement. */
 .msg {
@@ -664,8 +564,7 @@ header .spacer { flex: 1; }
   max-width: min(80%, 660px); margin-top: 3px;
 }
 .msg-body { flex: 1; min-width: 0; }
-/* 连说的后几条没有头像，用等宽占位撑住那一列，气泡才不会跑回左边缘
-   Later messages in a run carry no avatar; an equal-width spacer holds the column so their bubbles do
+/*   Later messages in a run carry no avatar; an equal-width spacer holds the column so their bubbles do
    not slide back to the left edge */
 .av-slot { flex: none; width: 26px; }
 .msg.run-start { margin-top: 14px; }
@@ -673,9 +572,7 @@ header .spacer { flex: 1; }
   font-size: 11.5px; font-weight: 550; color: var(--text-3);
   padding: 0 0 4px 4px;
 }
-/* 气泡拿半透明和高光，但不拿 backdrop-filter：一屏可以有上百个，
-   在滚动容器里给每个都挂一层模糊，滚动就开始掉帧。真正的模糊留给数量固定的那几层。
-   Bubbles take the translucency and the sheen but not backdrop-filter: a long conversation holds
+/*   Bubbles take the translucency and the sheen but not backdrop-filter: a long conversation holds
    hundreds of them, and a blur layer per bubble inside a scroller is what turns scrolling to mush.
    Real blur is reserved for the handful of surfaces whose count never grows. */
 .msg .bubble {
@@ -717,11 +614,7 @@ header .spacer { flex: 1; }
 .msg.user .bubble { background: var(--bubble-user); margin-left: auto; }
 .msg.user .md code, .msg.user .md pre { background: var(--glass-well); }
 
-/* 气泡下面那个引文小框：谁说的 + 一行原话，点它跳回原处。
-   挂在气泡下方而不是压在气泡顶上——这条消息说了什么先读到，它在回哪一句后读到。
-   框比气泡窄一点、颜色更淡，读起来才是"这条消息的脚注"，不是又一条消息。
-   原话强制单行截断：引文是路标，原文该去原处读，摊开两三行就反客为主了。
-   The little quotation box under the bubble: who said it, one line of what they said, click to jump
+/*   The little quotation box under the bubble: who said it, one line of what they said, click to jump
    back. It hangs below rather than sitting on top, so what this message says is read before what it
    answers. The box is a little narrower than the bubble and paler, which is what makes it read as a
    footnote to the message rather than another message.
@@ -741,10 +634,9 @@ header .spacer { flex: 1; }
   font-size: 12.5px; color: var(--text-3); line-height: 1.45; max-width: 100%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* 用户消息靠右，它的脚注跟着靠右 / The user's messages hug the right, so their footnote does too */
+/* The user's messages hug the right, so their footnote does too */
 .msg.user .quote { margin-left: auto; }
-/* 跳回原处后闪一下。原消息可能在半屏之外，不给个落点用户就得自己找 /
-   The original flashes once you land on it: it may be half a screen away, and without a cue the user
+/*   The original flashes once you land on it: it may be half a screen away, and without a cue the user
    has to hunt for what the jump was for. */
 @keyframes msg-flash {
   0%, 100% { background: transparent; }
@@ -752,13 +644,13 @@ header .spacer { flex: 1; }
 }
 .msg.flash .bubble { animation: msg-flash 1.1s ease-out; }
 
-/* 时间分隔：居中一行淡灰，不画线 / Time separator: a centered grey line, no rule */
+/* Time separator: a centered grey line, no rule */
 .tsep {
   text-align: center; color: var(--text-3); font-size: 11.5px;
   padding: 20px 0 8px;
 }
 
-/* bot 之间的往返折叠成一行，点开才展开 / Bot-to-bot exchanges fold into one line until expanded */
+/* Bot-to-bot exchanges fold into one line until expanded */
 .fold {
   display: flex; align-items: center; justify-content: center; gap: 7px;
   color: var(--text-2); font-size: 12.5px; padding: 14px 0 6px;
@@ -767,7 +659,7 @@ header .spacer { flex: 1; }
 .fold:hover { color: var(--text); }
 .fold .av { display: inline-block; }
 
-/* 工具轨迹：左侧细规线，等宽 / Tool trace: a thin left rule, monospace */
+/* Tool trace: a thin left rule, monospace */
 .tool {
   display: flex; gap: 9px; align-items: baseline;
   color: var(--text-3); font-size: 11.5px; font-family: var(--mono);
@@ -784,10 +676,8 @@ header .spacer { flex: 1; }
   text-align: center;
 }
 
-/* 审批卡：直接落在对话里，就地批 / Approval card: lands in the conversation, decided in place */
-/* 同 .card 那条：--glass-edge，不是 --glass-sheen。这张卡三行高（一行说明、一行命令、一排按钮），
-   而 --glass-sheen 的底部回光够到往上 37px——正好压在批准/拒绝那一排上，把它托在一层光里。
-   Same call as .card: --glass-edge, not --glass-sheen. This card is three rows tall (a line of
+/* Approval card: lands in the conversation, decided in place */
+/*   Same call as .card: --glass-edge, not --glass-sheen. This card is three rows tall (a line of
    explanation, the command, a row of buttons) and the bottom bounce reaches 37px up — landing squarely
    on Approve/Reject and floating that row on a cushion of light. */
 .approval {
@@ -802,13 +692,9 @@ header .spacer { flex: 1; }
   margin: 7px 0 11px; overflow-wrap: anywhere; line-height: 1.5;
 }
 .approval .acts { display: flex; gap: 8px; }
-/* 外观走下面"按钮"一节 / Appearance comes from the Buttons section below */
+/* Appearance comes from the Buttons section below */
 
-/* 「批准，并以后不再问这个目录」：一行淡色文字，不是第三个按钮。
-   它批出去的比上面两个按钮都多（那个目录里往后的每一条命令），所以恰恰不能长得更显眼——
-   把最省事的那一下做成最好按的那一下，就是在替用户拿主意。路径太长时省略号收尾，
-   完整路径在 title 里，反正真要核对的人会去设置里看那份清单。
-   "Approve, and stop asking about this directory": one faint line, not a third button.
+/*   "Approve and remember this directory": one faint line, not a third button.
    It approves more than either button above it — every later command in that directory — which is
    exactly why it must not look more inviting. Making the easiest click the most attractive one decides
    for the user. A long path ellipsises, with the whole of it in the title; anyone actually checking
@@ -827,19 +713,14 @@ header .spacer { flex: 1; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* ---- 输入条 / Composer ---- */
+/* Composer ---- */
 
-/* 这一层只负责摆位置，不负责任何观感：上面不留间距，玻璃到框为止，框外面就是纸。
-   顶部只要有内距，框和上面的消息之间就会读出一条空带，像下面另起了一栏。
-   左右 22px 和 #msgs 对齐，底下 16px 是离窗口边的呼吸位——那不是"分隔"，是窗口边距。
-   This layer only positions; it contributes nothing visual. No padding on top: the glass stops at the
+/*   This layer only positions; it contributes nothing visual. No padding on top: the glass stops at the
    frame and outside the frame is just paper. Any top padding at all reads as an empty band between the
    frame and the messages, as though a separate strip began down there. The 22px sides match #msgs, and
    the 16px underneath is clearance from the window edge — that is a window margin, not a divider. */
 #composer { padding: 0 22px 16px; flex: none; }
-/* 引用条：贴在输入框正上方，同宽同圆角，只有下沿被输入框盖住——两者要读成一件东西，
-   否则它看着像消息流的最后一条。
-   The reply bar sits directly on top of the field, same width and corners, its lower edge tucked
+/*   The reply bar sits directly on top of the field, same width and corners, its lower edge tucked
    under it: the two have to read as one object, or it looks like the last message in the stream. */
 #replyBar {
   display: flex; align-items: center; gap: 8px;
@@ -859,11 +740,9 @@ header .spacer { flex: 1; }
 }
 #replyBar .rb-x:hover { background: var(--glass-2); color: var(--text); }
 
-/* ---- 待发送的附件 / Attachments waiting to be sent ---- */
+/* Attachments waiting to be sent ---- */
 
-/* 和引用条同一套底：都是"这条消息还带着什么"，长得一样才读得出是同一类东西。
-   横排可滚，不换行——挂到第三行的附件会把输入框整个顶上去，而它本来就是个附属物。
-   Same ground as the reply bar: both say what else this message carries, and looking alike is what
+/*   Same ground as the reply bar: both say what else this message carries, and looking alike is what
    makes them read as one kind of thing. A scrolling row rather than wrapping: a third line of
    attachments would shove the whole field upwards, and these are an accompaniment to it. */
 #attachTray {
@@ -895,9 +774,7 @@ header .spacer { flex: 1; }
 }
 #attachTray .x:hover { background: var(--glass-3); color: var(--text); }
 
-/* 拖文件进窗口时整块画布压暗一档并镶一道边。没有这个，用户不知道松手会不会有事发生。
-   pointer-events:none 是必须的：盖在上面的层会把 drop 事件自己吃掉。
-   Dragging files over the window dims the canvas a step and rings it. Without that, nobody knows
+/*   Dragging files over the window dims the canvas a step and rings it. Without that, nobody knows
    whether letting go will do anything. pointer-events:none is required, or the overlay eats the drop. */
 body.dropping::after {
   content: ""; position: fixed; inset: 8px; z-index: 60; pointer-events: none;
@@ -905,12 +782,11 @@ body.dropping::after {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
-/* ---- 消息里的附件 / Attachments inside a message ---- */
+/* Attachments inside a message ---- */
 
 .files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 5px; }
 .msg.user .files { justify-content: flex-end; }
-/* 缩略图给一个上限就好，不裁成方块：截图大多是宽的，裁成正方形等于把内容切掉一半。
-   A thumbnail is capped rather than cropped square: screenshots are mostly wide, and a square crop
+/*   A thumbnail is capped rather than cropped square: screenshots are mostly wide, and a square crop
    throws away half of what is in them. */
 .files .shot {
   max-width: min(320px, 100%); max-height: 240px; border-radius: 12px; cursor: zoom-in;
@@ -929,17 +805,11 @@ body.dropping::after {
   background: rgba(0, 0, 0, 0.72); cursor: zoom-out; padding: 32px;
 }
 .lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; }
-/* 输入框的轮廓留着，只是不填底色。
-   玻璃全部收在框以内：底色、边缘高光、模糊都挂在 .composer-pill 上，一到边框就结束。
-   框外面那一圈（#composer 的内距）不铺任何东西——之前读起来像"下面另有一栏"，
-   不是因为框有底色，是因为框外面还额外垫了一层间距，两者叠在一起才成了一条带。
-   The glass is contained entirely within the frame: fill, edge highlight and blur all hang on
+/*   The glass is contained entirely within the frame: fill, edge highlight and blur all hang on
    .composer-pill and stop at its border. Outside it — #composer's padding — nothing is painted. What
    used to read as "a separate strip down there" was not the frame's fill on its own; it was the fill
    plus an extra band of padding wrapped around it, and only the two together made a bar.
 
-   align-items 保持 flex-end 而不是 center：输入框长到多行时，两个按钮要沉在底部，
-   不能浮在中间。单行的时候它俩之所以看着没居中，是因为输入框比按钮高——见下面 #input 的内距。
    align-items stays flex-end rather than center: once the field grows to several lines the buttons must
    sink to the bottom, not float in the middle. The reason they looked off-centre on a single line is
    that the field was taller than they are — see #input's padding below. */
@@ -951,10 +821,7 @@ body.dropping::after {
   -webkit-backdrop-filter: var(--glass-blur-strong);
   backdrop-filter: var(--glass-blur-strong);
 }
-/* 单行高度必须正好等于圆按钮的 34px，flex-end 才等于居中。
-   之前是 8px 内距 → 14.5×1.5 + 16 ≈ 37.8px，比按钮高 4px，按钮就被压到了偏下 2px。
-   6px → 33.75px，和 34 差 0.25px，看不出来。
-   A single line has to come out at exactly the 34px of the round buttons, because only then does
+/*   A single line has to come out at exactly the 34px of the round buttons, because only then does
    flex-end coincide with centred. The padding was 8px → 14.5×1.5 + 16 ≈ 37.8px, four pixels taller than
    the buttons, which pushed them 2px low. At 6px it lands on 33.75px — a quarter pixel off 34. */
 #input {
@@ -969,11 +836,7 @@ body.dropping::after {
 }
 .round-btn.plus { background: none; color: var(--text-2); }
 .round-btn.plus:hover { background: var(--glass-2); color: var(--text); }
-/* 回形针和 @ 是一对——都是"给这条消息再加点什么"，所以它俩之间收到 2px 读成一组，
-   而到输入框仍然是那一档 8px：断点该落在组和框之间，不该落在组内部。
-   数字看着狠，眼睛里并不狠：按钮 34px、图标才 18px，两侧各自空着 8px，
-   所以 2px 的间距落下来两个图标之间还隔着 18px。悬停时两个圆的底都亮着，中间留一道 2px 的缝，不会糊成一块。
-   The paperclip and the @ are a pair — both say "add something else to this message" — so the space
+/*   The paperclip and the @ are a pair — both say "add something else to this message" — so the space
    between them closes to 2px and they read as one cluster, while the step to the field stays at 8px:
    the break belongs between the cluster and the field, not inside the cluster. The number looks harsher
    than it is: the buttons are 34px around 18px icons, leaving 8px of slack on each side, so at a 2px gap
@@ -985,7 +848,7 @@ body.dropping::after {
 }
 .round-btn.send:hover { background: color-mix(in srgb, var(--accent) 84%, var(--bg)); }
 
-/* @提及 / 跳转浮层 / Mention & jump popover */
+/* Mention & jump popover */
 .pop {
   position: absolute; z-index: 40; background: var(--glass-panel);
   -webkit-backdrop-filter: var(--glass-blur-strong);
@@ -1000,14 +863,13 @@ body.dropping::after {
   padding: 7px 9px; border-radius: 9px; color: var(--text); font-size: 13px;
 }
 .pop button:hover { background: var(--glass-2); }
-/* 菜单里的破坏性项：静止时就红着，不是等悬停才红——不然"删除"和"设置"在扫一眼时长得一样
-   A destructive entry is red at rest, not only on hover: otherwise Delete and Settings look identical
+/*   A destructive entry is red at rest, not only on hover: otherwise Delete and Settings look identical
    at a glance */
 .pop button.danger { color: var(--danger); }
 .pop button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .pop .meta { color: var(--text-3); font-size: 11.5px; margin-left: auto; }
 
-/* ---- 侧栏工作台 / Sidebar workbench ---- */
+/* Sidebar workbench ---- */
 
 #panel {
   flex: 1 1 0; min-height: 72px; min-width: 0; width: auto;
@@ -1031,12 +893,9 @@ body.dropping::after {
   color: var(--text-3); padding: 10px 4px 6px;
 }
 
-/* ---- 卡片与条目（工作台 / 弹窗内）/ Cards and items (workbench & dialogs) ---- */
+/* Cards and items (workbench & dialogs) ---- */
 
-/* 卡片是一摞条目，不是一块面板，所以走 --glass-edge。--glass-sheen 那道 -18px/38px 的底部回光
-   是按整块面板的高度调的：工作台的卡片常常只装一两条，回光就横在下半截，卡片鼓成一个枕头，
-   而且最下面那条平白亮一档，看着像鼠标正指在它上面——一摞可点的行里，这是个假的指示。
-   A card is a stack of rows, not a panel, so it takes --glass-edge. The -18px/38px bottom bounce in
+/*   A card is a stack of rows, not a panel, so it takes --glass-edge. The -18px/38px bottom bounce in
    --glass-sheen is tuned to a full panel's height: a workbench card often holds one or two rows, and
    the bounce then lies across its lower half — the card puffs up like a pillow, and the bottom row
    lifts a step on its own and reads as though the pointer were on it, which in a stack of clickable
@@ -1055,32 +914,24 @@ body.dropping::after {
   font-family: var(--mono); font-size: 11px; color: var(--text-2);
   margin-top: 4px; overflow-wrap: anywhere; line-height: 1.45;
 }
-/* 工作目录行：标题一行（说明这是哪一类目录，右端是"移除"），路径另起一行走等宽。
-   路径必须完整可见，所以它换行而不是省略——这一栏存在的全部意义就是让用户核对
-   "免审批的到底是哪个目录"，印一半等于没印。
-   A working-directory row: a heading line (which kind of directory this is, with Remove at the right)
+/*   A working-directory row: a heading line (which kind of directory this is, with Remove at the right)
    and the path below it in monospace. The path wraps rather than truncating: this pane exists so the
    user can check which directory skips approval, and half a path checks nothing. */
 #botRoots .root-row .title { display: flex; align-items: baseline; gap: 8px; }
 #botRoots .root-row .title > :first-child { flex: 1; min-width: 0; }
 #botRoots .root-row .code { margin-top: 3px; }
-/* 撤销是收回权限，用危险色，和条目操作栏里的删除按钮保持一致
-   Revoking withdraws a permission, so it takes the danger colour, matching the delete buttons in a
+/*   Revoking withdraws a permission, so it takes the danger colour, matching the delete buttons in a
    row's action bar */
 #botRoots .root-row .text-btn.danger { color: #ff8b82; }
 #botRoots .root-row .text-btn.danger:hover { color: #ffaea7; }
 
-/* 任务行的负责人：头像和名字是一小块整体，不参与备注那行的宽度争夺。
-   名字宽到装不下时才用省略号收尾——半个名字尚能认人，逐字竖排的名字不能。
-   A task's owner: the face and the name are one small unit that takes no part in the note line's
+/*   A task's owner: the face and the name are one small unit that takes no part in the note line's
    contest for width. The name ellipsises only when it truly cannot fit — half a name still identifies
    someone, a name stacked one glyph per line does not. */
 #tasks .owner { display: flex; align-items: center; gap: 5px; min-width: 0; }
 #tasks .owner .who-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #tasks .note { margin-top: 3px; line-height: 1.45; }
-/* 例程行里的负责人下拉：长得像行内文字，指上去才显出是个能点的东西。
-   整行读作"谁 · 多久一次 · 下次几点"，塞一个方框控件进去会把这句话拦腰截断。
-   A routine's owner dropdown: inline text until you point at it. The line reads "who · how often ·
+/*   A routine's owner dropdown: inline text until you point at it. The line reads "who · how often ·
    when next", and a boxed control dropped into it would cut that sentence in half. */
 .item .sub select {
   appearance: none; cursor: pointer; font: inherit; color: var(--text-2);
@@ -1091,8 +942,7 @@ body.dropping::after {
 }
 .item .sub select:hover, .item .sub select:focus-visible { background-color: var(--glass-3); color: var(--text); }
 
-/* 离职档案展开后的预览：记忆可能很长，给个高度上限让它自己滚，别把设置面板撑开
-   An archive's expanded preview: memory can run long, so cap the height and let it scroll rather than
+/*   An archive's expanded preview: memory can run long, so cap the height and let it scroll rather than
    stretching the settings pane */
 .departed-detail { margin-top: 8px; max-height: 220px; overflow-y: auto; }
 .departed-detail .code { white-space: pre-wrap; margin-top: 0; }
@@ -1129,13 +979,7 @@ button.text-btn {
 }
 button.text-btn:hover { color: var(--text); }
 
-/* ---- 按钮 / Buttons ----
-
-   这一套次要按钮原先散在七个地方各写一遍：圆角 8/9/10 三种、内距七种、字号五种，
-   底色清一色 background:none——玻璃铺开之后，它们成了界面上仅剩的一批"没有材质"的东西，
-   浮在玻璃面板上像是忘了上色。主按钮那份反色定义更是一字不差地重复了四遍。
-   这里合成一条：玻璃底 + 发丝边 + 一道边缘高光，尺寸只留两档，主按钮只定义一次。
-   各组件后面只保留真正不同的那一两行（chip 的药丸形、刷新按钮跟着下拉框拉伸）。
+/*Buttons ----
 
    This set of secondary buttons used to be written out in seven places: three radii (8/9/10), seven
    paddings, five font sizes, and every one of them background:none — which left them the only things
@@ -1164,9 +1008,7 @@ dialog menu button {
   white-space: nowrap;
 }
 
-/* 悬停提亮一档，边跟着重一点。不用 filter：按钮现在是半透明的，
-   filter 会把透过来的背景一起改，糊成一块。
-   Hover lifts one step and the hairline follows. Not filter(): these buttons are translucent now, and
+/*   Hover lifts one step and the hairline follows. Not filter(): these buttons are translucent now, and
    filter would drag whatever shows through them along with it, muddying the lot. */
 .approval .acts button:hover,
 .inline-actions button:hover,
@@ -1181,20 +1023,17 @@ dialog menu button:hover {
   color: var(--text);
 }
 
-/* 大一档：弹窗页脚和就地审批卡，按的是"这一步的决定"，比工具条上的按钮该重一些
-   One size up: dialog footers and the inline approval card commit a decision, and should carry more
+/*   One size up: dialog footers and the inline approval card commit a decision, and should carry more
    weight than a button sitting in a toolbar */
 dialog menu button,
 .approval .acts button { padding: 7px 16px; font-size: 13px; }
 
-/* 主按钮：一份定义，之前是四份一模一样的 / The primary: one definition, where there were four identical ones */
+/* The primary: one definition, where there were four identical ones */
 .approval .acts button.yes,
 .inline-actions button.primary,
 .pair-acts button.primary,
 dialog menu button.primary {
-  /* 平涂，不是渐变。渐变的浅端会把白字的对比度拖到 3.4:1——omusic 敢那么用是因为它那是
-     大字号的落地页 CTA（大字只要 3:1），这里的按钮是 12–13px，得按 4.5:1 算。
-     Flat, not a gradient: a gradient's light end drags white text down to 3.4:1. omusic can afford
+  /*     Flat, not a gradient: a gradient's light end drags white text down to 3.4:1. omusic can afford
      that because its buttons are large-type landing-page CTAs, where 3:1 is the bar; these are 12–13px
      and have to clear 4.5:1. */
   background: var(--accent);
@@ -1203,9 +1042,7 @@ dialog menu button.primary {
   box-shadow: 0 6px 18px var(--accent-glow);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-/* 往画布的方向挪一点点。深浅两套里 --text 一个近白一个近黑，
-   brightness() 只能往一个方向走，在另一套里等于没反应。
-   Nudged toward the canvas. --text is near-white in one theme and near-black in the other, so
+/*   Nudged toward the canvas. --text is near-white in one theme and near-black in the other, so
    brightness() can only move in one of them and reads as no response in the other. */
 .approval .acts button.yes:hover,
 .inline-actions button.primary:hover,
@@ -1218,10 +1055,10 @@ dialog menu button.primary:hover {
 }
 .approval .acts button.no:hover { color: var(--danger); border-color: var(--danger); }
 
-/* ---- 弹窗 / Dialogs ---- */
+/* Dialogs ---- */
 
 dialog {
-  /* 通配 margin:0 会破坏原生 dialog 的居中，这里显式恢复 / the universal margin reset breaks native dialog centering — restore it */
+  /* the universal margin reset breaks native dialog centering — restore it */
   margin: auto;
   background: var(--glass-panel); color: var(--text);
   -webkit-backdrop-filter: var(--glass-blur-strong);
@@ -1245,8 +1082,7 @@ dialog form { display: flex; flex-direction: column; max-height: 86vh; }
 .settings-nav button:hover { color: var(--text); }
 
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
-/* chip 保留药丸形——它是一组可多选的标签，不是一排命令按钮，形状本身就是区分
-   Chips keep the pill: they are a set of selectable labels, not a row of command buttons, and the
+/*   Chips keep the pill: they are a set of selectable labels, not a row of command buttons, and the
    shape is what says so */
 .preset-chip { border-radius: 20px; color: var(--text-2); }
 .preset-chip.on { color: var(--text); background: var(--glass-2); border-color: var(--text-3); }
@@ -1260,18 +1096,15 @@ dialog form { display: flex; flex-direction: column; max-height: 86vh; }
 .onboard-row input[type=password], .onboard-row select { margin: 0; flex: 1; }
 
 dialog h3 { font-size: 17px; font-weight: 620; letter-spacing: -0.02em; padding: 22px 24px 10px; }
-/* 分节标题：上面压一条通栏发丝线，把长表单切成几块 / Section heads sit under a full-width hairline that breaks up long forms */
+/* Section heads sit under a full-width hairline that breaks up long forms */
 dialog h3.sub-head {
-  /* 不做 uppercase：中文用不上，混排时只会把英文喊得很吵
-     No uppercase transform: it does nothing for Chinese and only shouts the Latin half of mixed text */
+  /*     No uppercase transform: it does nothing for Chinese and only shouts the Latin half of mixed text */
   font-size: 11.5px; font-weight: 600; color: var(--text-3);
   letter-spacing: 0.03em;
   margin: 6px -24px 10px; padding: 18px 24px 0;
   border-top: 1px solid var(--separator);
 }
-/* 上内边距不能省：带标签栏的设置弹窗里，正文紧接在导航下面，
-   0 的话首行会贴着分隔线，滚动时还会从线底下钻出来，看着像被裁掉了。
-   The top padding is not optional: in the tabbed settings dialog the body follows the nav directly,
+/*   The top padding is not optional: in the tabbed settings dialog the body follows the nav directly,
    and at 0 the first line sits on the separator and slides out from under it while scrolling, which
    reads as clipped. */
 dialog .body { overflow-y: auto; padding: 16px 24px 4px; }
@@ -1307,11 +1140,9 @@ dialog menu {
   display: flex; gap: 8px; justify-content: flex-end;
   padding: 14px 24px 18px; border-top: 1px solid var(--separator);
 }
-/* 破坏性操作保持红底：主操作是褐色，两者色相隔得开，不会混
-   The destructive action keeps its red fill: the primary is brown, far enough away in hue not to blur */
+/*   The destructive action keeps its red fill: the primary is brown, far enough away in hue not to blur */
 dialog menu button.primary.danger { background: var(--danger); color: #1a0806; box-shadow: none; }
-/* 它比上面那条 .primary:hover 更具体，不写就完全没有反馈
-   It outranks the .primary:hover above, so without this it never responds */
+/*   It outranks the .primary:hover above, so without this it never responds */
 dialog menu button.primary.danger:hover {
   background: color-mix(in srgb, var(--danger) 86%, var(--bg));
   transform: translateY(-1px); box-shadow: none;
@@ -1320,9 +1151,7 @@ dialog menu button.primary.danger:hover {
 .inline-actions { display: flex; gap: 8px; align-items: center; margin: -4px 0 12px; }
 .inline-actions button { flex: none; }
 
-/* 插件面板：一行小标题 + "已安装"角标 + 安装中的按钮。
-   都借用既有的 .card/.item 版式，这里只补它们没有的那点差别。
-   The plugins panel: a section label, an "installed" tag, and a button mid-install. All of it rides on
+/*   The plugins panel: a section label, an "installed" tag, and a button mid-install. All of it rides on
    the existing .card/.item layout; only the small differences those lack are added here. */
 .sec-label {
   font-size: 11px; color: var(--text-3); letter-spacing: 0.04em;
@@ -1333,7 +1162,7 @@ dialog menu button.primary.danger:hover {
   font-size: 10.5px; letter-spacing: 0.02em;
   color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent);
 }
-/* 安装中的按钮不能只是灰掉——灰掉像是"不可用"，这里要的是"在动" */
+
 /* A button mid-install must not merely grey out — grey reads as unavailable, and what this needs to say
    is that something is happening */
 .item .actions button.busy { color: var(--warn); cursor: default; }
@@ -1347,9 +1176,7 @@ dialog menu button.primary.danger:hover {
 
 .err { color: #ff8f88; font-size: 11.5px; min-height: 15px; margin-bottom: 8px; }
 
-/* 同 .card 那条：--glass-edge，不是 --glass-sheen。这条就一行字、连边框统共 41px 高，
-   而底部回光从底边往上够 37px——整条药丸会变成一道从上到下的渐变，而不是一块平整的玻璃。
-   Same call as .card: --glass-edge, not --glass-sheen. This is one line of text, 41px tall including
+/*   Same call as .card: --glass-edge, not --glass-sheen. This is one line of text, 41px tall including
    its border, and the bottom bounce reaches 37px up from the bottom edge — it would turn the whole
    pill into a top-to-bottom gradient instead of one flat piece of glass. */
 #toast {
@@ -1363,7 +1190,7 @@ dialog menu button.primary.danger:hover {
   max-width: min(480px, 90vw);
 }
 
-/* 复选行（群成员 / 插件选择）/ Checkbox rows (group members, plugin picker) */
+/* Checkbox rows (group members, plugin picker) */
 .check-row { display: flex; align-items: center; padding: 8px 12px; }
 .check-row label {
   margin: 0; color: var(--text); font-size: 12.5px;
@@ -1372,14 +1199,13 @@ dialog menu button.primary.danger:hover {
 .check-row input[type=checkbox] { width: auto; display: inline; margin: 0; accent-color: var(--accent); }
 .check-row .meta { color: var(--text-3); font-size: 11px; margin-left: auto; }
 
-/* 空态出现在非卡片容器里时也要有基本排版 / Empty states outside a card still need padding */
+/* Empty states outside a card still need padding */
 .side-scroll .empty, .pop .empty { color: var(--text-3); font-size: 12px; padding: 12px 10px; }
 
-/* Windows / Linux 的窗口按钮浮在右上角，标题栏右侧留出空位
-   On Windows/Linux the window controls float top-right — reserve room at the end of the header */
+/* On Windows/Linux the window controls float top-right — reserve room at the end of the header */
 .win-controls header { padding-right: 150px; }
 
-/* ---- 头像编辑 / Avatar editor ---- */
+/* Avatar editor ---- */
 
 .av-edit { display: flex; align-items: center; gap: 18px; margin: 4px 0 20px; }
 .av-pick { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
@@ -1388,14 +1214,11 @@ dialog menu button.primary.danger:hover {
   width: 22px; height: 22px; border-radius: 50%; cursor: pointer; padding: 0;
   border: 0; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
-/* 选中用外圈，不占色块本身的面积 / The selection ring sits outside so it does not eat into the color */
+/* The selection ring sits outside so it does not eat into the color */
 .swatch.on { outline: 2px solid var(--text); outline-offset: 2px; }
 .av-btns { display: flex; gap: 8px; }
 
-/* ---- 模型选择器（新建/编辑 Bot、首次引导共用）/ Model picker (shared by bot dialogs and onboarding) ---- */
-
-/* 接入方式：两选一的分段控件，比两个单选按钮省地方也更好点
-   Auth mode: a two-way segmented control — tighter and easier to hit than a pair of radios */
+/*   Auth mode: a two-way segmented control — tighter and easier to hit than a pair of radios */
 .seg {
   display: flex; gap: 4px; margin-top: 6px;
   background: var(--glass-well); border-radius: 10px; padding: 4px;
@@ -1408,8 +1231,7 @@ dialog menu button.primary.danger:hover {
 .seg-btn:hover { color: var(--text); }
 .seg-btn.on { background: var(--glass-3); color: var(--text); font-weight: 600; box-shadow: var(--glass-edge); }
 
-/* 订阅登录就地完成：状态点 + 一句话 + 登录/退出
-   Signing in happens right here: a status dot, one line of text, and a sign-in/out button */
+/*   Signing in happens right here: a status dot, one line of text, and a sign-in/out button */
 .mp-sub {
   display: flex; align-items: center; gap: 9px;
   background: var(--glass); box-shadow: var(--glass-edge); border-radius: 10px;
@@ -1420,9 +1242,7 @@ dialog menu button.primary.danger:hover {
 .mp-sub-text { flex: 1; font-size: 12.5px; color: var(--text-2); min-width: 0; }
 .mp-sub button { flex: none; }
 
-/* stretch 而不是 center：刷新按钮要和它旁边的下拉框一样高。之前是靠给按钮配一个 8px 的
-   内距去凑下拉框的高度——改动任何一边，都得回来重新凑另一边。
-   stretch, not center: the refresh button must be exactly as tall as the select beside it. That used to
+/*   stretch, not center: the refresh button must be exactly as tall as the select beside it. That used to
    be done by hand-tuning the button's padding to 8px until it matched — touch either one and you had
    to come back and re-tune the other. */
 .mp-model { display: flex; gap: 8px; align-items: stretch; margin-top: 6px; }
@@ -1433,14 +1253,12 @@ dialog menu button.primary.danger:hover {
 .mp-note { margin-top: -6px; margin-bottom: 14px; }
 .mp-note .text-btn { margin-left: 0; }
 
-/* ---- 权限档位 / Permission tiers ---- */
+/* Permission tiers ---- */
 
 .perm-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .perm-row {
   display: flex; align-items: flex-start; gap: 10px;
-  /* 四行必须共享同一条描边，选中只是把它加重。之前只有选中那行有边、其余三行没有，
-     这一组就散了——一个被框住的物件旁边浮着三块无边的色块。
-     All four rows share one hairline and selection only darkens it. When only the selected row had a
+  /*     All four rows share one hairline and selection only darkens it. When only the selected row had a
      border the group fell apart: one boxed object floating beside three edgeless slabs. */
   background: var(--glass); box-shadow: var(--glass-edge);
   border: 1px solid var(--border);
@@ -1457,17 +1275,14 @@ dialog menu button.primary.danger:hover {
 .perm-row .txt { min-width: 0; }
 .perm-row .name { font-size: 13px; font-weight: 600; }
 .perm-row .desc { font-size: 11.5px; color: var(--text-3); line-height: 1.5; margin-top: 2px; }
-/* 完全放开是唯一一档没有任何兜底的，视觉上必须区别对待
-   "No approvals" is the one tier with nothing left to catch mistakes, so it must look different */
+/*   "No approvals" is the one tier with nothing left to catch mistakes, so it must look different */
 .perm-row.danger .name { color: var(--warn); }
 .perm-row.danger.on { border-color: rgba(224, 164, 74, 0.5); }
 #botPermNote { margin-top: -8px; }
 
-/* ---- 思考与进程 / Thinking and progress ---- */
+/* Thinking and progress ---- */
 
-/* 中间过程默认收成一行小字：对话才是主体。但它得一直在，
-   长任务时步数在涨是用户唯一能确认"还在跑"的证据。
-   The intermediate steps fold into one small line — the conversation is the point. It stays visible
+/*   The intermediate steps fold into one small line — the conversation is the point. It stays visible
    though: during a long task, a rising step count is the only proof anything is still happening. */
 .trace { margin: 8px 0 6px 4px; }
 .trace-head {
@@ -1491,7 +1306,7 @@ dialog menu button.primary.danger:hover {
 @keyframes pulse { from { opacity: 1; } to { opacity: 0.2; } }
 .trace-body { margin-top: 4px; }
 
-/* 打字气泡：三点省略号，节奏错开 / Typing bubble: three dots on staggered timing */
+/* Typing bubble: three dots on staggered timing */
 .bubble.typing { display: flex; gap: 4px; align-items: center; padding: 13px 15px; width: fit-content; }
 .bubble.typing .dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--text-3);
@@ -1504,7 +1319,7 @@ dialog menu button.primary.danger:hover {
   30%           { opacity: 1;    transform: translateY(-2.5px); }
 }
 
-/* ---- 首次引导 / First-run onboarding ---- */
+/* First-run onboarding ---- */
 
 .onboard { padding: 30px 28px 8px; text-align: center; }
 .onboard h3 { padding: 0; font-size: 21px; letter-spacing: -0.02em; }
@@ -1512,8 +1327,7 @@ dialog menu button.primary.danger:hover {
   color: var(--text-2); font-size: 13.5px; line-height: 1.6;
   margin: 8px auto 20px; max-width: 380px;
 }
-/* 每一步一张示意图，比一段说明更快讲清楚"这里能干什么"
-   One drawing per step: faster at conveying "here is what this does" than a paragraph would be */
+/*   One drawing per step: faster at conveying "here is what this does" than a paragraph would be */
 .onboard-art { display: grid; place-items: center; height: 96px; margin-bottom: 18px; }
 .onboard-tour { display: flex; flex-direction: column; gap: 8px; text-align: left; margin-bottom: 4px; }
 .onboard-tour .row {
@@ -1530,28 +1344,21 @@ dialog menu button.primary.danger:hover {
 .onboard-dots i.on { background: var(--text-2); }
 #onboardModal menu { border-top: 0; }
 
-/* 加号菜单里的两个宽条目：图标 + 名字 + 一句说明
-   The two wide entries in the ＋ menu: icon, name, and one line of explanation */
+/*   The two wide entries in the + menu: icon, name, and one line of explanation */
 .pop button.pop-wide { align-items: flex-start; gap: 11px; padding: 9px 10px; }
 .pop button.pop-wide .name { font-size: 13px; font-weight: 600; }
 .pop button.pop-wide .desc { font-size: 11.5px; color: var(--text-3); margin-top: 1px; line-height: 1.45; }
 .pop button.pop-wide svg { margin-top: 2px; color: var(--text-2); }
 
-/* 主区空态：一句话，不装饰 / Main-pane empty state: one line, undecorated */
+/* Main-pane empty state: one line, undecorated */
 .blank { display: grid; place-content: center; text-align: center; height: 100%; padding: 0 40px; }
 .blank-title { font-size: 15px; font-weight: 600; }
 .blank-desc { color: var(--text-3); font-size: 13px; margin-top: 6px; line-height: 1.6; max-width: 320px; }
 #composer[hidden] { display: none !important; }
 
-/* ---- 局域网配对提示 / LAN pairing hint ---- */
+/* LAN pairing hint ---- */
 
-/* 浮在侧栏底部之上，不占常规流的位置。
-   它在流里时，出现和消失都会把 Plugins、引擎那两行整体推上推下——那两行是常驻的，
-   位置不该被一个临时提示牵着走。改成绝对定位（bottom:100% 贴着 .side-foot 的上沿），
-   它就变成一张浮起来的卡片：出现时盖住工作台底部一小块，消失后底下两行纹丝不动。
-   底是实色的：它盖着工作台的任务和定时任务，半透明的话那些字会从底下透上来和提示文字叠在一起。
-   实色也就不需要 backdrop-filter 了——背后什么都透不过来，那层滤镜是纯开销。
-   Floats above the sidebar's footer instead of occupying a slot in the flow. While it was in the flow,
+/*   Floats above the sidebar's footer instead of occupying a slot in the flow. While it was in the flow,
    appearing and disappearing shoved the Plugins and engine rows up and down; those two are permanent
    fixtures and should not be jostled by a transient hint. Absolutely positioned (bottom:100%, flush
    with the top edge of .side-foot) it becomes a card that floats: it covers a sliver of the workbench
@@ -1579,12 +1386,7 @@ dialog menu button.primary.danger:hover {
 .pair-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.5; margin: 4px 0 9px; }
 .pair-acts { display: flex; gap: 7px; }
 
-
-/* 空态的板块：底色和描边都留着——板块是块地方，空着也该看得出边界在哪。变的是方向。
-   装着东西的卡片用 --glass 往上浮；空的用 --glass-well 往下凹，是个等着被填的托盘。
-   这么分有两个好处：语义对得上（满的是一摞东西，空的是一块地方），而且浅色下白叠白根本分不开层——
-   往下凹是唯一能让底色真的看得见的方向。高光必须卸掉，它是"这里头装了东西"的信号。
-   An empty section keeps both fill and hairline — a section is a place, and an empty one should still
+/*   An empty section keeps both fill and hairline — a section is a place, and an empty one should still
    show where it ends. What changes is the direction. A card with contents floats up on --glass; an
    empty one sinks into --glass-well, a tray waiting to be filled. That split earns its keep twice: it
    matches the meaning (full is a stack of things, empty is a place), and in light mode white over white
@@ -1592,8 +1394,7 @@ dialog menu button.primary.danger:hover {
    sheen has to come off either way; it is the signal for "there is something in here". */
 .card:has(> .empty:only-child) { background: var(--glass-well); box-shadow: none; }
 
-/* 字段下面的一行小注：解释这个字段派生出了什么，不占一个独立的输入位
-   A one-line note under a field: explains what the field derived, without occupying an input slot */
+/*   A one-line note under a field: explains what the field derived, without occupying an input slot */
 .field-note { margin: -8px 0 14px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .field-note code {
   font-family: var(--mono); font-size: 11.5px; color: var(--text-2);
@@ -1601,8 +1402,7 @@ dialog menu button.primary.danger:hover {
 }
 .field-note .text-btn { margin-left: 0; }
 
-/* 验证码：等宽显示 + 就近的复制按钮。O/0、I/1 在等宽下才分得清。
-   A code: monospace with a copy button right beside it — O/0 and I/1 only separate in monospace. */
+/*   A code: monospace with a copy button right beside it — O/0 and I/1 only separate in monospace. */
 .code-chip { display: inline-flex; align-items: center; gap: 7px; vertical-align: middle; }
 .code-chip code {
   font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.06em;
