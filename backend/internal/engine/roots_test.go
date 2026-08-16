@@ -10,6 +10,26 @@ import (
 	"time"
 )
 
+// testDirOutsideScratch creates a fixture outside the directory that Toolbox treats as shared
+// scratch space. t.TempDir uses /tmp on Linux, while /tmp is intentionally always in bounds.
+func testDirOutsideScratch(t *testing.T) string {
+	t.Helper()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(cwd, ".roots-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if within(canonical(dir), scratchDir()) {
+		_ = os.RemoveAll(dir)
+		t.Fatalf("test fixture must be outside scratch directory: %s", dir)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // UserPaths has to pick the directory a user named out of an ordinary sentence, and to let everything
 // merely path-shaped go by.
 func TestUserPathsPicksDirectoriesOnly(t *testing.T) {
@@ -149,9 +169,9 @@ func TestRootsPersistAndRevoke(t *testing.T) {
 // without approvals, while the directory next to it still asks. This is exactly the gap that made
 // "which working directory" impossible to answer before.
 func TestNamedDirectoryBecomesWorkspaceForTheBotAddressed(t *testing.T) {
-	dir := t.TempDir()
-	proj := t.TempDir()
-	outside := t.TempDir()
+	dir := testDirOutsideScratch(t)
+	proj := testDirOutsideScratch(t)
+	outside := testDirOutsideScratch(t)
 
 	bus := NewBus()
 	sched := NewScheduler(bus, filepath.Join(dir, "routines.json"))
