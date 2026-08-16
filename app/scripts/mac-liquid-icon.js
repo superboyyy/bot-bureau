@@ -19,11 +19,30 @@
 // With no assets/AppIcon.icon present the whole step is skipped: this is a bonus, not something
 // worth failing a build over.
 const { execFileSync } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const ICON_NAME = "AppIcon";
+
+function sourceDigest(root) {
+  const files = [];
+  function visit(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(file);
+      else files.push(file);
+    }
+  }
+  visit(root);
+  const hash = crypto.createHash("sha256");
+  for (const file of files) {
+    hash.update(path.relative(root, file));
+    hash.update(fs.readFileSync(file));
+  }
+  return hash.digest("hex").slice(0, 16);
+}
 
 function actoolPath() {
   try {
@@ -76,6 +95,20 @@ module.exports = async function (context) {
     return;
   }
 
+  // Universal packaging runs this hook once for each architecture. actool can emit an Assets.car
+  // with architecture-specific metadata even when the source icon is identical, and
+  // @electron/universal then refuses to merge the two non-Mach-O files. Reuse one deterministic
+  // compilation for the same source so both slices carry byte-identical appearance assets.
+  const cache = path.join(os.tmpdir(), `botbureau-${ICON_NAME}-${sourceDigest(source)}.car`);
+  const appDir = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
+  const target = path.join(appDir, "Contents", "Resources", "Assets.car");
+  if (fs.existsSync(cache)) {
+    fs.copyFileSync(cache, target);
+    setPlist(path.join(appDir, "Contents", "Info.plist"), "CFBundleIconName", ICON_NAME);
+    console.log(`[icon] reused cached ${ICON_NAME}.icon asset catalog`);
+    return;
+  }
+
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "bb-icon-"));
   const outDir = path.join(work, "out");
   const plist = path.join(work, "partial.plist");
@@ -101,8 +134,8 @@ module.exports = async function (context) {
     return;
   }
 
-  const appDir = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`);
-  fs.copyFileSync(path.join(outDir, "Assets.car"), path.join(appDir, "Contents", "Resources", "Assets.car"));
+  fs.copyFileSync(path.join(outDir, "Assets.car"), cache);
+  fs.copyFileSync(cache, target);
 
   // CFBundleIconFile is left alone: that is electron-builder's .icns, the fallback for macOS below 26.
   setPlist(path.join(appDir, "Contents", "Info.plist"), "CFBundleIconName", ICON_NAME);
