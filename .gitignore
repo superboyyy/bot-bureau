@@ -16,8 +16,12 @@ mcp.yaml
 node_modules/
 app/dist/
 app/bin/
+app/coverage/
+app/test-results/
+app/playwright-report/
 backend/botbureau-backend
 backend/backend
+coverage.out
 
 # ── 系统垃圾 / OS clutter ──
 # 桌面开着 iCloud 同步时到处都是 .DS_Store

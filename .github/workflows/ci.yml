@@ -1,0 +1,80 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    name: Go backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+      - name: Unit and integration tests
+        run: go test ./...
+      - name: Race detector
+        run: go test -race ./...
+      - name: Static analysis
+        run: go vet ./...
+      - name: Coverage
+        run: go test ./... -covermode=atomic -coverprofile=coverage.out
+      - name: Enforce backend baseline
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {print $NF}' | tr -d '%')
+          awk -v total="$total" 'BEGIN { if (total < 65) { printf "backend coverage %.1f%% is below the 65%% baseline\n", total; exit 1 } }'
+      - name: Upload Go coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+
+  frontend:
+    name: Electron unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.x
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run test:coverage
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: app/coverage
+
+  electron-e2e:
+    name: Electron smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.x
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+      - run: npm ci
+      - run: npm run build:backend
+      - run: xvfb-run --auto-servernum env BOTBUREAU_RUN_E2E=1 npm run test:e2e
