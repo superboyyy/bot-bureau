@@ -4,7 +4,7 @@ English | [中文](README.zh-CN.md)
 
 **Bot Bureau** is an "agency of AI members" running on your own machine. You hand out work as if messaging a team member; they finish multi-step tasks on their own, come back to you for approval when human judgment is needed, remember your preferences, turn recurring work into scheduled routines, and divide labor among themselves in a group chat.
 
-A **Go engine + a cross-platform Electron desktop client**, wired to whichever model APIs you like — data, memory and workspaces all stay local.
+Bot Bureau combines a **Go engine with a cross-platform Electron desktop client**, wired to whichever model APIs you like — data, memory, and workspaces all stay local.
 
 ```
 ┌────────────────────────┐   HTTP + SSE   ┌─────────────────────────────┐
@@ -20,39 +20,39 @@ A **Go engine + a cross-platform Electron desktop client**, wired to whichever m
 
 | Capability | How it works |
 |---|---|
-| Message bots like team members | **Group chat** (call a bot by plain name or @mention it; with nobody named, the first member of the group takes it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
-| Each Bot has its own computer | Each bot gets an isolated workspace `data/workspaces/<bot>/`; bash / file I/O confined inside |
+| Message bots like team members | **Group chat** (call a bot by plain name or @mention it; if nobody is named, the first member in the group handles it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
+| Each bot has its own workspace | Each bot starts with its own workspace `data/workspaces/<bot>/`, plus any existing directories the user explicitly names; file I/O is bounds-checked and bash stays permission-gated |
 | Autonomous multi-step tasks, always-on | Each bot is a resident goroutine running its own agent loop, never blocking the others |
 | Comes back when human judgment is needed | Non-read-only commands suspend for approval; one-click approve / reject in the sidebar (with optional reason) |
 | — | **Starts empty**: no bots and no group chat out of the box; the first launch runs a three-step tour (you are the boss → what you can do → hire your first member), skippable |
-| — | **Long thinking reports back**: while a bot works, a typing bubble sits in the conversation with a small "Working · N steps" line beside it that expands to show each step |
+| — | **Long-running work reports progress**: while a bot works, a typing bubble sits in the conversation with a small "Working · N steps" line beside it that expands to show each step |
 | — | **No @ required**: calling a bot by name in a group (`scout take a look`) is the same as `@scout`; it will not match longer words like `scouting` |
-| — | **Light and dark**: follows the system, or pin it |
-| — | **Permission tiers**: ask every time / may edit files / work unattended / no approvals — one team-wide default, overridable per bot; actions leaving the workspace and plugin calls skip approval only under "no approvals" |
+| — | **Light and dark**: follows the system setting, or can be pinned |
+| — | **Permission tiers**: ask every time / can edit files / work unattended / no approvals — one team-wide default, overridable per bot; actions leaving the workspace and plugin calls skip approval only under "no approvals" |
 | Remembers your preferences | Per-bot `MEMORY.md` long-term memory, injected across sessions |
 | Routines | Say "every 30 minutes…" and it's saved as a routine; survives restarts, deletable in the sidebar |
 | Multi-bot collaboration | Bots hand tasks to each other in group chat (`message_bot`); other bots "overhear" the room |
 | Works across the web | Claude-based bots ship with server-side `web_search` / `web_fetch` |
 | — | **Create your own bots**: click "＋ New Bot" in the UI, fill in name/persona/model; persisted to `bots.yaml` |
 | — | **Edit any bot**: hover a conversation and click the pencil (or click the header avatar) to change its display name, avatar, persona, model and API; saving restarts that bot with the new config |
-| — | **The group is editable too**: set its name and avatar; unset it falls back to "Group chat" plus the first two members' faces stacked |
+| — | **The group is editable too**: set its name and avatar; unset it falls back to "Group chat" plus the first two members' avatars stacked |
 | — | **Multiple group chats**: create one with "＋" at the top of the sidebar; each has its own name, avatar, members and context. The default group cannot be deleted |
 | — | **Subscriptions instead of API keys**: sign in to ChatGPT Plus/Pro or SuperGrok directly (OAuth device code — no local callback port, tokens stored 0600 on this machine) and skip buying API credit |
 | — | **Models are fetched, not typed**: pick a vendor and the engine asks it for the currently available models, which you choose from a dropdown. If the list cannot be fetched it says so and lets you type the name |
 | — | **Messages render as Markdown**: headings, lists, quotes, fenced code and links; built as DOM only, with links restricted to http/https and handed to the system browser |
 | — | **Interrupt anytime**: a bot that has run away can have its current turn aborted instead of being waited out |
-| — | **Nothing is lost on restart**: conversation context and message history are persisted (`data/sessions/`, `data/events.json`) |
+| — | **Nothing is lost on restart**: message history and per-bot conversation context are persisted (`data/events.jsonl`, `data/workspaces/<bot>/sessions.json`) |
 | — | **Multi-model**: native Anthropic + OpenAI-compatible endpoints (OpenAI / xAI Grok / DeepSeek / Kimi / local Ollama / custom…), from a catalog served by the engine |
 | — | **API key management**: paste a key right in the New Bot dialog (or manage them all in Settings). Stored in `data/keys.json`, 0600; the UI shows masked values only; takes precedence over env vars |
 | — | **Group membership**: add/remove bots in a group's settings; non-members receive none of that group's messages, can't be @mentioned or assigned; DMs unaffected |
 | — | **Task board + division-of-labor protocol**: when decomposing work, bots use `assign_task` to give each subtask exactly one owner and `update_task` to claim/deliver publicly; the board is visible in the sidebar — duplicate work is prevented by mechanism |
 | — | **Shared team memory**: `remember scope=team` writes to team-wide `data/TEAM_MEMORY.md` (shared across model providers) |
-| — | **Bilingual UI (中文 / English)**: follows the system language by default; switch between "Follow system / 中文 / English" in Settings. The choice applies to the UI, backend messages, and the bots' prompt language alike |
+| — | **Bilingual UI (中文 / English)**: follows the system language by default; switch between "Follow system / 中文 / English" in Settings. The choice applies to the UI, backend messages, and the bots' prompt language as well |
 | — | **Plugins (MCP)**: the plugins panel connects local plugins (stdio commands such as `npx @modelcontextprotocol/server-*`) or remote connectors (Streamable HTTP + Bearer); implemented at the engine level so **bots on any provider can use them**; each bot subscribes as needed; non-read-only plugin calls always go through approval (`readOnlyHint`-annotated ones run directly); config lives in `mcp.yaml` |
 
 ## Quick start
 
-Requirements: Node.js ≥ 20 (to run Electron). Go ≥ 1.22 as well: no binary is committed, so the engine is built from source. `npm start` and the packaging scripts run `npm run build:backend` for you.
+Requirements: Node.js ≥ 22.12 (to run Electron) and Go ≥ 1.26.6. No backend binary is committed, so the engine is built from source. `npm start` and the packaging scripts run `npm run build:backend` for you.
 
 ```bash
 cd bot-bureau/app
@@ -60,9 +60,37 @@ npm install
 npm start
 ```
 
-**The first launch opens empty** — no bots, no group chat. Onboarding walks three steps: it frames who you are (you run the bureau; the bots are staff you hire), points at where things are created and managed, and then hires your first member (pick a vendor → sign in or paste a key → choose a model from the list it fetched). Skipping is fine; the ＋ in the sidebar is always there.
+**The first launch starts empty** — no bots, no group chat. Onboarding walks three steps: it frames who you are (you run the bureau; the bots are staff you hire), points at where things are created and managed, and then helps you create your first member (pick a vendor → sign in or paste a key → choose a model from the list it fetched). Skipping is fine; the ＋ in the sidebar is always there.
 
-Try it: DM it to write a script (running one triggers an approval); create a group, put a few bots in it and assign work by name (`scout look up today's AI news` — no @ needed); say "check the HN front page every 60 minutes".
+Try it: ask a member in a DM to write a script (running it triggers an approval); create a group, add a few bots to it and assign work by name (`scout look up today's AI news` — no @ needed); say "check the HN front page every 60 minutes".
+
+## Automated testing
+
+The repository keeps Go tests beside their package (`*_test.go`), while Electron tests live under `app/test/` and `app/e2e/`:
+
+```bash
+# Go backend
+cd backend
+go test ./...
+go test -race ./...
+go vet ./...
+go test ./... -coverprofile=/tmp/botbureau.cover
+go tool cover -func=/tmp/botbureau.cover
+
+# Electron unit tests and coverage
+cd ../app
+npm ci
+npm run test:unit
+npm run test:coverage
+
+# Real Electron + Go backend smoke test
+npm run build:backend
+BOTBUREAU_RUN_E2E=1 npm run test:e2e
+```
+
+The Electron E2E test uses a temporary data directory and never contacts a real model, Telegram account, OAuth provider, or MCP server. It is skipped unless `BOTBUREAU_RUN_E2E=1` is set. CI runs backend tests, the race detector, static checks, frontend coverage, and the Electron smoke test.
+
+Architecture and contributor workflows are documented in [`docs/architecture.md`](docs/architecture.md), [`docs/development.md`](docs/development.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md). From the repository root, `make test` runs the fast checks and `make test-e2e` runs the desktop smoke test.
 
 ## Where data is stored
 
@@ -91,9 +119,8 @@ data/
   xai_oauth.json       subscription tokens (0600)
   chatgpt_oauth.json   subscription tokens (0600)
   token                LAN pairing code (0600)
-  events.json          message history (survives restarts)
-  sessions/            each bot's conversation context
-  workspaces/<bot>/    each bot's own working directory + MEMORY.md
+  events.jsonl         append-only message history (survives restarts)
+  workspaces/<bot>/    each bot's own working directory + MEMORY.md + sessions.json
   TEAM_MEMORY.md       team-wide shared memory
   tasks.json           task board
   routines.json        scheduled routines
@@ -128,7 +155,7 @@ BOTBUREAU_DATA_DIR=/tmp/bb-dev npm start
 
 ## Interface language
 
-Bot Bureau **follows the system language** by default (the client reads the Electron locale, the engine reads `LANG`/`LC_ALL`); Settings lets you pick "Follow system / 中文 / English" explicitly. One switch covers three layers:
+Bot Bureau **follows the system language** by default (the client reads the Electron locale, the engine reads `LANG`/`LC_ALL`); the Settings panel lets you choose "Follow system / 中文 / English" explicitly. One switch covers three layers:
 
 1. **UI**: every static label and dynamic message (the choice is remembered locally by the client);
 2. **Engine messages**: approval prompts, errors, routine triggers, quota alerts and other event text (persisted in `data/settings.json`, kept across restarts);
@@ -138,12 +165,12 @@ When the bare backend runs on its own, the language comes from `data/settings.js
 
 ## Permission tiers
 
-Four tiers deciding which of a bot's actions need your approval. **Every boundary is something the engine can actually decide**, not a difference in wording:
+There are four tiers that decide which of a bot's actions need your approval. **Every boundary is something the engine can actually decide**, not a difference in wording:
 
 | Tier | Skips approval | Still asks |
 |---|---|---|
 | **Ask every time** (default) | Read-only commands, file reads, read-only plugins | File writes, commands, writing plugins |
-| **May edit files** | ＋ file writes inside the workspace | Commands, plugins |
+| **Can edit files** | ＋ file writes inside the workspace | Commands, plugins |
 | **Work unattended** | ＋ ordinary commands inside the workspace | Anything leaving the workspace, plugins |
 | **No approvals** | Everything | Nothing |
 
@@ -152,7 +179,7 @@ Two rules cut across every tier:
 - **anything leaving the workspace is always asked**, except under "No approvals" — otherwise "Work unattended" would equal it;
 - **non-read-only plugin (MCP) calls likewise skip approval only under "No approvals"**. The engine cannot judge a plugin's blast radius: an fs plugin writing a file and a GitHub plugin opening an issue look identical at the protocol level, yet one touches a local sandbox and the other your live repo.
 
-How "inside the workspace" is decided, stated plainly: file reads and writes are pinned there by path resolution and cannot escape; bash is a **heuristic** — absolute paths, `..` and `~` are caught, and command substitution (`` ` `` and `$(`) always counts as escaping because it makes the target undecidable before the command runs. Pipes and redirects on their own do not count as escaping (the command's working directory is pinned, so relative paths stay in), or "Work unattended" could not even run `echo x > note.txt && cat note.txt` and the tier would be pointless.
+Here, "the workspace" means the bot's own directory plus any concrete, existing directories the user explicitly names in a message. File reads and writes are path-checked against those roots; bash is a **heuristic**, not a sandbox. Absolute paths inside those roots are allowed, while paths outside them (including relative `..` paths) are caught. Command substitution (`` ` `` and `$(`) always counts as escaping because the target cannot be determined before the command runs. Pipes and redirects do not themselves escape the workspace: the command's working directory is pinned, so relative paths stay inside. That is what lets "Work unattended" run `echo x > note.txt && cat note.txt` without making the tier pointless.
 
 Settings → Permissions sets the **team-wide default**; each bot can pick its own tier in its settings, defaulting to "follow the global setting". Changes take effect immediately, with no restart. An invalid or empty value always falls back to the most conservative tier — never accidentally to "No approvals".
 
@@ -211,7 +238,7 @@ bots:
     provider: fake
 ```
 
-`provider: anthropic` (the default) exclusively gets server-side web search and refusal fallback; OpenAI-compatible bots can reach the web via bash `curl` (through approval).
+`provider: anthropic` (the default) is the only provider with server-side web search and refusal fallback; OpenAI-compatible bots can reach the web via bash `curl` (through approval).
 Pre-existing configs with no `auth` keep working under the old rule (guessing from `base_url`).
 
 ## Directory layout
@@ -233,6 +260,8 @@ app/                     Electron client
   main.js                spawns the backend, windows, multi-device discovery
   renderer/              plain DOM, no framework
     locales/zh.js        Chinese translations (the main process reads this same file)
+  test/                   Vitest unit/integration tests
+  e2e/                    Electron smoke tests
   scripts/               dev-mode identity fix (Dock name and icon)
 assets/make_icon.py      mark and icon generation (SVG, dark + light, macOS squircle mask)
 bots.example.yaml        team definition template (copy to bots.yaml; that one is gitignored)
@@ -250,7 +279,7 @@ The files in `engine` are genuinely coupled — the bus holds workers and the wo
 
 A missing entry falls back to the English source, so **an untranslated string never renders as a blank**. Adding a language is one more file with the same shape.
 
-**Comments are bilingual.** That does not contradict the rule above: comments are for whoever maintains this and are best read by both audiences, while user-facing text must switch as a whole.
+**Comments are written in English.** Source comments stay in English so the implementation and maintenance notes have one consistent language; user-facing text is translated through the locale tables above.
 
 ## Appearance
 
@@ -278,7 +307,7 @@ The order matters: `afterPack` runs *before* signing, so these changes get seale
 
 electron-builder accepts a single `afterPack`, so the config points at `app/scripts/after-pack.js`, which chains the steps in order: add the icon catalog (`mac-liquid-icon.js`), then clear extended attributes last (`strip-xattr.js`). The cleanup has to come last — files written by a later step would carry attributes in and codesign would refuse them all the same.
 
-With no `assets/AppIcon.icon`, or on a machine without full Xcode (`actool` ships with Xcode, not the command line tools), the step is skipped entirely and the build still produces a package — just without appearance switching. A bonus is not worth failing a build over.
+With no `assets/AppIcon.icon`, or on a machine without full Xcode (`actool` ships with Xcode, not the command line tools), the step is skipped entirely and the build still produces a package — just without appearance switching. Appearance switching is optional and should not make the build fail.
 
 > If the Dock still shows the old icon after a change, that is the system icon cache; `killall Dock` clears it.
 
@@ -298,7 +327,7 @@ npm run dist:linux:x64      # AppImage + deb
 npm run dist:linux:arm64
 ```
 
-All three share one Electron client, with the Go engine started as a child process of the app. What comes out:
+All three share one Electron client, with the Go engine started as a child process of the app. The resulting package contains:
 
 ```
 Bot Bureau.app/Contents/
@@ -307,20 +336,27 @@ Bot Bureau.app/Contents/
   Resources/app.asar.unpacked/bin/   botbureau-backend (the engine — must live outside the asar)
 ```
 
-Two traps, written down so nobody walks into them again:
+Two common pitfalls:
 
-- **The engine binary has to be unpacked** (`build.asarUnpack`). A file inside an asar can be read but **not executed**, so leaving it in there means a packaged app that cannot find its engine at all.
+- **The engine binary has to be unpacked** (`build.asarUnpack`). A file inside an asar can be read but **not executed**, so leaving it in there means the packaged app cannot find its engine.
 - **Architecture cannot come from a bare `go build`.** That only produces the host architecture, while the dmg has to run on both kinds of Mac; `scripts/build-backend.js` builds arm64 and amd64 separately, joins them with `lipo`, and verifies both slices are present. Windows and Linux cross-compile (the engine is pure Go, `CGO_ENABLED=0`); pass a different `--arch` and run again for another one.
 
 > **Signing and notarization**: with a `Developer ID Application` certificate in the keychain, electron-builder picks it up and signs automatically (hardened runtime, timestamped) — which is why packaging is slow: every one of several hundred files takes a network round trip for its timestamp.
 >
-> **Signed is not the same as openable, though.** Since macOS 10.15 an app downloaded from the internet must also be **notarized** by Apple: the package is uploaded for scanning and the receipt stapled back into it. Without that a downloaded build is still stopped, and the user has to right-click to open it once or run `xattr -d com.apple.quarantine "Bot Bureau.app"`.
+> **Signed is not the same as openable, though.** Since macOS 10.15 an app downloaded from the internet must also be **notarized** by Apple: the package is uploaded for scanning and the receipt stapled back into it. Without notarization, macOS still blocks a downloaded build, and the user has to right-click to open it once or run `xattr -d com.apple.quarantine "Bot Bureau.app"`.
 >
-> To add it, configure `mac.notarize` for electron-builder with an Apple ID / app-specific password / team id (or an API key). Copying locally or handing the app around a LAN needs none of this — the quarantine flag only comes from a browser download.
+> To add it, configure `mac.notarize` for electron-builder with an Apple ID / app-specific password / team id (or an API key). Local copying or sharing the app over a LAN needs none of this — the quarantine flag only comes from a browser download.
 
 > **The Dock name in development**: `npm start` runs the Electron inside `node_modules`, so the Dock shows *that* app's name. `scripts/fix-electron-identity.js` rewrites its `Info.plist` at prestart and re-signs it ad-hoc (without re-signing, macOS refuses to launch on the invalidated signature or re-prompts for permissions). Even then, macOS Launch Services caches app names, so the first change may need a re-login or `killall Dock` to show up. **Packaged builds do not have this problem** — they are their own bundle.
 
-### Mobile and watch (planned)
+### Future plans: notifications and mobile clients
+
+The next user-facing improvements are:
+
+- **Message notifications** — optional desktop and mobile alerts for new messages, approvals and other events that need your attention.
+- **Native mobile clients (iOS / Android)** — chat with the team, follow task progress and handle approvals from a phone while the engine keeps running on a desktop or server.
+
+### Mobile and watch clients (planned)
 
 The engine is already a plain HTTP + SSE service authenticated by a pairing code, reachable across networks over a mesh such as Tailscale — so every other platform is **another client**, with no engine changes needed.
 
@@ -331,7 +367,7 @@ The engine is already a plain HTTP + SSE service authenticated by a pairing code
 | iOS / Android | Native client talking to the machine running the engine | Planned |
 | watchOS | Watch task progress, receive approval pushes, approve/reject from the wrist | Planned |
 
-Phone and watch clients **do not run the engine** — model calls, bash and plugins need a machine that stays on, so the phone is only a client. The watchOS one stays deliberately narrow: one job, "a bot is waiting on you" — a list, an approve/reject pair, and task progress you can take in at a glance.
+Phone and watch clients **do not run the engine** — model calls, bash and plugins need a machine that stays on, so the phone is only a client. The watchOS client is intentionally narrow: one job, "a bot is waiting on you" — a list, an approve/reject pair, and task progress you can take in at a glance.
 
 To use it from a phone today, enable the Telegram bridge (below): chatting and approvals both work there without waiting for a native client.
 
@@ -356,7 +392,7 @@ The pairing code travels in the `Authorization` header only. The message stream 
 
 Within the same LAN, devices connect **peer-to-peer** with no cloud server involved:
 
-- **One device runs the engine** (bots, chats, memory, board all live there); other devices launching Bot Bureau **auto-discover it via mDNS** and ask "connect to it, or run independently on this machine". After connecting, this machine is a pure client — chat, approvals, plugin/member management all work, with natural strong consistency (a single copy of state, no sync conflicts).
+- **One device runs the engine** (bots, chats, memory, board all live there); other devices launching Bot Bureau **auto-discover it via mDNS**. Discovery raises a non-blocking hint only after the window opens, and the local engine starts as usual unless the user chooses "Pair". After connecting, this machine is a pure client — chat, approvals, plugin/member management all work, with natural strong consistency (a single copy of state, no sync conflicts).
 - **Pairing code**: shown in Settings on the engine device; other devices enter it once on first connect and it's remembered. Every endpoint except the discovery probe requires it (constant-time comparison; `data/token`, 0600).
 - **Moving the engine between machines**: put `bots.yaml`, `mcp.yaml`, and `data/` in a synced folder (iCloud/Syncthing) for cold migration. The **engine lock** (`data/engine.lock` + heartbeat) stops two devices from running the engine at once — the second is clearly refused, preventing duplicate bot replies; a stale lock left by a crash expires after 30 seconds.
 - Debug/manual override: `BOTBUREAU_BACKEND_URL=http://<ip>:<port> npm start` connects in client mode directly; `BOTBUREAU_LOCAL_ONLY=1` listens on 127.0.0.1 only, with no broadcast.
@@ -366,7 +402,7 @@ Discovery is **non-blocking**: nothing stands in the way of opening the app, and
 
 ### Across networks (not on the same LAN)
 
-NAT means direct connections across the internet always need help punching through — a pure "no third party at all" hole punch does not exist. The recommended approach is to **turn different networks into one private network**:
+NAT means direct connections across the internet always need help punching through — a direct, third-party-free hole punch is not possible. The recommended approach is to **turn different networks into one private network**:
 
 1. **Tailscale (recommended)**: install [Tailscale](https://tailscale.com) (free for personal use) on both devices and sign in to the same account; find the engine device's Tailscale IP (in `100.64.0.0/10`); on the other device open Bot Bureau → Settings → "Connect to remote engine" and enter `http://100.x.y.z:8973`, then the pairing code once. The address is remembered (`connect.json`) and reconnects automatically on the next launch; if unreachable you're prompted and can fall back to running locally. Traffic is WireGuard end-to-end encrypted with a peer-to-peer data plane. The engine port is fixed at 8973 (falls back to a random port only if occupied).
 2. **SSH tunnel**: with any machine that can SSH to the engine device: `ssh -N -L 8973:127.0.0.1:8973 user@engine-host`, then connect to `http://127.0.0.1:8973`.
@@ -392,12 +428,12 @@ caddy reverse-proxy --from botbureau.example.com --to localhost:8973
 # Bring-your-own certificates are also supported: -tls cert.pem:key.pem
 ```
 
-On the client: 设置 → "Connect to remote engine", enter `https://...` plus the pairing code. Security model: TLS-encrypted channel + pairing-code auth + fingerprint pinning against MITM; plain http is for trusted LANs / virtual networks only.
+On the client: Settings → "Connect to remote engine", enter `https://...` plus the pairing code. Security model: TLS-encrypted channel + pairing-code auth + fingerprint pinning against MITM; plain HTTP is for trusted LANs / virtual networks only.
 
-### Telegram integration (put the team in your phone's chat app)
+### Telegram integration (access your team from your phone)
 
 1. In Telegram, find **@BotFather** → `/newbot` to create a bot and get its token;
-2. In Bot Bureau 设置 → save it as `TELEGRAM_BOT_TOKEN` in the API Key section → click "Enable" on the Telegram bridge;
+2. In Bot Bureau Settings → save it as `TELEGRAM_BOT_TOKEN` in the API keys section → click "Enable" on the Telegram bridge;
 3. Send `/start` to your bot in Telegram — **the first sender gets exclusive binding**; anyone else is rejected.
 
 Then, on your phone:
@@ -407,13 +443,13 @@ Then, on your phone:
 - **Command approvals arrive as inline ✅ approve / ❌ reject buttons** — one tap;
 - **Quota alerts always get through**: if any provider's balance/quota runs out, you're notified regardless of the current binding.
 
-The bridge uses the official Bot API with long polling — it works even when the engine sits behind a home NAT, no public IP required.
+The bridge uses the official Bot API with long polling — it works even when the engine sits behind a home NAT, and no public IP is required.
 
-WeChat has no official personal-bot API (third-party reverse-engineered options violate its ToS and get accounts banned), so it is not provided; Discord/Slack/Feishu can be added following the pattern in `backend/telegram.go` (messages in via `bus.PostGroup`/`Deliver`, events out via `bus.EventsSinceCtx`).
+WeChat has no official bot API for personal accounts (third-party reverse-engineered options violate its ToS and get accounts banned), so it is not provided; Discord/Slack/Feishu can be added following the pattern in `backend/internal/bridge/telegram.go` (messages in via `bus.PostGroup`/`Deliver`, events out via `bus.EventsSinceCtx`).
 
-### What if the engine machine shuts down? (availability)
+### What happens if the engine goes offline? (availability)
 
-With a single-engine architecture, engine off = that team offline (clients are just views). Three mitigations:
+With a single-engine architecture, if the engine is offline, the team is offline too (clients are just views). Three mitigations:
 
 1. **Disconnect banner and quick switch**: after 3 failed reconnects the client shows an "engine offline" banner at the top and keeps retrying automatically; one click switches to the local engine (remote mode → independent local team) or restarts the local engine (if it crashed). When the engine comes back, the client recovers automatically.
 2. **Keep the engine always on (recommended)**: the engine does not need Electron — run the bare backend on an always-on device (Mac mini / NAS / Raspberry Pi) and clients discover/connect as usual:
@@ -441,11 +477,11 @@ Engine-level MCP (rather than the Anthropic API's server-side MCP connector) was
 
 A remote connector authenticates one of two ways: a **static token** (`bearer_key`, pointing at an entry in the key store) or **OAuth** (`auth: oauth`, started by hitting "Authorize" in the plugins panel). The OAuth path runs the whole chain: protected-resource metadata discovery, authorization-server discovery, dynamic client registration (RFC 7591), authorization code with PKCE, and automatic refresh. Connectors that issue no static token — Linear, Notion, Sentry — can only be reached this way.
 
-When a plugin carries a lot of tools (the official GitHub MCP server has ninety-odd), hit "Choose tools" in the panel to pick a subset; it becomes the `tools:` list in `mcp.yaml`. Leaving it empty means all of them, so tools added by later updates are picked up automatically.
+When a plugin carries a lot of tools (the official GitHub MCP server has ninety-odd), click "Choose tools" in the panel to pick a subset; it becomes the `tools:` list in `mcp.yaml`. Leaving it empty means all of them, so tools added by later updates are picked up automatically.
 
-**A local plugin does not inherit your full environment.** The process receives an allowlist (PATH/HOME, locale, proxy and certificate variables, and so on) plus whatever it declares under `env:`. Something installed by a single click from a panel has no business also receiving `SSH_AUTH_SOCK` — enough to use your SSH keys against any host — or the tokens exported in your shell. **If a plugin needs some other variable, name it under `env:`**; a value starting with `$` is resolved from the key store.
+**A local plugin does not inherit your full environment.** The process receives an allowlist (PATH/HOME, locale, proxy and certificate variables, and so on) plus whatever it declares under `env:`. Something installed by a single click from a panel should not receive `SSH_AUTH_SOCK` — enough to use your SSH keys against any host — or the tokens exported in your shell. **If a plugin needs some other variable, name it under `env:`**; a value starting with `$` is resolved from the key store.
 
-**A local plugin that drops comes back on its own.** When the process crashes, or a pipe breaks as the machine wakes, the engine marks it unavailable and reconnects with backoff (stopping for a manual retry after a few attempts). The dot used to stay green while the model kept calling a tool list that no longer existed. A server announcing `tools/list_changed` also refreshes automatically, with no reconnect needed.
+**A local plugin that stops unexpectedly reconnects on its own.** When the process crashes, or a pipe breaks as the machine wakes, the engine marks it unavailable and reconnects with backoff (stopping for a manual retry after a few attempts). The dot used to stay green while the model kept calling a tool list that no longer existed. A server announcing `tools/list_changed` also refreshes automatically, with no reconnect needed.
 
 ## Skills (Agent Skills)
 
@@ -473,7 +509,7 @@ Skills are shared by the whole team rather than subscribed per bot (a one-line s
 
 ## Plugin packages (the Claude / Codex format)
 
-**Bot Bureau invents no plugin format of its own and installs `.claude-plugin/plugin.json` packages as they are.** The reasoning is practical: a bespoke format means recruiting developers from zero, while an existing one means a developer writes a plugin once and Claude Code, Codex and Bot Bureau can all install it. For a developer, then, the cost of "supporting Bot Bureau" is zero — write your Claude plugin as usual.
+**Bot Bureau does not invent its own plugin format; it installs `.claude-plugin/plugin.json` packages directly.** The reasoning is practical: a bespoke format would require developers to start from scratch, while an existing format lets them write a plugin once and Claude Code, Codex, and Bot Bureau can all install it. For a developer, then, the cost of "supporting Bot Bureau" is zero — write your Claude plugin as usual.
 
 Install from the plugins panel with a git URL or a folder path on this machine, or just copy a directory into `data/plugins/` (the filesystem is the only source of truth; no separate index is kept).
 
@@ -493,7 +529,7 @@ Hit "Update" on an installed plugin to upgrade it in place: a git source is pull
 
 Whatever is not supported is **listed explicitly** after installing, rather than half the package quietly doing nothing.
 
-That `agents/` row is Bot Bureau's own: the same package elsewhere can only degrade an agent into a subagent, while here it becomes an actual member — with its own workspace, memory and standing on the task board, able to be @-mentioned and assigned work.
+That `agents/` row is Bot Bureau's own: the same package elsewhere can only degrade an agent into a subagent, while here it becomes an actual member — with its own workspace, memory, and an entry on the task board, able to be @-mentioned and assigned work.
 
 ## Will I be notified when quota runs out?
 
@@ -508,11 +544,11 @@ Detection covers Anthropic (credit balance / billing) and OpenAI-compatible prov
 
 - Claude goes through the official `anthropic-sdk-go` (beta endpoint): `claude-opus-5`, adaptive thinking, server-side `fallbacks:"default"` (a safety-classifier refusal is automatically continued by the recommended fallback model), whole-turn rollback on refusal, and automatic paired tool_result repair when `max_tokens` truncates.
 - The OpenAI-compatible layer is native `net/http`, with two-way history/tool conversion; point `base_url` at any vendor.
-- Read-only bash (ls/cat/grep etc., with no `;|&$<>` metacharacters) runs directly; everything else goes through approval; `find` is excluded from the read-only list because of its built-in `-delete/-exec`. While waiting for approval the bot blocks — that is how "comes back to you when human judgment is needed" is actually implemented.
-- Conversation history is memory-only (cleared on restart); group and DM contexts are independent; long conversations are trimmed at whole-turn boundaries. Ask bots to `remember` anything long-term.
+- Recognized read-only shell commands and pipelines run directly, including non-acting `find`. Commands outside that subset, output redirects to real files, command substitutions, and acting `find` predicates such as `-delete` or `-exec` are handed to the permission gate. While waiting for approval the bot blocks — that is how "comes back to you when human judgment is needed" is actually implemented.
+- Message history is append-only in `data/events.jsonl`, with only a recent tail cached in memory. Group and DM contexts are independent and persist as each bot's `data/workspaces/<bot>/sessions.json`; long contexts are trimmed at whole-turn boundaries. Ask bots to `remember` anything long-term.
 - The bash "sandbox" is only a workspace directory + approval gate, **not** real isolation; read commands carefully before approving.
-- For packaged distribution (dmg/exe/AppImage) add electron-builder; currently runs in dev mode via `npm start`.
+- Packaged distribution uses electron-builder (`npm run dist:mac:arm64`, `dist:win:x64`, and the other scripts above); `npm start` remains the development entry point.
 
-## Not built (intentionally simplified)
+## Not implemented (intentionally out of scope)
 
-Always-on cloud VMs, signing into your real web apps on your behalf (extensible with Claude computer use), learning a workflow from a single demonstration, and native mobile push (the Telegram bridge covers this instead).
+Always-on cloud VMs, signing into your real web apps on your behalf (extensible with Claude computer use), learning a workflow from a single demonstration, and native mobile notifications and clients (planned; the Telegram bridge is the current mobile entry point).
