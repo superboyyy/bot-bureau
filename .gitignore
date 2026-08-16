@@ -1,30 +1,31 @@
-# ── 绝不能进版本库：密钥与私人数据 / Never commit: secrets and private data ──
-# data/ 里有 API key、OAuth 令牌、配对码、聊天记录和 bot 的工作目录。
-# data/ holds API keys, OAuth tokens, the pairing code, chat history and the bots' workspaces.
 data/
 app/connect.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
 
-# 本机的 bot / 插件配置：里面是你自己的模型选择、权限档位、工作目录路径。
-# 想分享配置就改 *.example.yaml，那两份是跟踪的。
-#
-# Local bot / plugin configuration: your own model choices, permission tiers and workspace paths.
-# To share a setup, edit the *.example.yaml files instead — those are tracked.
+.claude/settings.local.json
+__pycache__/
+*.py[cod]
+
 bots.yaml
 mcp.yaml
 
-# ── 构建产物 / Build output ──
 node_modules/
 app/dist/
 app/bin/
 app/coverage/
 app/test-results/
 app/playwright-report/
+release/
 backend/botbureau-backend
 backend/backend
 coverage.out
 
-# ── 系统垃圾 / OS clutter ──
-# 桌面开着 iCloud 同步时到处都是 .DS_Store
-# .DS_Store turns up everywhere when Desktop syncing is on
 .DS_Store
 *.swp

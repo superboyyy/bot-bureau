@@ -1,6 +1,6 @@
 English | [中文](README.zh-CN.md)
 
-# Bot Bureau — a resident team of AI members on your own machine (Go + Electron)
+# Bot Bureau — different AI agents, work together for you
 
 **Bot Bureau** is an "agency of AI members" running on your own machine. You hand out work as if messaging a team member; they finish multi-step tasks on their own, come back to you for approval when human judgment is needed, remember your preferences, turn recurring work into scheduled routines, and divide labor among themselves in a group chat.
 
@@ -349,28 +349,6 @@ Two common pitfalls:
 
 > **The Dock name in development**: `npm start` runs the Electron inside `node_modules`, so the Dock shows *that* app's name. `scripts/fix-electron-identity.js` rewrites its `Info.plist` at prestart and re-signs it ad-hoc (without re-signing, macOS refuses to launch on the invalidated signature or re-prompts for permissions). Even then, macOS Launch Services caches app names, so the first change may need a re-login or `killall Dock` to show up. **Packaged builds do not have this problem** — they are their own bundle.
 
-### Future plans: notifications and mobile clients
-
-The next user-facing improvements are:
-
-- **Message notifications** — optional desktop and mobile alerts for new messages, approvals and other events that need your attention.
-- **Native mobile clients (iOS / Android)** — chat with the team, follow task progress and handle approvals from a phone while the engine keeps running on a desktop or server.
-
-### Mobile and watch clients (planned)
-
-The engine is already a plain HTTP + SSE service authenticated by a pairing code, reachable across networks over a mesh such as Tailscale — so every other platform is **another client**, with no engine changes needed.
-
-| Platform | Form | Status |
-|---|---|---|
-| macOS / Windows / Linux | Electron, engine embedded | ✅ shipped |
-| Telegram | Bridge; works on anything with Telegram | ✅ shipped (see below) |
-| iOS / Android | Native client talking to the machine running the engine | Planned |
-| watchOS | Watch task progress, receive approval pushes, approve/reject from the wrist | Planned |
-
-Phone and watch clients **do not run the engine** — model calls, bash and plugins need a machine that stays on, so the phone is only a client. The watchOS client is intentionally narrow: one job, "a bot is waiting on you" — a list, an approve/reject pair, and task progress you can take in at a glance.
-
-To use it from a phone today, enable the Telegram bridge (below): chatting and approvals both work there without waiting for a native client.
-
 ## How cross-provider collaboration and division of labor work
 
 **Bots on different providers collaborate and share memory without friction.** Collaboration happens at the application layer (the Go message bus passes plain text) and is independent of the underlying model: a Claude bot handing a task to a Grok bot, or both reading/writing the task board and `TEAM_MEMORY.md`, is just text flowing in and out of each bot's context. Each bot's conversation history is stored independently in its own provider-native format; they never touch. An API key only decides "whose brain this bot uses" — it does not affect the collaboration surface.
@@ -549,6 +527,19 @@ Detection covers Anthropic (credit balance / billing) and OpenAI-compatible prov
 - The bash "sandbox" is only a workspace directory + approval gate, **not** real isolation; read commands carefully before approving.
 - Packaged distribution uses electron-builder (`npm run dist:mac:arm64`, `dist:win:x64`, and the other scripts above); `npm start` remains the development entry point.
 
-## Not implemented (intentionally out of scope)
+## Future plans
 
-Always-on cloud VMs, signing into your real web apps on your behalf (extensible with Claude computer use), learning a workflow from a single demonstration, and native mobile notifications and clients (planned; the Telegram bridge is the current mobile entry point).
+The next user-facing improvements are:
+
+- **Message notifications** — optional desktop and mobile alerts for new messages, approvals and other events that need your attention.
+- **Native mobile apps (iOS / Android)** — support both an independent engine-device mode and a client mode. In engine-device mode, the phone or tablet runs the team locally and handles model calls, bash, plugins, chats, memory, the task board and approvals; in client mode, it connects to an engine running on another device.
+- **watchOS companion** — show task progress, receive approval pushes and approve or reject work from the wrist. watchOS remains a client and does not run the engine.
+
+| Platform | Form | Status |
+|---|---|---|
+| macOS / Windows / Linux | Electron, engine embedded | ✅ shipped |
+| Telegram | Bridge; works on anything with Telegram | ✅ shipped (see above) |
+| iOS / Android | Native app that can host an engine independently or connect to another engine | Planned |
+| watchOS | Companion client for progress and approvals | Planned |
+
+Until the native mobile apps are available, enable the Telegram bridge above to chat with the team and handle approvals from a phone.
