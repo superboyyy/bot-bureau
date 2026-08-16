@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// ---- 测试用的脚本化 provider：按预设队列返回 model.StepResult ----
 // ---- Scripted provider for tests: returns model.StepResult from a preset queue ----
 
 type scriptedProvider struct{ script []model.StepResult }
@@ -40,8 +39,6 @@ func (s *scriptedSession) AddToolResults(rs []model.ToolResult) {
 	s.history = append(s.history, "toolresults")
 }
 
-// 这个假 session 只服务 engine 的用例，所以自带最朴素的裁剪与存档实现——
-// 借用 model 包内部的游标只会把两边的测试绑死在一起。
 // This fake only serves the engine's tests, so it carries the plainest possible trim and snapshot:
 // borrowing model's internal cursor would just tie the two test suites together.
 func (s *scriptedSession) Trim(limit int) {
@@ -75,10 +72,10 @@ func newTestDeps(t *testing.T, dataDir string) *TeamDeps {
 	t.Helper()
 	deps := NewTeamDeps(dataDir, secret.NewKeyStore(filepath.Join(dataDir, "keys.json")),
 		filepath.Join(dataDir, "mcp.yaml"))
-	// config.NewSettings 会按偏好重设全局语言，这里同样钉死 zh，否则用例断言的中文文案会跟着系统环境漂
+
 	// config.NewSettings re-applies the global locale, so pin it to zh here too or the Chinese assertions drift with the environment
 	deps.Settings = config.NewSettings(dataDir)
-	// 钉 en：断言对的是源码里的英文原文，否则中文机器上跑出来的是译文
+
 	// Pin en: the assertions read the English source, which translated output would never match
 	deps.Settings.SetLocalePref("en")
 	return deps
@@ -97,7 +94,7 @@ func newTestWorker(t *testing.T, name string, p model.Provider) (*BotWorker, *Bu
 		w.provider = p
 	}
 	bus.Register(w)
-	// 显式入群：注册不再自动拉人（见 Bus.Register），但绝大多数用例测的是群聊行为
+
 	// Join explicitly: registering no longer adds anyone (see Bus.Register), yet most cases here
 	// exercise group behaviour
 	bus.SetGroupMemberIn("group", name, true)
@@ -116,7 +113,6 @@ func addTestBot(t *testing.T, bus *Bus, sched *Scheduler, name string) *BotWorke
 	return w
 }
 
-// ---- bash 审批门 ----
 // ---- bash approval gate ----
 
 func TestBashReadonlyGate(t *testing.T) {
@@ -124,13 +120,13 @@ func TestBashReadonlyGate(t *testing.T) {
 	tb := w.toolbox
 	tb.currentChat = "dm"
 
-	// 只读命令直接执行
 	// Read-only commands execute directly
 	if out, isErr := tb.Execute("bash", map[string]any{"command": "echo hi"}); isErr || !strings.Contains(out, "hi") {
 		t.Fatalf("echo should run directly: %q %v", out, isErr)
 	}
-	// 非只读、元字符、find 都要走审批（后台拒绝）
-	// Non-read-only commands, metacharacters, and find all go through approval (rejected in the background)
+
+	// Non-read-only commands, command substitutions, real-file output redirects, and acting find
+	// predicates go through approval (rejected in the background)
 	for _, cmd := range []string{"touch x", "ls $(echo hi)", "find . -delete", "echo hi > f"} {
 		go func() {
 			for len(bus.PendingApprovals()) == 0 {
@@ -143,7 +139,7 @@ func TestBashReadonlyGate(t *testing.T) {
 			t.Fatalf("%q should go through approval and be rejected: %q %v", cmd, out, isErr)
 		}
 	}
-	// 批准后执行
+
 	// Executes after approval
 	go func() {
 		for len(bus.PendingApprovals()) == 0 {
@@ -202,7 +198,6 @@ func TestMessageBotDMGate(t *testing.T) {
 	}
 }
 
-// ---- 群聊语义 ----
 // ---- Group chat semantics ----
 
 func TestPostGroupRespondFlags(t *testing.T) {
@@ -233,12 +228,11 @@ func TestGroupMembership(t *testing.T) {
 	_, bus, sched := newTestWorker(t, "a", nil)
 	w2 := addTestBot(t, bus, sched, "c")
 
-	// 默认全员在群
 	// Everyone is in the group chat by default
 	if got := bus.GroupMembers(); len(got) != 2 {
 		t.Fatalf("everyone should be in the group by default: %v", got)
 	}
-	// 移出后：收不到群聊、@ 无效、message_bot 指不到
+
 	// After removal: receives no group chat messages, @ has no effect, message_bot cannot target it
 	bus.SetGroupMember("c", false)
 	bus.PostGroup("user", "@c do the work", []string{"c"})
@@ -255,13 +249,13 @@ func TestGroupMembership(t *testing.T) {
 	if out, isErr := a.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "x"}); !isErr {
 		t.Fatalf("message_bot to a non-member should error: %q", out)
 	}
-	// 私聊不受影响
+
 	// DMs are unaffected
 	if !bus.Deliver("user", "c", "dm", "dm", true) {
 		t.Fatal("a non-member's dm should still work")
 	}
 	<-w2.inbox
-	// 拉回群
+
 	// Add back into the group chat
 	bus.SetGroupMember("c", true)
 	if got := bus.GroupMembers(); len(got) != 2 {
@@ -274,10 +268,9 @@ func TestGroupMembersPersistence(t *testing.T) {
 	path := filepath.Join(dir, "group.json")
 	_, bus, sched := newTestWorker(t, "a", nil)
 	addTestBot(t, bus, sched, "c")
-	bus.LoadGroupMembers(path) // 文件不存在：保持默认全员 / file missing: keep default full membership
+	bus.LoadGroupMembers(path) // file missing: keep default full membership
 	bus.SetGroupMember("c", false)
 
-	// 新总线加载同一文件：c 不在群里
 	// A new bus loads the same file: c is not in the group chat
 	bus2 := NewBus()
 	dir2 := t.TempDir()
@@ -307,20 +300,20 @@ func TestTaskBoardFlow(t *testing.T) {
 	if isErr {
 		t.Fatalf("assign_task failed: %q", out)
 	}
-	// 负责人收到点名通知
+
 	// The assignee receives a mention notification
 	m := <-w2.inbox
 	if !m.Respond || !strings.Contains(m.Content, "[Task #1]") {
 		t.Fatalf("the owner should be notified: %+v", m)
 	}
-	// 群外的人不能被指派
+
 	// Bots outside the group chat cannot be assigned tasks
 	bus.SetGroupMember("coder", false)
 	if _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "y"}); !isErr {
 		t.Fatal("assigning to a non-member should error")
 	}
 	bus.SetGroupMember("coder", true)
-	// 更新状态 + 看板渲染
+
 	// Update status + render the board
 	if out, isErr := tb.Execute("update_task", map[string]any{"id": float64(1), "status": "done", "note": "done"}); isErr {
 		t.Fatalf("update_task failed: %q", out)
@@ -362,29 +355,29 @@ func TestKeyStore(t *testing.T) {
 	if ks.Get("XAI_API_KEY") != "xai-1234567890abcd" {
 		t.Fatal("Get should return the stored value")
 	}
-	// 掩码不泄漏明文
+
 	// Masking must not leak the plaintext
 	list := ks.List()
 	if len(list) != 1 || strings.Contains(list[0]["masked"], "1234567890") {
 		t.Fatalf("List should mask: %v", list)
 	}
-	// 文件权限 0600
+
 	// File permissions must be 0600
 	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
 		t.Fatalf("keys.json should be mode 0600: %v", info.Mode())
 	}
-	// 环境变量回退
+
 	// Environment variable fallback
 	t.Setenv("FALLBACK_KEY", "from-env")
 	if ks.Get("FALLBACK_KEY") != "from-env" {
 		t.Fatal("should fall back to the environment variable")
 	}
-	// 重新加载持久化
+
 	// Reload persisted data
 	if secret.NewKeyStore(path).Get("XAI_API_KEY") != "xai-1234567890abcd" {
 		t.Fatal("persistence failed")
 	}
-	// 非法名字
+
 	// Invalid name
 	if err := ks.Set("bad name", "v"); err == nil {
 		t.Fatal("an invalid name should error")
@@ -394,7 +387,6 @@ func TestKeyStore(t *testing.T) {
 	}
 }
 
-// ---- agentLoop：max_tokens 截断补配对、refusal 回滚 ----
 // ---- agentLoop: repair tool_result pairing on max_tokens truncation, roll back on refusal ----
 
 func TestAgentLoopMaxTokensOrphanRepair(t *testing.T) {
@@ -411,13 +403,8 @@ func TestAgentLoopMaxTokensOrphanRepair(t *testing.T) {
 	}
 }
 
-// ---- 干活途中的插话 ----
 // ---- Interjecting mid-turn ----
 
-// gatedSession 把每次请求卡在测试手里：先报"我要发请求了"，再等测试把结果递回来。
-// 只有这样才能精确地在两次请求之间投递一条消息，看它是并进了本轮还是排到了下一轮——
-// 换成脚本化 provider，整轮会在测试来得及插话之前就跑完了。
-//
 // gatedSession puts every request in the test's hands: it announces "about to send" and then waits
 // for the test to hand back a result. Only that makes it possible to deliver a message exactly
 // between two requests and see whether it joined the running turn or queued behind it — with the
@@ -455,9 +442,8 @@ func TestInterjectionJoinsTheRunningTurn(t *testing.T) {
 	done := make(chan bool, 1)
 	go func() { done <- w.agentLoop(context.Background(), "dm", sess, trigger) }()
 
-	<-sess.entered // 第一次请求发出去了：这一轮已经开工 / the first request is out: the turn is under way
+	<-sess.entered // the first request is out: the turn is under way
 
-	// 用户改主意，同时一个例程到点了
 	// The user changes their mind, and a routine fires at the same moment
 	bus.DeliverMsg("a", Msg{Sender: "user", Content: "stop, not the config file", Chat: "dm", Respond: true, ID: 9})
 	bus.DeliverMsg("a", Msg{Sender: "routine:nightly", Content: "run the nightly report", Chat: "dm", Respond: true})
@@ -465,13 +451,12 @@ func TestInterjectionJoinsTheRunningTurn(t *testing.T) {
 		{ID: "t1", Name: "read_file", Input: map[string]any{"path": "notes.txt"}},
 	}}
 
-	<-sess.entered // 第二次请求：插话应该已经在上下文里了 / the second request: the interjection should be in context by now
+	<-sess.entered // the second request: the interjection should be in context by now
 	got := strings.Join(sess.history, " | ")
 	if !strings.Contains(got, "stop, not the config file") {
 		t.Fatalf("the interjection should have joined the running turn: %s", got)
 	}
-	// 插话前面带着说明：不标的话它和一条崭新的用户消息长得一样，模型答完就收工，
-	// 而它手上那件事引擎根本没记，没人会把它捡回来
+
 	// The interjection carries its own note: unmarked it looks like a fresh user message, the model
 	// answers and calls the turn done, and the job it was in the middle of is recorded nowhere and never
 	// picked back up
@@ -488,7 +473,6 @@ func TestInterjectionJoinsTheRunningTurn(t *testing.T) {
 	sess.results <- model.StepResult{StopReason: "end_turn", Texts: []string{"stopped, config untouched"}}
 	<-done
 
-	// 回复要指回最后那句插话，而不是本轮最初的那条：这时候答的已经是新问题
 	// The reply points at the last interjection rather than the message that opened the turn: by now
 	// it is answering the new question
 	var replied Event
@@ -502,7 +486,6 @@ func TestInterjectionJoinsTheRunningTurn(t *testing.T) {
 	}
 }
 
-// 例程触发这类不在事件流里的消息没有可指之处，回复就不该硬挂一条引文。
 // A message that never entered the event stream (a routine trigger) has nothing to point at, and the
 // reply must not invent a quotation for it.
 func TestReplyWithoutSomethingToQuote(t *testing.T) {
@@ -532,7 +515,6 @@ func TestReplyWithoutSomethingToQuote(t *testing.T) {
 	}
 }
 
-// 引用回复要让模型看见原话，否则它只收到孤零零一句"就按这个来"。
 // A quote reply has to put the original in front of the model, or all it receives is a bare "go with
 // this one".
 func TestQuotedReplyCarriesTheOriginal(t *testing.T) {
@@ -582,20 +564,19 @@ func TestRoutinesRobustness(t *testing.T) {
 			t.Fatalf("NextRun should advance into the future: %+v", r)
 		}
 	}
-	// 顶层不是数组 → 忽略不崩
+
 	// Top level is not an array → ignored without crashing
 	os.WriteFile(path, []byte(`{"a":1}`), 0o644)
 	if got := NewScheduler(bus, path).List(); len(got) != 0 {
 		t.Fatalf("a non-array top level should be ignored: %v", got)
 	}
-	// 超大间隔钳制
+
 	// Oversized intervals are clamped
 	if r := s.Add("big", "a", "p", 1<<40); r.EveryMinutes != maxEveryMinutes {
 		t.Fatalf("an oversized interval should be clamped: %d", r.EveryMinutes)
 	}
 }
 
-// ---- 事件流 ----
 // ---- Event stream ----
 
 func TestEventsSince(t *testing.T) {
@@ -665,7 +646,7 @@ func TestWriteFileAndHostPathGate(t *testing.T) {
 
 func TestApprovalTimeout(t *testing.T) {
 	config.SetApprovalTimeout(40 * time.Millisecond)
-	defer config.SetApprovalTimeout(0) // 0 = 恢复默认 / 0 restores the default
+	defer config.SetApprovalTimeout(0) // 0 restores the default
 	w, _, _ := newTestWorker(t, "a", nil)
 	w.toolbox.currentChat = "dm"
 	start := time.Now()
@@ -732,7 +713,7 @@ func TestSessionAndEventPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 改用 Snapshot 断言：会话内部结构归 model 包所有，测试不该伸手进去
+
 	// Assert via Snapshot: the session's innards belong to the model package, not to this test
 	joined := string(w2.session("dm").Snapshot())
 	if !strings.Contains(joined, "hello persist") {
@@ -740,8 +721,6 @@ func TestSessionAndEventPersist(t *testing.T) {
 	}
 }
 
-// 群聊里直呼其名要算点名——不该逼用户记得敲 @。
-// 但不能过头：substring 命中会让一句无关的话把整个群都激活。
 // Calling a bot by name in a group must count as a mention; users should not have to remember the @.
 // It must not overreach either: substring hits would wake the whole group on an unrelated sentence.
 func TestBareNameCountsAsMention(t *testing.T) {
@@ -782,7 +761,7 @@ func TestAgentLoopRefusalRollback(t *testing.T) {
 // ---- cutTracker ----
 
 func TestQuotaErrorSurfacesGlobally(t *testing.T) {
-	// 模拟 provider 抛 QuotaError：会话内报错 + 全局告警各一条
+
 	// Simulate the provider throwing QuotaError: one error in the session plus one global alert
 	p := &scriptedProvider{}
 	w, bus, _ := newTestWorker(t, "a", p)
@@ -802,7 +781,6 @@ func TestQuotaErrorSurfacesGlobally(t *testing.T) {
 	}
 }
 
-// 只为额度告警这一个用例准备的假 session：每次 Step 都报余额不足。
 // A fake session for the quota-alert test alone: every Step reports an exhausted balance.
 type quotaFailProvider struct{}
 
@@ -828,9 +806,6 @@ func (s *quotaFailSession) Step(ctx context.Context, system string, tools []mode
 
 // ---- TLS ----
 
-// 默认群没人时不该出现——不管有没有 bot。新建 bot 不会自动入群，所以"有 bot、群里没人"
-// 是完全正常的一种状态，那时也不该摆一个空群。
-//
 // The default group must not appear while empty — with or without bots. A new bot joins nothing
 // automatically, so "bots exist, the group is empty" is an ordinary state, and no empty group belongs
 // on screen then either.
@@ -846,7 +821,7 @@ func TestEmptyGroupStaysHidden(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus.Register(w)
-	// 有 bot 但没人入群：仍然不该出现
+
 	// A bot exists but nobody has joined: still nothing to show
 	if got := bus.Groups(); len(got) != 0 {
 		t.Fatalf("an empty default group must stay hidden even with bots, got %+v", got)
@@ -855,16 +830,13 @@ func TestEmptyGroupStaysHidden(t *testing.T) {
 	if got := bus.Groups(); len(got) != 1 || got[0].ID != "group" {
 		t.Fatalf("the default group should appear once someone joins, got %+v", got)
 	}
-	// 人走光了又该收起来 / and it goes away again once everyone leaves
+	// and it goes away again once everyone leaves
 	bus.SetGroupMemberIn("group", "solo", false)
 	if got := bus.Groups(); len(got) != 0 {
 		t.Fatalf("it should hide again once emptied, got %+v", got)
 	}
 }
 
-// 把成员设成它本来就是的样子不算改动：保存群设置时每个 bot 都会被提交一遍，
-// 只有真的进出群的那个才该被播报，否则改一个人会刷出满屏"被拉进群聊"。
-//
 // Setting a member to what it already is counts as no change: saving the group settings submits every
 // bot, and only the one that actually joined or left should be announced — otherwise changing one
 // person fills the chat with "was added to the group chat".
@@ -895,9 +867,6 @@ func TestSetGroupMemberReportsOnlyRealChanges(t *testing.T) {
 	}
 }
 
-// 改了显示名之后，喊那个名字就该管用——用户看到的、嘴里叫的都是显示名，
-// 只认内部 id 等于逼他记一个界面上根本不显示的东西。
-//
 // Once a bot has a display name, calling that name must work: it is what the user sees and says, and
 // matching only the internal id forces them to remember something the UI never shows.
 func TestDisplayNameIsMentionable(t *testing.T) {
@@ -924,16 +893,13 @@ func TestDisplayNameIsMentionable(t *testing.T) {
 		}
 	}
 
-	// 没设显示名的 bot 照常只按 id 匹配 / a bot without a display name still matches on its id alone
+	// a bot without a display name still matches on its id alone
 	w2 := addTestBot(t, bus, sched, "coder")
 	_ = w2
 	if got := bus.MentionedBotsIn("group", "coder 上"); len(got) != 1 || got[0] != "coder" {
 		t.Fatalf("the id should still work, got %v", got)
 	}
 
-	// 界面上只有一个名字，模型看到的也是它，所以它传给 message_bot / assign_task 的就是显示名。
-	// Resolve 负责翻回 id；翻不动的原样返回，让调用方照常报"查无此人"。
-	//
 	// The UI shows one name and so does the model, which means the display name is what it passes to
 	// message_bot / assign_task. Resolve translates it back to the id; an unknown name comes back
 	// unchanged so callers still report "no such bot".

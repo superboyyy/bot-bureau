@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// ---- 测试用的脚本化 provider：按预设队列返回 StepResult ----
 // ---- Scripted provider for tests: returns StepResult from a preset queue ----
 
 type scriptedProvider struct{ script []StepResult }
@@ -63,7 +62,7 @@ func (s *scriptedSession) Step(ctx context.Context, system string, tools []ToolD
 func TestCutTrackerTrim(t *testing.T) {
 	tr := &cutTracker{}
 	n := 0
-	// 每回合 3 条: user / assistant / toolresults
+	// toolresults
 	// 3 entries per turn: user / assistant / toolresults
 	for i := 0; i < 30; i++ {
 		tr.addCut(n)
@@ -78,5 +77,4 @@ func TestCutTrackerTrim(t *testing.T) {
 	}
 }
 
-// ---- 例程健壮性 ----
 // ---- Routine robustness ----

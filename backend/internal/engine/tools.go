@@ -18,9 +18,6 @@ import (
 	"strings"
 )
 
-// 命令白名单和分段判读都在 shellscan.go；命令替换让一条命令真正要碰什么在跑之前无法确定，
-// 由 scanBash 报出来，一律按"可能越界"处理——auto 档只自动放行目标可知的命令。
-//
 // The whitelist and the segment-by-segment reading live in shellscan.go. Command substitution makes
 // what a command will actually touch undecidable before it runs; scanBash reports it and it always
 // counts as "may escape" — the auto tier only auto-approves commands whose targets are knowable.
@@ -32,36 +29,31 @@ func truncateOutput(s string) string {
 	return s
 }
 
-// Toolbox 是一个 bot 的客户端工具箱。currentChat 由 bot 在处理每条消息前设置。
 // Toolbox is one bot's client-side toolbox. currentChat is set by the bot before each message is handled.
 type Toolbox struct {
 	botName   string
 	workspace string
-	// 用户在对话里指定过的目录，与 workspace 同等对待 / directories the user named, treated like workspace
+	// directories the user named, treated like workspace
 	roots       *Roots
-	mem         *Memory            // 个人记忆 / personal memory
-	teamMem     *Memory            // 团队共享记忆（全部 bot 读写同一份） / team memory, one copy shared by all bots
-	board       *TaskBoard         // 团队任务看板 / the team task board
-	mcp         *plugin.MCPManager // 插件管理器 / plugin (MCP server) manager
-	mcpServers  []string           // 该 bot 订阅的插件 / plugins this bot subscribes to
-	skills      *skill.Manager     // 技能库（全队共享） / the skill library, shared by the whole team
+	mem         *Memory            // personal memory
+	teamMem     *Memory            // team memory, one copy shared by all bots
+	board       *TaskBoard         // the team task board
+	mcp         *plugin.MCPManager // plugin (MCP server) manager
+	mcpServers  []string           // plugins this bot subscribes to
+	skills      *skill.Manager     // the skill library, shared by the whole team
 	bus         *Bus
 	sched       *Scheduler
-	currentChat string // "group" 或 "dm" / "group" or "dm"
+	currentChat string // "group" or "dm"
 	turnCtx     context.Context
-	botPerm     string           // 该 bot 自己的档位，空 = 跟随全局 / this bot's tier; empty follows the global one
-	settings    *config.Settings // 读全局档位 / source of the global tier
-	// 最近一次工具调用产出的图片，由 bot 层在 Execute 之后立刻取走。
-	// 每个 bot 一个 Toolbox、一个常驻 goroutine 串行处理消息，所以这里不会有并发写。
+	botPerm     string           // this bot's tier; empty follows the global one
+	settings    *config.Settings // source of the global tier
+
 	// Images produced by the most recent tool call, collected by the bot layer right after Execute.
 	// Each bot has one Toolbox and one resident goroutine handling messages in order, so nothing writes
 	// this concurrently.
 	lastImages []model.ResultImage
 }
 
-// perm 定出这次调用生效的档位。每次现算而不是启动时定死：
-// 用户在设置里调档应当立刻管用，不该要求重启引擎或重建 bot。
-//
 // perm settles the tier in force for this call. It is resolved per call rather than fixed at startup:
 // changing the tier in config.Settings must take effect immediately, without restarting the engine or the bot.
 func (t *Toolbox) perm() config.PermLevel {
@@ -72,9 +64,6 @@ func (t *Toolbox) perm() config.PermLevel {
 	return config.ResolvePerm(t.botPerm, global)
 }
 
-// gate 是唯一的审批闸门：要问就挂起等人，放行就直接返回 true。
-// 所有工具都从这里过，新增工具漏接闸门会很显眼。
-//
 // gate is the single approval checkpoint: it suspends for a human when required and returns true to
 // proceed. Every tool goes through it, so a new tool that forgets the gate stands out.
 func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool, bool) {
@@ -90,7 +79,6 @@ func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool
 	return reason, true, false
 }
 
-// denied 把拒绝原因拼成给模型看的一句话。
 // denied renders the rejection reason into one sentence for the model.
 func denied(what, reason string) string {
 	if reason == "" {
@@ -107,11 +95,9 @@ func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *Team
 	}
 }
 
-// SetMCPServers 改这个 bot 订阅的插件。
 // SetMCPServers changes which plugins this bot subscribes to.
 func (t *Toolbox) SetMCPServers(names []string) { t.mcpServers = names }
 
-// eventChat 把内部会话名映射为事件流里的 chat 标识。
 // eventChat maps the internal chat name to the chat identifier used in the event stream.
 func (t *Toolbox) eventChat() string {
 	if IsGroupChat(t.currentChat) {
@@ -120,7 +106,6 @@ func (t *Toolbox) eventChat() string {
 	return "dm:" + t.botName
 }
 
-// Defs 返回客户端工具定义（服务端联网工具由 provider 层按需追加）。
 // Defs returns the client-side tool definitions (server-side web tools are appended by the provider layer as needed).
 func (t *Toolbox) Defs() []model.ToolDef {
 	var members []string
@@ -185,8 +170,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			Required: []string{"name", "prompt", "every_minutes"},
 		},
 	}
-	// read_skill 只在真有技能时才给出去：没有技能却摆着一个读技能的工具，
-	// 模型迟早会拿它去猜名字，然后收到一串"没有这个技能"。
+
 	// read_skill is only offered when skills actually exist: a tool for reading them with none installed
 	// invites the model to guess at names and collect a run of "no such skill" replies.
 	if names := t.skills.Names(); len(names) > 0 {
@@ -230,7 +214,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			Required:    []string{},
 		},
 	)
-	// 订阅的 MCP 插件工具（名字加 mcp_<插件>_ 前缀，避免跨插件重名）
+
 	// Tools from subscribed MCP plugins (names get an mcp_<plugin>_ prefix to avoid cross-plugin name collisions).
 	for _, server := range t.mcpServers {
 		for _, mt := range t.mcp.Tools(server) {
@@ -261,8 +245,6 @@ func (t *Toolbox) Defs() []model.ToolDef {
 	return defs
 }
 
-// TakeImages 取走并清空上一次工具调用产出的图片。
-// 必须清空：不取走的话，下一个不返回图片的工具会把上一张图再挂一遍。
 // TakeImages collects and clears the images from the last tool call.
 // Clearing matters: without it the next tool that returns no image would re-attach the previous one.
 func (t *Toolbox) TakeImages() []model.ResultImage {
@@ -282,7 +264,6 @@ func toResultImages(in []plugin.Image) []model.ResultImage {
 	return out
 }
 
-// Execute 执行一个客户端工具，返回（结果文本, 是否出错）。
 // Execute runs one client-side tool and returns (result text, whether it errored).
 func (t *Toolbox) Execute(name string, input map[string]any) (string, bool) {
 	str := func(k string) string { v, _ := input[k].(string); return v }
@@ -327,9 +308,6 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, bool) {
 	return i18n.T("Unknown tool: ") + name, true
 }
 
-// inBounds 是"里面"的唯一定义：自己的工作目录，加上用户在对话里指定过的目录（见 roots.go）。
-// 越界判定和路径解析都从这里问，两者不该各有一套说法。
-//
 // inBounds is the single definition of "inside": this member's own workspace, plus any directory the
 // user named in conversation (see roots.go). Both the escape check and path resolution ask here, so
 // the two cannot drift apart.
@@ -338,31 +316,18 @@ func (t *Toolbox) inBounds(abs string) bool {
 	return within(c, canonical(t.workspace)) || within(c, scratchDir()) || t.roots.Contains(abs)
 }
 
-// scratchDir 是 /tmp。它算界内，因为它就是中间文件该待的地方——下一个网页、解一个包、
-// 摊开一份 JSON，模型第一反应写的就是 /tmp/xxx，而为这个每次问一遍，问的是一件没有后果的事。
-// Codex 的 workspace-write 也是这么划的：工作目录加临时目录。
-//
-// 只放 /tmp，不放 $TMPDIR。macOS 上 $TMPDIR 是 /var/folders/…/T，别的应用把私有缓存放在那底下，
-// 一并放开等于顺手把它们也交出去了；而 /tmp 本来就是所有人共用的草稿纸。
-//
 // scratchDir is /tmp. It counts as inside because it is where intermediate files belong — fetch a page,
 // unpack an archive, dump some JSON, and the model's first instinct is /tmp/something. Asking about
 // that every time is asking about something with no consequences. Codex draws workspace-write the same way:
 // the working directory plus temporary directories.
-//
+
 // /tmp only, never $TMPDIR. On macOS $TMPDIR is /var/folders/…/T, where other applications keep private
 // caches, and opening it would hand those over by the way; /tmp is the scratch paper everyone shares
 // already.
 func scratchDir() string { return canonical("/tmp") }
 
-// resolve 把工具参数里的路径变成一个确实在界内的绝对路径。
-//
-// 绝对路径现在按绝对路径办。之前它会被 Join 到工作目录下——read_file("/etc/passwd") 读的其实是
-// <工作目录>/etc/passwd，既读不到东西也不报错，模型只会看到"文件不存在"，然后换个写法再试一遍。
-// 用户指定的目录只能用绝对路径去够，所以这条路必须是真的。
-//
 // resolve turns a path from a tool argument into an absolute path that is genuinely inside.
-//
+
 // An absolute path is now treated as one. It used to be joined onto the workspace, so
 // read_file("/etc/passwd") actually read <workspace>/etc/passwd — reaching nothing and reporting no
 // error, leaving the model to see "no such file" and try another spelling. A directory the user named
@@ -381,9 +346,6 @@ func (t *Toolbox) resolve(rel string) (string, error) {
 	return p, nil
 }
 
-// absPath 把一个可能是绝对路径的参数规范出来。和 roots.go 的 absDir 不同，这里不要求它存在：
-// 写一个还不存在的文件，路径照样得先过界内判定。
-//
 // absPath normalises an argument that may be an absolute path. Unlike absDir in roots.go it does not
 // require the path to exist: writing a file that is not there yet still has to clear the bounds check.
 func absPath(raw string) (string, bool) {
@@ -401,10 +363,6 @@ func absPath(raw string) (string, bool) {
 	return filepath.Clean(raw), true
 }
 
-// bashEscapes 逐 token 判断一条命令会不会碰到界外的东西。
-// 绝对路径不再一律算越界——落在用户指定的目录里的那些就是界内，否则用户指定目录这件事
-// 对 bash 完全不生效，而 bash 正是干活的主力。
-//
 // bashEscapes decides token by token whether a command may touch something out of bounds.
 // An absolute path no longer counts as escaping on sight: one landing inside a directory the user
 // named is inside. Otherwise naming a directory would mean nothing to bash, and bash is where the work
@@ -418,9 +376,6 @@ func (t *Toolbox) bashEscapes(segs []shellSeg) bool {
 	return false
 }
 
-// segEscapes 判一段命令。跳过段首词：那是命令名不是路径，`/bin/ls foo` 里的 /bin/ls
-// 只是这台机器上的一个程序，不是它要去动的地方。
-//
 // segEscapes judges one segment. The leading word is skipped: it names the command, not a path — the
 // /bin/ls in `/bin/ls foo` is just a program on this machine, not somewhere it intends to reach.
 func (t *Toolbox) segEscapes(s shellSeg) bool {
@@ -431,6 +386,13 @@ func (t *Toolbox) segEscapes(s shellSeg) bool {
 		if f == "" || strings.HasPrefix(f, "-") {
 			continue
 		}
+
+		// /dev/null is not a place, it is a bit bucket. Treating the one in `… 2>/dev/null` as an
+		// absolute path out of bounds means a human is needed every time the model writes "spare me the
+		// error output".
+		if f == devNull {
+			continue
+		}
 		if strings.HasPrefix(f, "/") || strings.HasPrefix(f, "~") {
 			abs, ok := absPath(f)
 			if !ok || !t.inBounds(abs) {
@@ -438,10 +400,7 @@ func (t *Toolbox) segEscapes(s shellSeg) bool {
 			}
 			continue
 		}
-		// 相对路径里的 .. 一律算越界。它是相对 cmd.Dir（工作目录）算的，理论上也能落进某个
-		// 已授予的目录，但要判准就得在这里把 shell 的路径语义重演一遍——而这个判断本来就是
-		// 启发式的，宁可多问一次。想去别处，写绝对路径。
-		//
+
 		// A .. in a relative path always counts as escaping. It resolves against cmd.Dir (the
 		// workspace) and could in principle land in a granted directory, but telling for sure would
 		// mean re-enacting the shell's path semantics here — and this check is a heuristic to begin
@@ -454,15 +413,9 @@ func (t *Toolbox) segEscapes(s shellSeg) bool {
 	return false
 }
 
-// escapeDir 挑出这条命令里第一个越界的绝对路径，答"授予哪个目录能让它不再越界"。
-//
-// 只取第一个：审批卡上要印的是一个具体目录，用户点的按钮必须只对应一件事。
-// 一条命令同时伸向好几个不同的地方时，这里给的目录只解决其中一个，剩下的下次再问——
-// 一次点击授出好几处，是用户没法核对的那种"方便"。
-//
 // escapeDir picks the first out-of-bounds absolute path in a command and answers which directory,
 // granted, would stop it escaping.
-//
+
 // Only the first: the approval card prints one specific directory, and the button the user presses has
 // to mean exactly one thing. When a command reaches into several unrelated places this covers one of
 // them and the rest are asked again later — granting several at one click is the kind of convenience
@@ -504,21 +457,14 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	if command == "" {
 		return i18n.T("Command is empty"), true
 	}
-	// 两个判断分开，因为它们回答的是不同问题：
-	//   ReadOnly —— 这条命令有没有副作用？按段判：每一段都是白名单里的只读命令、没有重定向、
-	//               没有命令替换，整条才算只读。
-	//   Escapes  —— 副作用会不会跑到界外？管道和重定向本身不会（cmd.Dir 钉在工作目录，
-	//               相对路径出不去），命令替换会，指向界外的绝对路径 / .. / ~ 也会。
-	// 混为一谈的话，auto 档会把 `echo x > note.txt && cat note.txt` 也拦下来，
-	// 那这一档就没法干活了。
-	//
+
 	// The two checks answer different questions:
-	//   ReadOnly — does this command have side effects? Judged per segment: the whole is read-only only
-	//              when every segment is a whitelisted read-only command with no redirect and no
-	//              substitution anywhere.
-	//   Escapes  — can those side effects land out of bounds? Pipes and redirects on their own cannot
-	//              (cmd.Dir is pinned to the workspace, so relative paths stay in); command substitution
-	//              can, and so do absolute paths, .. and ~ that point outside.
+	// ReadOnly — does this command have side effects? Judged per segment: the whole is read-only only
+	// when every segment is a whitelisted read-only command with no redirect and no
+	// substitution anywhere.
+	// Escapes  — can those side effects land out of bounds? Pipes and redirects on their own cannot
+	// (cmd.Dir is pinned to the workspace, so relative paths stay in); command substitution
+	// can, and so do absolute paths, .. and ~ that point outside.
 	// Conflating them would make the auto tier gate `echo x > note.txt && cat note.txt`, which leaves
 	// that tier unable to do any actual work.
 	segs, subst, parsed := scanBash(command)
@@ -580,7 +526,7 @@ func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
 		preview = preview[:400] + "…"
 	}
 	action := fmt.Sprintf("write_file: %s (%d bytes)\n%s", rel, len(content), preview)
-	// resolve 已经把路径钉死在界内（工作目录，或用户指定的目录），所以写文件永远不越界
+
 	// resolve has already pinned the path inside the bounds (the workspace, or a directory the user
 	// named), so a write can never escape
 	act := config.ToolAct{Kind: config.ActWrite}
@@ -597,9 +543,6 @@ func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
 	return fmt.Sprintf(i18n.T("Wrote %s (%d bytes)"), rel, len(content)), false
 }
 
-// runReadSkill 取一个技能的全文。读技能本身没有副作用（就是读一个文件），所以不过审批门；
-// 技能里的脚本要跑，是 bash 那一关的事，该审批的在那儿审批。
-//
 // runReadSkill fetches a skill's full text. Reading one has no side effects — it is a file read — so it
 // does not go through the approval gate; running a script the skill ships is bash's business and gets
 // approved there.
@@ -673,7 +616,6 @@ func (t *Toolbox) runUpdateTask(id int, status, note string) (string, bool) {
 	return fmt.Sprintf(i18n.T("Task #%d updated to %s"), task.ID, task.Status), false
 }
 
-// title 取一位 bot 给人看的名字；聊天里出现的是它，路由用的仍是 id。
 // title returns the name a bot shows to people; that is what appears in chat, while routing stays on the id.
 func (t *Toolbox) title(id string) string {
 	if b := t.bus.Bot(id); b != nil {
@@ -683,7 +625,7 @@ func (t *Toolbox) title(id string) string {
 }
 
 func (t *Toolbox) runMessageBot(to, content string) (string, bool) {
-	// 模型看到的是显示名，工具这一层要的是 id / The model sees display names; this layer needs ids
+	// The model sees display names; this layer needs ids
 	to = t.bus.Resolve(to)
 	if !IsGroupChat(t.currentChat) {
 		return i18n.T("A DM is one-on-one, so tasks cannot be handed off here; suggest the user move to the group chat so the team can collaborate"), true
@@ -701,7 +643,6 @@ func (t *Toolbox) runMessageBot(to, content string) (string, bool) {
 	return i18n.T("Sent in the group chat to ") + t.title(to) + i18n.T("; they will reply once they are done"), false
 }
 
-// runMCPTool 把 mcp_<插件>_<工具> 还原为插件调用；非只读工具先过审批门。
 // runMCPTool resolves mcp_<plugin>_<tool> back into a plugin call; non-read-only tools go through the approval gate first.
 func (t *Toolbox) runMCPTool(name string, input map[string]any) (string, bool) {
 	for _, server := range t.mcpServers {
@@ -720,8 +661,7 @@ func (t *Toolbox) runMCPTool(name string, input map[string]any) (string, bool) {
 			if err != nil {
 				return i18n.T("Plugin call failed: ") + err.Error(), true
 			}
-			// 图片单独挂在工具箱上，由 bot 那一层取走拼进 ToolResult——
-			// Execute 的签名被十几个内置工具共用，不该为插件这一条改掉。
+
 			// Images are parked on the toolbox and collected by the bot layer into the ToolResult:
 			// Execute's signature is shared by a dozen built-in tools and should not change for this one.
 			t.lastImages = toResultImages(out.Images)

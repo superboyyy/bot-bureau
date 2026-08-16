@@ -22,26 +22,20 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// ---- 统一抽象：每个 bot 绑定一个 Provider；每个会话（群聊/私聊）一个 Session ----
 // ---- Unified abstraction: each bot binds to one Provider; each chat (group chat/DM) gets one Session ----
 
 type ToolDef struct {
 	Name        string
 	Description string
-	Properties  map[string]any // JSON Schema 的 properties / the properties of a JSON Schema
+	Properties  map[string]any // the properties of a JSON Schema
 	Required    []string
-	// SchemaExtras 是参数 schema 根层的其余关键字（$defs、oneOf、additionalProperties…）。
-	// 插件工具的 schema 不是我们写的，丢掉这些等于把别人的 $ref 指向空气。
+
 	// SchemaExtras holds the remaining root-level keywords of the argument schema ($defs, oneOf,
 	// additionalProperties, ...). A plugin tool's schema is not ours to author, and dropping these
 	// points someone else's $ref at nothing.
 	SchemaExtras map[string]any
 }
 
-// toolParams 拼出 OpenAI 系那边的 parameters 对象：固定的 type/properties/required
-// 加上 schema 的其余关键字。extras 里的键不允许盖掉这三个固定项，否则一个写得随便的插件
-// 就能把参数 schema 整个改形。
-//
 // toolParams assembles the parameters object for the OpenAI-shaped APIs: the fixed
 // type/properties/required plus the schema's remaining keywords. Keys in extras may not overwrite those
 // three fixed entries, or one carelessly written plugin could reshape the argument schema entirely.
@@ -66,8 +60,7 @@ type ToolResult struct {
 	ID      string
 	Content string
 	IsError bool
-	// 工具返回的图片（插件才会有）。做成附加字段而不是把 Content 改成块列表，
-	// 是因为十几个内置工具都只返回文字，为一个来源改掉所有人的返回类型不划算。
+
 	// Images returned by the tool (only plugins produce any). This is an extra field rather than a
 	// Content turned into a block list, because a dozen built-in tools return nothing but text and
 	// changing everyone's return type for one source is a poor trade.
@@ -82,24 +75,22 @@ type ResultImage struct {
 type StepResult struct {
 	StopReason string // end_turn | tool_use | max_tokens | pause_turn | refusal
 	Texts      []string
-	Notes      []string // 服务端工具动态（如 web_search） / server-side tool activity (e.g. web_search)
+	Notes      []string // server-side tool activity (e.g. web_search)
 	ToolCalls  []ToolCall
 }
 
-// Session 持有一段对话的历史（provider 原生形状），并保证回合级回滚与安全修剪。
 // Session holds the history of one conversation (in the provider's native shape) and guarantees turn-level rollback and safe trimming.
 type Session interface {
-	MarkTurn() // 记录回合起点（AddUser 之前调用） / mark the turn start (call before AddUser)
-	Rollback() // 回滚到回合起点（refusal 时用） / roll back to turn start (on refusal)
-	// AddUser 追加一条用户/背景消息。images 是用户随这条消息一起发上来的图片，
-	// 绝大多数消息没有，所以做成可变参数——十几处调用点一个字都不用改。
+	MarkTurn() // mark the turn start (call before AddUser)
+	Rollback() // roll back to turn start (on refusal)
+
 	// AddUser appends a user/background message. images are those the user attached to it; the
 	// overwhelming majority of messages have none, hence the variadic form — not one of the dozen call
 	// sites has to change.
 	AddUser(text string, images ...ResultImage)
 	AddToolResults(rs []ToolResult)
 	Step(ctx context.Context, system string, tools []ToolDef, includeWeb bool) (StepResult, error)
-	// 历史修剪（只在完整用户回合边界切）
+
 	// Trim history (cut only at full user-turn boundaries).
 	Trim(limit int)
 	Snapshot() json.RawMessage
@@ -132,7 +123,7 @@ func BuildProvider(c config.BotConfig, ks *secret.KeyStore, xai *secret.XaiOAuth
 		}
 		return newOpenAIProvider(c.Model, c.BaseURL, c.APIKeyEnv, c.Auth, ks, xai, chatgpt, c.Effort), nil
 	case "fake":
-		// 无需 API key 的回声模型，用于离线试用/测试
+
 		// An echo model that needs no API key, for offline trials/tests.
 		return &fakeProvider{}, nil
 	default:
@@ -140,14 +131,12 @@ func BuildProvider(c config.BotConfig, ks *secret.KeyStore, xai *secret.XaiOAuth
 	}
 }
 
-// ---- 额度/余额类错误：需要显式提醒用户，与普通限流区分 ----
 // ---- Quota/balance errors: the user must be alerted explicitly, distinct from ordinary rate limiting ----
 
 type QuotaError struct{ Msg string }
 
 func (e *QuotaError) Error() string { return e.Msg }
 
-// classifyQuota 判断是否为「余额/配额耗尽」类错误；是则返回面向用户的提示。
 // classifyQuota reports whether this is a "balance/quota exhausted" error; if so it returns a user-facing message.
 func classifyQuota(status int, label, msg string) string {
 	lower := strings.ToLower(msg)
@@ -157,8 +146,7 @@ func classifyQuota(status int, label, msg string) string {
 		strings.Contains(lower, "insufficient quota") ||
 		strings.Contains(lower, "exceeded your current quota") ||
 		strings.Contains(lower, "billing") ||
-		// 这几个不是我们的文案，是在匹配服务商返回的错误原文——中文服务商（DeepSeek、Kimi）
-		// 的余额提示就是中文，翻译它没有意义，要认的就是对方原样吐出来的那几个字。
+
 		// These are not our strings but substrings of vendor error text: Chinese vendors (DeepSeek,
 		// Kimi) report an exhausted balance in Chinese, and what must be matched is exactly what
 		// they send back, so translating it would defeat the purpose.
@@ -173,12 +161,11 @@ func classifyQuota(status int, label, msg string) string {
 	return fmt.Sprintf(i18n.T("%s is out of API credit/quota, so bots on that model can't work for now. Top up on the provider's platform or check your usage plan. Original message: %s"), label, detail)
 }
 
-// ---- 通用的“可安全切割点”管理：三种实现共用 ----
 // ---- Generic "safe cut point" bookkeeping, shared by the three implementations ----
 
 type cutTracker struct {
 	mark int
-	// 完整用户回合的起始下标，只能从这些位置修剪
+
 	// Start indices of full user turns; trimming may only cut at these positions.
 	cuts []int
 }
@@ -198,7 +185,6 @@ func (t *cutTracker) rollbackTo() int {
 	return t.mark
 }
 
-// trimPoint 返回应当从哪个下标开始保留；无合适切割点时返回 0。
 // trimPoint returns the index from which history should be kept, or 0 when there is no suitable cut point.
 func (t *cutTracker) trimPoint(historyLen, limit int) int {
 	if historyLen <= limit {
@@ -229,7 +215,6 @@ func (t *cutTracker) rebase(offset int) {
 	}
 }
 
-// ---- Anthropic（官方 Go SDK，beta 端点：服务端 fallback + 联网工具） ----
 // ---- Anthropic (official Go SDK, beta endpoint: server-side fallback + web tools) ----
 
 type anthropicProvider struct {
@@ -249,8 +234,6 @@ func newAnthropicProvider(model, keyEnv, baseURL string, ks *secret.KeyStore, ef
 	return &anthropicProvider{model: model, keyEnv: keyEnv, baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"), ks: ks, effort: effort}
 }
 
-// getClient 按当前 key 惰性构建/重建客户端：UI 里改了 key 立即生效，
-// 没有存 key 时走 SDK 默认解析（环境变量 / `ant auth login` 档案）。
 // getClient lazily builds/rebuilds the client against the current key: a key changed in the UI takes effect immediately,
 // and when no key is stored it falls back to the SDK's default resolution (environment variables / the `ant auth login` profile).
 func (p *anthropicProvider) getClient() anthropic.Client {
@@ -316,8 +299,7 @@ func (s *anthropicSession) AddToolResults(rs []ToolResult) {
 			blocks = append(blocks, anthropic.NewBetaToolResultBlock(r.ID, r.Content, r.IsError))
 			continue
 		}
-		// 图片直接进 tool_result 的内容块——这是规范里正经的位置，模型看到的就是
-		// "这个工具返回了这张图"，而不是另起一条消息假装是用户发的。
+
 		// Images go straight into the tool_result's content blocks, which is where the spec puts them: the
 		// model sees "this tool returned this image" rather than a separate message pretending to be from
 		// the user.
@@ -411,7 +393,7 @@ func (s *anthropicSession) Step(ctx context.Context, system string, tools []Tool
 				InputSchema: anthropic.BetaToolInputSchemaParam{
 					Properties: t.Properties,
 					Required:   t.Required,
-					// SDK 的 schema 参数只有 properties/required 两个具名字段，其余关键字走 ExtraFields
+
 					// The SDK's schema param names only properties/required; the rest ride in ExtraFields
 					ExtraFields: t.SchemaExtras,
 				},
@@ -431,13 +413,12 @@ func (s *anthropicSession) Step(ctx context.Context, system string, tools []Tool
 		System:    []anthropic.BetaTextBlockParam{{Text: system}},
 		Messages:  s.history,
 		Tools:     toolUnions,
-		// Opus 5 安全分类器可能拒答；开启服务端 fallback（"default" 按拒答类别自动选择接续模型）
+
 		// Opus 5's safety classifiers may refuse; enable server-side fallback ("default" auto-selects a continuation model per refusal category)
 		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
 	}
-	// 只有明确选了强度才带思考参数：留空的 bot 保持服务商默认，
-	// 也避免把这个字段塞给不认识它的模型（那是直接 400）。
+
 	// The thinking parameter travels only when a tier was chosen: an unset bot keeps the vendor default,
 	// and the field never reaches a model that does not know it (which would be a plain 400).
 	if budget := config.ThinkingBudget(s.p.effort); budget > 0 {
@@ -488,7 +469,6 @@ func humanizeAnthropicErr(err error) error {
 	return fmt.Errorf(i18n.T("Can't reach the Anthropic API: %v"), err)
 }
 
-// ---- OpenAI 兼容端点（OpenAI / xAI Grok / DeepSeek / Kimi / Ollama …），原生 net/http ----
 // ---- OpenAI-compatible endpoints (OpenAI / xAI Grok / DeepSeek / Kimi / Ollama ...), plain net/http ----
 
 type openAIProvider struct {
@@ -530,20 +510,16 @@ func (p *openAIProvider) storedKey() string {
 	return ""
 }
 
-// usingCodex 判断这个 bot 是不是走 ChatGPT 订阅（端点和鉴权都跟 API key 不同）。
 // usingCodex reports whether this bot rides a ChatGPT subscription (different endpoint and auth than an API key).
 func (p *openAIProvider) usingCodex() bool {
 	if p.auth != "" {
 		return p.auth == AuthChatGPT && p.chatgpt != nil && p.chatgpt.Connected()
 	}
-	// auth 为空 = 老配置，沿用按 base_url 猜的旧行为
+
 	// An empty auth means a pre-existing config; keep the old base-URL guess for it
 	return p.storedKey() == "" && p.chatgpt != nil && p.chatgpt.Connected() && secret.IsOfficialOpenAIBase(p.baseURL)
 }
 
-// resolveKey 取这次请求要用的凭据。选了订阅就只用订阅的 token——
-// 以前是"没存 key 才回退到订阅"，于是存过一个无关的 OPENAI_API_KEY 就会把订阅悄悄顶掉。
-//
 // resolveKey picks the credential for this request. Choosing a subscription means the subscription token
 // is the only thing used: the old rule only fell back to it when no key was stored, so an unrelated
 // stored OPENAI_API_KEY would silently shadow the subscription the user had just signed into.
@@ -568,7 +544,7 @@ func (p *openAIProvider) resolveKey() string {
 	case AuthKey:
 		return p.storedKey()
 	}
-	// 老配置的隐式回退 / implicit fallback for pre-existing configs
+	// implicit fallback for pre-existing configs
 	if k := p.storedKey(); k != "" {
 		return k
 	}
@@ -626,9 +602,6 @@ func (s *openAISession) AddUser(text string, images ...ResultImage) {
 	s.history = append(s.history, oaiMessage{Role: "user", Content: oaiUserContent(text, images)})
 }
 
-// oaiUserContent 拼 user 消息的 content。没有图就还是一个普通字符串——绝大多数消息走这条路，
-// 而本地跑的小模型对"content 是个数组"经常直接 400，不该让所有人替极少数带图的消息付这个代价。
-//
 // oaiUserContent assembles a user message's content. With no images it stays a plain string, which is
 // the path almost every message takes — and small locally-run models often answer 400 to a content
 // array outright, so everyone else should not pay for the rare message that carries a picture.
@@ -653,17 +626,9 @@ func oaiUserContent(text string, images []ResultImage) json.RawMessage {
 	return raw
 }
 
-// OpenAI 兼容端点这边图片进不去工具结果：role:"tool" 的消息 content 只接受字符串，
-// 这是接口本身的形状，不是我们省事。
-//
-// 剩下的选项是"另发一条 user 消息把图片带上"——但那对纯文本模型（本地 Ollama 的小模型是常态）
-// 是一个 400，会把一次本来只是少看一张图的调用变成整轮失败。用得上图的场景现在几乎都在
-// Claude 系 bot 上，所以这边如实说明返回了什么，让模型自己决定换个形式再要一次
-// （Playwright 就有文字版的页面快照）。
-//
 // On OpenAI-compatible endpoints an image cannot go into the tool result: a role:"tool" message's
 // content accepts a string only. That is the shape of the API, not a shortcut on our part.
-//
+
 // The remaining option — sending the image along as a separate user message — is a 400 against a
 // text-only model, which local Ollama models routinely are, turning a call that merely missed an image
 // into a failed turn. The cases that need images today are essentially all on Claude-based bots, so this
@@ -724,6 +689,19 @@ func responsesURL(base string) string {
 	return b + "/responses"
 }
 
+func chatCompletionsURL(base, effort string) string {
+	b := strings.TrimRight(base, "/")
+	if effort != "" && strings.Contains(strings.ToLower(b), "api.deepseek.com") {
+		if strings.HasSuffix(strings.ToLower(b), "/v1") {
+			b = b[:len(b)-len("/v1")]
+		}
+		if !strings.HasSuffix(strings.ToLower(b), "/beta") {
+			b += "/beta"
+		}
+	}
+	return b + "/chat/completions"
+}
+
 func (s *openAISession) Step(ctx context.Context, system string, tools []ToolDef, includeWeb bool) (StepResult, error) {
 	key := s.p.resolveKey()
 	if key == "" {
@@ -761,12 +739,12 @@ func (s *openAISession) stepChatCompletions(ctx context.Context, system string, 
 	if len(oaiTools) > 0 {
 		body["tools"] = oaiTools
 	}
-	// chat/completions 这条路上，思考强度是顶层的 reasoning_effort（xAI 等同款）
+
 	// On chat/completions the knob is the top-level reasoning_effort (xAI and friends use the same name)
 	if s.p.effort != "" {
 		body["reasoning_effort"] = s.p.effort
 	}
-	data, status, err := s.postJSON(ctx, s.p.baseURL+"/chat/completions", key, body)
+	data, status, err := s.postJSON(ctx, chatCompletionsURL(s.p.baseURL, s.p.effort), key, body)
 	if err != nil {
 		return StepResult{}, err
 	}
@@ -819,10 +797,6 @@ func responsesInput(history []oaiMessage) []map[string]any {
 	return items
 }
 
-// responsesUserContent 把 chat-completions 形状的 user content 翻成 Responses API 的形状。
-// 两边的块名不一样：text→input_text、image_url→input_image，而且图片的地址直接挂在块上。
-// 没有图的消息 content 本来就是个字符串，原样返回。
-//
 // responsesUserContent restates a chat-completions user content in the shape the Responses API wants.
 // The block names differ — text becomes input_text, image_url becomes input_image — and an image's
 // address hangs directly off the block. A message with no images is already a string and passes through.
@@ -861,15 +835,11 @@ func (s *openAISession) stepResponses(ctx context.Context, system string, tools 
 		})
 	}
 	body := map[string]any{"model": s.p.model, "input": responsesInput(s.history)}
-	// Responses / Codex 这条路上，强度在 reasoning.effort 里
 	// On Responses / Codex the knob lives at reasoning.effort
 	if s.p.effort != "" {
 		body["reasoning"] = map[string]any{"effort": s.p.effort}
 	}
-	// Codex 后端对这两项没得商量：不写 store=false 是 400 "Store must be set to false"，
-	// 不写 stream=true 是 400 "Stream must be set to true"。回来的事件流由 postJSON 收敛回
-	// 单个响应对象。api.openai.com 那边两项的默认值都能用，保持原样不动。
-	//
+
 	// The Codex backend gives no choice on either: without store=false it answers 400 "Store must be
 	// set to false", and without stream=true, 400 "Stream must be set to true". postJSON folds the
 	// resulting event stream back into one response object. api.openai.com is fine with the defaults
@@ -971,10 +941,13 @@ func (s *openAISession) postJSON(ctx context.Context, url, key string, body map[
 		return nil, 0, fmt.Errorf(i18n.T("Can't reach %s: %v"), url, err)
 	}
 	defer resp.Body.Close()
-	// 出错时服务端回的是普通 JSON，只有成功那条才是事件流，所以按响应头分流而不是按端点。
-	// Errors come back as ordinary JSON and only the successful call streams, so branch on the
-	// response header rather than on which endpoint was called.
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+
+	// Successful Codex calls are always SSE by contract. Some proxies relay the body while
+	// stripping Content-Type, so still parse the stream instead of handing "event:
+	// response.created" to the JSON layer. Error responses remain ordinary JSON, hence the
+	// endpoint-based fallback applies only to successful (2xx) responses.
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") ||
+		(s.p.usingCodex() && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices) {
 		data, err := collapseResponsesStream(resp.Body)
 		return data, resp.StatusCode, err
 	}
@@ -982,25 +955,22 @@ func (s *openAISession) postJSON(ctx context.Context, url, key string, body map[
 	return data, resp.StatusCode, nil
 }
 
-// collapseResponsesStream 把 Responses API 的 SSE 流收敛成它非流式时会返回的那一个对象。
-//
-// Codex 后端只接受 stream=true，但这里一次只走一轮对话，逐字回显没有意义：读到收尾事件
-// （response.completed / .incomplete / .failed）就把里面的 response 整个交出去，
-// 后面的解析代码于是跟非流式响应共用一套，不必知道传输方式变过。
-//
 // collapseResponsesStream folds the Responses API's SSE stream back into the single object the
 // non-streaming call would have returned.
-//
+
 // The Codex backend accepts nothing but stream=true, yet a turn here is taken whole and there is no
 // token-by-token surface to feed. So the terminal event (response.completed / .incomplete / .failed)
 // hands its response object over intact, and the parsing below it stays shared with the non-streaming
-// path, none the wiser that the transport changed.
+// path, none the wiser that the transport changed. Some Codex gateways return an empty output in that
+// final object; for those, completed output items or text deltas fill the gap.
 func collapseResponsesStream(r io.Reader) ([]byte, error) {
 	sc := bufio.NewScanner(io.LimitReader(r, 32<<20))
-	// 单个 data: 行可以很长（整段回答都在里面），默认 64KB 的行上限不够用
+
 	// A single data: line can be long — a whole answer rides in it — and the 64KB default is not enough
 	sc.Buffer(make([]byte, 0, 64<<10), 8<<20)
 	var last []byte
+	var completedItems []json.RawMessage
+	var text strings.Builder
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		payload, ok := strings.CutPrefix(line, "data:")
@@ -1015,6 +985,9 @@ func collapseResponsesStream(r io.Reader) ([]byte, error) {
 			Type     string          `json:"type"`
 			Response json.RawMessage `json:"response"`
 			Error    json.RawMessage `json:"error"`
+			Item     json.RawMessage `json:"item"`
+			Delta    string          `json:"delta"`
+			Text     string          `json:"text"`
 		}
 		if json.Unmarshal([]byte(payload), &ev) != nil {
 			continue
@@ -1023,10 +996,19 @@ func collapseResponsesStream(r io.Reader) ([]byte, error) {
 		case strings.HasPrefix(ev.Type, "response.") && len(ev.Response) > 0:
 			last = ev.Response
 			if ev.Type == "response.completed" || ev.Type == "response.incomplete" || ev.Type == "response.failed" {
-				return last, nil
+				return restoreStreamOutput(last, completedItems, text.String()), nil
 			}
+		case ev.Type == "response.output_item.done" && len(ev.Item) > 0:
+			completedItems = append(completedItems, ev.Item)
+		case ev.Type == "response.output_text.delta":
+			text.WriteString(ev.Delta)
+		case ev.Type == "response.output_text.done" && ev.Text != "":
+
+			// .done carries the whole text, so replacing deltas avoids repeating the answer.
+			text.Reset()
+			text.WriteString(ev.Text)
 		case ev.Type == "error" && len(ev.Error) > 0:
-			// 流中途报错：包成非流式那种 {"error":…}，走同一条错误路径
+
 			// A mid-stream error: wrapped as the non-streaming {"error":…} so it takes the same path
 			return append(append([]byte(`{"error":`), ev.Error...), '}'), nil
 		}
@@ -1035,11 +1017,40 @@ func collapseResponsesStream(r io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf(i18n.T("The response stream broke off: %v"), err)
 	}
 	if len(last) > 0 {
-		// 流断在收尾事件之前：手上那份半成品也比一句"无响应"有用
+
 		// The stream stopped short of its terminal event; the partial object still beats "no response"
-		return last, nil
+		return restoreStreamOutput(last, completedItems, text.String()), nil
 	}
 	return nil, errors.New(i18n.T("The response stream ended without a result"))
+}
+
+// restoreStreamOutput handles a Codex gateway variant where response.completed has complete metadata
+// but an empty output, leaving the actual result only in earlier stream events. A standard Responses
+// object with output stays untouched.
+func restoreStreamOutput(response []byte, completedItems []json.RawMessage, text string) []byte {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(response, &obj) != nil {
+		return response
+	}
+	var existing []json.RawMessage
+	if raw := obj["output"]; len(raw) > 0 && json.Unmarshal(raw, &existing) == nil && len(existing) > 0 {
+		return response
+	}
+	if len(completedItems) > 0 {
+		obj["output"], _ = json.Marshal(completedItems)
+	} else if text != "" {
+		obj["output"], _ = json.Marshal([]map[string]any{{
+			"type":    "message",
+			"content": []map[string]string{{"type": "output_text", "text": text}},
+		}})
+	} else {
+		return response
+	}
+	patched, err := json.Marshal(obj)
+	if err != nil {
+		return response
+	}
+	return patched
 }
 
 func oaiAPIError(label, url string, status int, msg string) error {
@@ -1070,7 +1081,6 @@ func oaiStepFromMessage(msg oaiMessage, finish string) StepResult {
 	return res
 }
 
-// decodeOAIContent 兼容 content 为字符串或 [{type:"text",text:...}] 两种形状。
 // decodeOAIContent accepts content shaped either as a plain string or as [{type:"text",text:...}].
 func decodeOAIContent(raw json.RawMessage) string {
 	if len(raw) == 0 {
@@ -1093,7 +1103,6 @@ func decodeOAIContent(raw json.RawMessage) string {
 	return ""
 }
 
-// ---- unset：还没选模型，占位，不打任何 API ----
 // ---- unset: no model chosen yet; a placeholder that never calls an API ----
 
 type unsetProvider struct{}
@@ -1145,7 +1154,6 @@ func (s *unsetSession) Step(ctx context.Context, system string, tools []ToolDef,
 	return StepResult{StopReason: "end_turn", Texts: []string{msg}}, nil
 }
 
-// ---- Fake（离线回声，测试与无 key 试用） ----
 // ---- Fake (offline echo, for tests and key-less trials) ----
 
 type fakeProvider struct{}

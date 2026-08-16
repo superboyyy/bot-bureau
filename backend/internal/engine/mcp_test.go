@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// 一个最小的 stdio MCP server（python3）：initialize / tools/list / tools/call。
-// 按 MCP 规范收发——一行一条 JSON。这一点必须照着规范写而不是照着客户端写：
-// 这个假 server 原本和当时的客户端一样用 LSP 的 Content-Length 分帧，两边一起错，
-// 于是"真插件一个也连不上"这件事被测试盖了过去。
-//
 // A minimal stdio MCP server (python3): initialize / tools/list / tools/call.
 // It speaks the MCP spec — one JSON object per line. That has to follow the spec rather than the client:
 // this fake used to use LSP Content-Length framing just like the client of the day, both wrong together,
@@ -78,7 +73,6 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 		t.Fatalf("wrong tool parsing: %+v", tools)
 	}
 
-	// 订阅后 defs 里出现前缀化的插件工具
 	// After subscribing, prefixed plugin tools appear in defs
 	w.toolbox.mcpServers = []string{"fake"}
 	var names []string
@@ -89,14 +83,13 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 		t.Fatalf("defs should include the plugin tools: %v", names)
 	}
 
-	// 只读工具直接执行
 	// Read-only tools execute directly
 	w.toolbox.currentChat = "dm"
 	out, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "hi"})
 	if isErr || out != "echo:hi" {
 		t.Fatalf("echo failed: %q %v", out, isErr)
 	}
-	// 非只读工具走审批（拒绝）
+
 	// Non-read-only tools go through approval (rejected)
 	go func() {
 		for len(bus.PendingApprovals()) == 0 {
@@ -108,7 +101,7 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 	if !isErr || !strings.Contains(out, "rejected") {
 		t.Fatalf("a non-read-only plugin must go through approval: %q %v", out, isErr)
 	}
-	// 批准后真正调用
+
 	// Actually invoked after approval
 	go func() {
 		for len(bus.PendingApprovals()) == 0 {
@@ -121,14 +114,12 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 		t.Fatalf("should run after approval: %q %v", out, isErr)
 	}
 
-	// 未订阅的 bot 用不了
 	// Unsubscribed bots cannot use it
 	w.toolbox.mcpServers = nil
 	if _, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "z"}); !isErr {
 		t.Fatal("an unsubscribed bot should error")
 	}
 
-	// 持久化 + 移除
 	// Persistence + removal
 	raw, _ := os.ReadFile(mgr.Path())
 	if !strings.Contains(string(raw), "fake") {

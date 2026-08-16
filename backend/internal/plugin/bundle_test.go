@@ -9,7 +9,6 @@ import (
 	"botbureau/backend/internal/secret"
 )
 
-// 造一个像样的插件包：清单 + 一个 MCP server + 一个技能 + 一个成员模板 + 两块我们不消费的东西。
 // Build a realistic bundle: a manifest, one MCP server, one skill, one member template, and two parts
 // we do not consume.
 func writeBundle(t *testing.T, dir string) {
@@ -68,13 +67,12 @@ func TestInstallBundleFromDirectory(t *testing.T) {
 	if !strings.Contains(b.Agents[0].Prompt, "off-by-one") {
 		t.Fatalf("the agent body is its prompt: %+v", b.Agents[0])
 	}
-	// 不支持的部分必须报出来，不能装完了悄悄少一半
+
 	// Unsupported parts must be reported rather than silently dropped
 	if len(b.Ignored) != 2 {
 		t.Fatalf("commands and hooks should both be reported as ignored: %+v", b.Ignored)
 	}
 
-	// MCP server 名加了包名前缀，且 ${CLAUDE_PLUGIN_ROOT} 展开成了真实路径
 	// The MCP server name is scoped by the bundle, and ${CLAUDE_PLUGIN_ROOT} expanded to a real path
 	if len(b.MCPServers) != 1 || b.MCPServers[0] != "acme_notes" {
 		t.Fatalf("MCP server should be registered as acme_notes: %+v", b.MCPServers)
@@ -93,7 +91,6 @@ func TestInstallBundleFromDirectory(t *testing.T) {
 		t.Fatalf("the expanded path should point inside the installed bundle:\n%s", raw)
 	}
 
-	// 技能根目录要交给技能库
 	// The skill root has to be handed to the skill library
 	roots := bm.SkillRoots()
 	if len(roots) != 1 || roots[0].Source != "acme" {
@@ -118,7 +115,7 @@ func TestInstallRejectsDuplicateAndNonBundle(t *testing.T) {
 	if _, err := bm.Install(plain); err == nil {
 		t.Fatal("a directory without plugin.json is not a bundle")
 	}
-	// 失败的安装不能留下垃圾目录 / a failed install must not leave debris behind
+	// a failed install must not leave debris behind
 	entries, err := os.ReadDir(filepath.Join(dir, "plugins"))
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +125,6 @@ func TestInstallRejectsDuplicateAndNonBundle(t *testing.T) {
 	}
 }
 
-// 卸载要把它带来的 MCP 插件一并摘掉，否则 mcp.yaml 里会留下指向已删目录的死条目。
 // Uninstalling must detach the MCP plugins it brought, or mcp.yaml keeps dead entries pointing at a
 // directory that no longer exists.
 func TestRemoveBundleDetachesMCP(t *testing.T) {
@@ -153,7 +149,6 @@ func TestRemoveBundleDetachesMCP(t *testing.T) {
 	}
 }
 
-// 直接把插件目录拷进 data/plugins 也要认——文件系统是唯一事实，不额外维护索引。
 // A bundle copied straight into data/plugins is recognised too: the filesystem is the only source of
 // truth, with no separate index to fall out of step.
 func TestRescanPicksUpHandPlacedBundle(t *testing.T) {
@@ -172,7 +167,7 @@ func TestReadMCPServersFromDotMcpJSON(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, ".claude-plugin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// 清单里不写 mcpServers，改用根目录的 .mcp.json —— 生态里两种写法都有
+
 	// No mcpServers in the manifest, a root .mcp.json instead — both spellings exist in the wild
 	if err := os.WriteFile(filepath.Join(src, ".claude-plugin", "plugin.json"),
 		[]byte(`{"name":"beta","description":"b"}`), 0o644); err != nil {
@@ -190,9 +185,6 @@ func TestReadMCPServersFromDotMcpJSON(t *testing.T) {
 	}
 }
 
-// 升级必须保住用户在那个插件上做过的设置。卸了重装最省事，但那会把工具勾选和授权一起清掉——
-// 挑过一遍工具的人升级一次就得重挑，这正是要避免的。
-//
 // An upgrade has to preserve what the user configured on that plugin. Remove-and-reinstall would be
 // simpler but wipes the tool selection and the authorization along with it — anyone who narrowed the
 // tool list once would have to do it again after every upgrade, which is exactly what this avoids.
@@ -203,12 +195,11 @@ func TestUpdateKeepsUserSettingsAndReconciles(t *testing.T) {
 	if _, err := bm.Install(src); err != nil {
 		t.Fatal(err)
 	}
-	// 用户挑了工具子集 / the user narrows the tools
+	// the user narrows the tools
 	if err := mcp.SetTools("acme_notes", []string{"read_note"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// 上游发了新版本：加了一个 server，技能也多了一个
 	// Upstream ships a new version: one more server, one more skill
 	if err := os.WriteFile(filepath.Join(src, ".claude-plugin", "plugin.json"), []byte(`{
   "name": "acme",
@@ -239,14 +230,14 @@ func TestUpdateKeepsUserSettingsAndReconciles(t *testing.T) {
 	if len(fresh.Skills) != 2 {
 		t.Fatalf("the new skill should be picked up: %+v", fresh.Skills)
 	}
-	// 新 server 加进来了 / the new server arrived
+	// the new server arrived
 	if !mcp.Has("acme_search") {
 		t.Fatalf("a newly shipped server should be registered: %v", mcp.Names())
 	}
-	// 老 server 的用户设置原样还在——这是这条测试的重点
+
 	// The existing server's user settings survived — the whole point of this test
 	if got := mcp.Tools("acme_notes"); len(got) != 0 {
-		// 这个假 server 连不上，所以工具列表是空的；关键看配置里的勾选没被抹掉
+
 		// The fake server never connects so the tool list is empty; what matters is the selection in config
 		_ = got
 	}
@@ -259,7 +250,6 @@ func TestUpdateKeepsUserSettingsAndReconciles(t *testing.T) {
 	}
 }
 
-// 上游删掉的 server 要跟着消失，否则 mcp.yaml 里会留下指向已不存在脚本的死条目。
 // A server dropped upstream must disappear too, or mcp.yaml keeps a dead entry pointing at a script that
 // is no longer there.
 func TestUpdateRemovesVanishedServers(t *testing.T) {

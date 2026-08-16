@@ -11,9 +11,6 @@ import (
 	"botbureau/backend/internal/secret"
 )
 
-// Codex 后端的 /models 有两处和 OpenAI 不一样，任何一处踩空，下拉框里就一个模型都列不出来：
-// 必填的 client_version 查询参数，以及用 slug 而不是 id 的返回体。
-//
 // The Codex /models endpoint differs from OpenAI's in two ways, and missing either empties the model
 // dropdown entirely: the required client_version query parameter, and a body keyed by slug, not id.
 func TestChatGPTModelsURLCarriesClientVersion(t *testing.T) {
@@ -44,9 +41,6 @@ func TestFetchModelsReadsCodexSlugs(t *testing.T) {
 	}
 }
 
-// 服务商的报错常常是缩进过的 JSON。只取第一行等于把报错截成一个 "{"，
-// 用户看到的等于没说，排查也无从下手。
-//
 // Vendor errors often arrive as indented JSON. Cutting at the first line leaves the user with a lone
 // "{" — no information, and nothing to debug from.
 func TestVendorErrorSurvivesPrettyPrintedJSON(t *testing.T) {

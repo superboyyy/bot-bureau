@@ -14,7 +14,6 @@ import (
 	"time"
 )
 
-// BoardTask 是任务看板上的一项：恰好一个负责人，避免多 bot 重复干同一件活。
 // BoardTask is one item on the task board: exactly one owner, so multiple bots don't duplicate the same work.
 type BoardTask struct {
 	ID        int    `json:"id"`
@@ -138,7 +137,6 @@ func (b *TaskBoard) ClearDone() int {
 	return n
 }
 
-// Render 把看板渲染成给模型看的文本。
 // Render renders the board as text for the model to read.
 func (b *TaskBoard) Render() string {
 	tasks := b.List()

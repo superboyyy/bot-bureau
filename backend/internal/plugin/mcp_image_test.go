@@ -11,9 +11,6 @@ import (
 	"botbureau/backend/internal/secret"
 )
 
-// 插件返回的图片必须一路带出来，而不是在协议边界上被换成一句"[image content omitted]"。
-// Playwright 的截图就走这条路——它在一键安装目录里，之前等于半残。
-//
 // An image returned by a plugin has to make it all the way out rather than being swapped for
 // "[image content omitted]" at the protocol boundary. Playwright's screenshots take this path, and it
 // sits in the one-click catalog, so it was half-broken before.
@@ -60,14 +57,13 @@ func TestCallCarriesImages(t *testing.T) {
 	if !strings.Contains(res.Text, "captured") {
 		t.Fatalf("text should still come through: %q", res.Text)
 	}
-	// 还不支持的类型仍然如实说明，不静默丢弃
+
 	// A type still unsupported is stated rather than silently dropped
 	if !strings.Contains(res.Text, "audio") {
 		t.Fatalf("an unsupported block should say so: %q", res.Text)
 	}
 }
 
-// 超大的图要丢掉但说清楚——几 MB 的 base64 塞进上下文既贵又能把这一轮撑爆。
 // An oversized image is dropped with a note: several megabytes of base64 in the context is both
 // expensive and enough to blow up the turn.
 func TestOversizedImageIsReportedNotEmbedded(t *testing.T) {

@@ -10,33 +10,25 @@ import (
 	"botbureau/backend/internal/i18n"
 )
 
-// Settings 是引擎的持久化设置（data/settings.json）。
 // Settings holds the engine's persisted settings (data/settings.json).
 type Settings struct {
 	path string
 	mu   sync.Mutex
 	// "auto" | "zh" | "en"
 	LocalePref string `json:"locale"`
-	// 群聊的显示名与头像，留空则用默认（"群聊" + 成员头像叠放）
+
 	// The group chat's display name and avatar; empty means the defaults ("Group chat" + stacked member faces)
 	GroupTitle  string `json:"group_title"`
 	GroupAvatar string `json:"group_avatar"`
-	// 全局权限档位，单个 bot 没设时用它 / global permission tier, used when a bot sets none
+	// global permission tier, used when a bot sets none
 	Permission string `json:"permission"`
-	// 置顶的会话 id：群是 "group" / "g_xxxxxxxx"，私聊是 "dm:<bot>"。
-	//
-	// 存在引擎而不是浏览器本地：置顶说的是"这几个会话对这套人马最要紧"，换台设备连上来
-	// 该还是那几个；深浅色那种"这块屏幕多亮"才是设备自己的事（见渲染器里的 THEME_KEY）。
-	//
-	// 表里的顺序不参与排序——置顶区内部仍按最后动静排，和列表其余部分同一个规矩，
-	// 所以这里只是一个存成数组的集合。
-	//
+
 	// Pinned conversation ids: "group" / "g_xxxxxxxx" for groups, "dm:<bot>" for DMs.
-	//
+
 	// Kept in the engine rather than in browser storage: pinning says "these conversations matter most
 	// to this team", and connecting from another device should find the same ones on top. How bright a
 	// screen is stays that device's own business (see THEME_KEY in the renderer).
-	//
+
 	// The order here does not drive sorting — pinned rows are still ordered by their last activity,
 	// the same rule as the rest of the list — so this is a set that happens to be stored as an array.
 	Pinned []string `json:"pinned"`
@@ -67,7 +59,6 @@ func NewSettings(dataDir string) *Settings {
 	return s
 }
 
-// apply 把偏好解析成生效语言。
 // apply resolves the preference into the effective locale.
 func (s *Settings) apply() {
 	if s.LocalePref == "auto" {
@@ -77,7 +68,6 @@ func (s *Settings) apply() {
 	i18n.SetLocale(s.LocalePref)
 }
 
-// SetLocalePref 更新语言偏好并持久化；pref 非法时返回 false。
 // SetLocalePref updates the language preference and persists it; returns false when pref is invalid.
 func (s *Settings) SetLocalePref(pref string) bool {
 	if pref != "auto" && pref != "zh" && pref != "en" {
@@ -91,7 +81,6 @@ func (s *Settings) SetLocalePref(pref string) bool {
 	return true
 }
 
-// SetGroupMeta 改群聊的显示名和头像；两个参数都为 nil 时什么也不做。
 // SetGroupMeta updates the group chat's display name and avatar; a nil argument leaves that field alone.
 func (s *Settings) SetGroupMeta(title, avatar *string) {
 	s.mu.Lock()
@@ -105,7 +94,6 @@ func (s *Settings) SetGroupMeta(title, avatar *string) {
 	s.mu.Unlock()
 }
 
-// SetPermission 改全局权限档位；非法值返回 false。
 // SetPermission updates the global permission tier; an invalid value returns false.
 func (s *Settings) SetPermission(level string) bool {
 	if !ValidPerm(level) {
@@ -118,7 +106,6 @@ func (s *Settings) SetPermission(level string) bool {
 	return true
 }
 
-// Perm 读当前全局档位（并发安全：bot 每次调工具都会问一次）。
 // Perm reads the current global tier (concurrency-safe: every tool call asks).
 func (s *Settings) Perm() string {
 	if s == nil {
@@ -129,7 +116,6 @@ func (s *Settings) Perm() string {
 	return s.Permission
 }
 
-// Pins 返回置顶的会话 id（副本，调用方随便改）。
 // Pins returns the pinned conversation ids (a copy the caller may keep).
 func (s *Settings) Pins() []string {
 	if s == nil {
@@ -142,13 +128,8 @@ func (s *Settings) Pins() []string {
 	return out
 }
 
-// SetPinned 置顶或取消置顶一个会话，返回这次调用有没有真的改动。
-//
-// 取消不校验会话还在不在：删掉 bot 或群时正是靠它把留下的置顶项摘掉，
-// 那时候会话已经不存在了。
-//
 // SetPinned pins or unpins a conversation and reports whether anything actually changed.
-//
+
 // Unpinning does not check that the conversation still exists: deleting a bot or a group calls this to
 // strip the pin it left behind, and by then the conversation is gone.
 func (s *Settings) SetPinned(chat string, pinned bool) bool {
@@ -177,7 +158,6 @@ func (s *Settings) SetPinned(chat string, pinned bool) bool {
 	return true
 }
 
-// dedupePins 去重并丢掉空串，保持首次出现的顺序。
 // dedupePins drops blanks and repeats, keeping first-seen order.
 func dedupePins(ids []string) []string {
 	out := []string{}

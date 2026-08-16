@@ -1,13 +1,7 @@
 package secret
 
-// 用 SuperGrok 订阅代替 API key。
-//
-// 走 OAuth 设备码流程：引擎跟 auth.x.ai 换一个 user_code，用户在浏览器里输入它完成授权，
-// 引擎这边轮询到令牌为止。选设备码而不是回调，是因为它不需要在本机起一个 HTTP 回调服务，
-// 也就不用把一个临时端口暴露出去。令牌以 0600 落盘，过期前自动刷新。
-//
 // Use a SuperGrok subscription instead of an API key.
-//
+
 // This is the OAuth device-code flow: the engine trades with auth.x.ai for a user_code, the user
 // types it into a browser to authorize, and the engine polls until a token arrives. Device code is
 // chosen over a redirect because it needs no local HTTP callback server, so no temporary port is
@@ -64,7 +58,6 @@ type xaiStored struct {
 	UpdatedAt int64  `json:"updated_at"`
 }
 
-// XaiOAuth 持有已保存的令牌和一次进行中的登录。
 // XaiOAuth holds the stored tokens and at most one in-flight login.
 type XaiOAuth struct {
 	path string
@@ -103,7 +96,6 @@ func NewXaiOAuth(path string) *XaiOAuth {
 	return x
 }
 
-// Restore 用一份现成的令牌把实例直接置为已登录，不走设备码流程。
 // Restore marks the instance signed in from an existing token, bypassing the device-code flow.
 func (x *XaiOAuth) Restore(access string, expires time.Time) {
 	x.mu.Lock()
@@ -117,7 +109,6 @@ func (x *XaiOAuth) Connected() bool {
 	return x.stored != nil && x.stored.Access != ""
 }
 
-// Status 给界面用：是否已连接、是否有登录在进行、配对码和用户要去的网址。
 // Status feeds the UI: whether it is connected, whether a login is in flight, the pairing code and the URL.
 func (x *XaiOAuth) Status() map[string]any {
 	x.mu.Lock()
@@ -148,7 +139,6 @@ func (x *XaiOAuth) pendingURLLocked() string {
 	return x.pending.device.VerificationURI
 }
 
-// Start 发起一次设备码登录，并在后台轮询。已有进行中的登录会被顶掉。
 // Start begins a device-code login and polls in the background, superseding any login already in flight.
 func (x *XaiOAuth) Start() (map[string]any, error) {
 	form := url.Values{
@@ -195,7 +185,6 @@ func (x *XaiOAuth) Logout() {
 	_ = os.Remove(x.path)
 }
 
-// Bearer 返回可用的 access token，临近过期就先刷新。
 // Bearer returns a usable access token, refreshing it first when it is close to expiring.
 func (x *XaiOAuth) Bearer() (string, error) {
 	x.mu.Lock()
@@ -240,9 +229,6 @@ func (x *XaiOAuth) refresh(refresh string) (*xaiStored, error) {
 	return st, nil
 }
 
-// poll 按服务端给的间隔取令牌。authorization_pending 是正常等待；
-// 收到 slow_down 必须主动放慢，否则会被限流甚至判定滥用。
-//
 // poll asks for the token at the interval the server dictates. authorization_pending is the normal
 // "still waiting" case; a slow_down must actually back off or the client gets rate-limited or flagged.
 func (x *XaiOAuth) poll(p *xaiPending) {
@@ -316,15 +302,9 @@ func (x *XaiOAuth) fail(p *xaiPending, msg string) {
 	p.err = msg
 }
 
-// save 把令牌写到 0600 的文件里——这等同于账号凭据，不能让同机其他用户读到。
-//
-// 编码放在锁内：s 同时挂在 x.stored 上，被别的 goroutine 拿着，而 JSON 编码要读遍它每个字段。
-// 调用方是在解锁之后才调 save 的，所以锁在这里取，不在调用方那边——调用方持锁跨过一整段
-// 文件 I/O 没有必要。
-//
 // save writes the tokens to a 0600 file: these are account credentials and must not be readable
 // by other users on the machine.
-//
+
 // The encoding happens under the lock: s is also held by x.stored, other goroutines have a reference to
 // it, and JSON encoding reads every one of its fields. Callers reach save after unlocking, so the lock is
 // taken here rather than by them — there is no reason for a caller to hold it across a whole stretch of
@@ -406,7 +386,6 @@ func durationFromSeconds(n int, fallback time.Duration) time.Duration {
 	return time.Duration(n) * time.Second
 }
 
-// IsXAIBase 用于兼容没有显式 auth 字段的老配置：靠 base_url 猜是不是该用 xAI 订阅。
 // IsXAIBase supports pre-existing configs that carry no explicit auth field, guessing from the base URL.
 func IsXAIBase(base string) bool {
 	return strings.Contains(strings.ToLower(base), "api.x.ai")

@@ -35,7 +35,6 @@ func TestExplicitSubscriptionBeatsStoredKey(t *testing.T) {
 		t.Fatalf("chose the SuperGrok subscription but used %q", got)
 	}
 
-	// 反过来：显式选 key 时，登录着的订阅也不该插队
 	// And the reverse: an explicitly chosen key must not be jumped by a connected subscription
 	byKey := newOpenAIProvider("gpt-x", "https://api.openai.com/v1", "OPENAI_API_KEY", AuthKey, ks, x, c, "")
 	if got := byKey.resolveKey(); got != "sk-unrelated" {
@@ -46,7 +45,6 @@ func TestExplicitSubscriptionBeatsStoredKey(t *testing.T) {
 	}
 }
 
-// 没登录订阅时，选订阅的 bot 不能悄悄退回 API key 去发请求。
 // A bot set to a subscription must not silently fall back to an API key when not signed in.
 func TestSubscriptionWithoutLoginYieldsNoCredential(t *testing.T) {
 	dir := t.TempDir()
@@ -83,7 +81,7 @@ func TestProviderCatalogShape(t *testing.T) {
 			t.Fatalf("the catalog is missing %s", want)
 		}
 	}
-	// 订阅登录必须挂在能用它的两家上，否则界面上根本露不出登录入口
+
 	// The subscription modes must hang off the two vendors that support them, or the UI never offers a login
 	if opt := providerOption("openai"); opt == nil || opt.Auth[0] != AuthChatGPT {
 		t.Fatal("the OpenAI entry should default to the ChatGPT subscription")

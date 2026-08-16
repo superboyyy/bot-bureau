@@ -20,31 +20,29 @@ import (
 	"sync/atomic"
 )
 
-// TeamDeps 是全团队共享的资源：共享记忆、任务看板、密钥仓库、插件管理器。
 // TeamDeps holds the team-wide shared resources: shared memory, the task board, the key store, and the plugin (MCP server) manager.
 type TeamDeps struct {
 	TeamMem *Memory
 	Board   *TaskBoard
 	KS      *secret.KeyStore
 	MCP     *plugin.MCPManager
-	// 技能库。和插件不同，技能不按 bot 订阅：它只在提示词里占一行 name+description，
-	// 全队共享的成本可以忽略，而"谁该用哪个技能"本来就由描述匹配决定，不必再加一层勾选。
+
 	// The skill library. Unlike plugins, skills are not subscribed per bot: one costs a single
 	// name + description line in the prompt, so sharing them team-wide is free, and which skill suits
 	// whom is already decided by description matching — no second layer of checkboxes needed.
 	Skills *skill.Manager
-	// 已安装的插件包（Claude/Codex 格式），技能与成员模板都由它带进来
+
 	// Installed plugin bundles (the Claude/Codex format); skills and member templates arrive through it
 	Bundles *plugin.BundleManager
 	XAI     *secret.XaiOAuth
 	ChatGPT *secret.ChatGPTOAuth
-	// 远程连接器的 OAuth（动态注册 + 授权码 + PKCE）
+
 	// OAuth for remote connectors (dynamic registration, authorization code, PKCE)
 	MCPAuth *secret.MCPOAuth
-	// 全局设置，工具箱靠它读当前权限档位（用户在设置里改完即时生效）
+
 	// Global settings; the toolbox reads the current permission tier from it so changes take effect at once
 	Settings *config.Settings
-	// 用户从聊天框传上来的文件（见 attach.go）
+
 	// Files the user attached in the composer (see attach.go)
 	Uploads *Uploads
 }
@@ -69,9 +67,6 @@ func NewTeamDeps(dataDir string, ks *secret.KeyStore, mcpPath string) *TeamDeps 
 	return deps
 }
 
-// SyncSkillRoots 让技能库跟上已装插件包：装一个插件，它带的技能立刻可用；卸掉就一并消失。
-// 插件包管理器不认识 skill 包（层级上它更底层），所以由 TeamDeps 在中间接一下。
-//
 // SyncSkillRoots keeps the skill library in step with the installed bundles: install a plugin and its
 // skills are available at once, remove it and they go with it. The bundle manager does not know about
 // the skill package (it sits lower down), so TeamDeps joins the two.
@@ -83,9 +78,6 @@ func (d *TeamDeps) SyncSkillRoots() {
 	d.Skills.SetRoots(roots)
 }
 
-// BotWorker 是一位常驻 goroutine 的「AI 成员」：
-// 自己的收件箱（群聊/私聊消息、例程触发按序处理）、独立工作目录、
-// 长期记忆，以及群聊/私聊两套相互独立的对话上下文。
 // BotWorker is an "AI member" running in a resident goroutine:
 // it has its own inbox (group chat/DM messages and routine triggers, processed in order), its own workspace,
 // long-term memory, and two mutually independent conversation contexts for group chat and DM.
@@ -94,12 +86,7 @@ type BotWorker struct {
 	provider model.Provider
 	sessions map[string]model.Session // key: "group" / "dm"
 	inbox    chan Msg
-	// deferred 是干活途中从收件箱里捞出来、但不该并进本轮的消息（例程触发、别的 bot 派的活、
-	// 别的会话）。它们排在收件箱之前——先来的先办。
-	// injected 则是已经并进本轮上下文的插话，留着是为了万一本轮被安全系统拒绝回滚，
-	// 用户那几句话不至于跟着一起消失。
-	// 两者都只有 worker 自己的 goroutine 碰，不用加锁；对外报的排队数另走原子量。
-	//
+
 	// deferred holds messages pulled from the inbox mid-turn that do not belong in the running turn
 	// (routine triggers, work handed over by another bot, another conversation). They queue ahead of
 	// the inbox, so first come is still first served.
@@ -117,8 +104,7 @@ type BotWorker struct {
 	mem       *Memory
 	deps      *TeamDeps
 	workspace string
-	// 用户在对话里指定过的目录。和 workspace 并列而不是塞进它，是因为这两样东西的来历不同：
-	// 一个是引擎给的，一个是用户给的，能不能撤销、界面上要不要露出来，答案也不一样。
+
 	// Directories the user named in conversation. Kept beside workspace rather than folded into it
 	// because the two come from different places — one the engine hands out, one the user does — and
 	// they differ on whether they can be revoked and whether the UI should show them.
@@ -152,48 +138,31 @@ func NewBotWorker(cfg config.BotConfig, bus *Bus, sched *Scheduler, dataDir stri
 	return w, nil
 }
 
-// Toolbox 暴露工具箱，供上层做插件订阅这类调整。
 // Toolbox exposes the toolbox so the layer above can adjust things like plugin subscriptions.
 func (w *BotWorker) Toolbox() *Toolbox { return w.toolbox }
 
-// Workspace 给出这位成员自己的工作目录。界面要能把它原样印出来：
-// 打包之后它落在 ~/Library/Application Support 底下，Finder 默认不显示那一层，
-// 目录名又是个从不露面的随机 id——不写出来，用户没有第二条路知道"工作目录"指哪儿。
-//
 // Workspace is this member's own working directory. The UI needs to be able to print it verbatim: once
 // packaged it lives under ~/Library/Application Support, a level Finder hides by default, under a
 // random id that never appears anywhere else — without printing it the user has no second way of
 // learning which directory "the workspace" means.
 func (w *BotWorker) Workspace() string { return w.workspace }
 
-// Roots 暴露这位成员被授予的目录，供设置界面列出与撤销。
 // Roots exposes the directories granted to this member, for the settings pane to list and revoke.
 func (w *BotWorker) Roots() *Roots { return w.roots }
 
-// grantUserRoots 把用户这条消息里点名的目录收进这位成员能自由活动的范围。
-//
-// 两个条件缺一不可：这句话是用户亲口说的（Sender=="user"），而且是说给他听的（Respond）。
-// 群里飘过一句不指向他的话不该悄悄扩大他的权限；模型的输出和工具的输出则根本不到这里——
-// 授权只能由人发起，这是 roots.go 里那条线在调用侧的落点。
-//
-// 加进去就在会话里说一句。默默扩大一位成员能碰的范围是不行的：用户下次看到的会是
-// 「它怎么直接改了我的仓库」，而他确实授过权，只是当时没人告诉他这一句话有这个效果。
-//
 // grantUserRoots takes the directories named in this message into the area the member may move
 // around in freely.
-//
+
 // Both conditions are required: the user said it themselves (Sender is "user") and said it to this
 // member (Respond). A remark drifting past in the group that was not addressed to them must not
 // quietly widen what they may touch, and model or tool output never reaches here at all — a grant can
 // only start with a person, which is where the line drawn in roots.go lands on the calling side.
-//
+
 // Anything added is announced in the conversation. Widening what a member can reach in silence will
 // not do: what the user meets later is "why did it edit my repository", when they did grant it — only
 // nobody told them at the time that the sentence carried that weight.
 func (w *BotWorker) grantUserRoots(msg Msg) {
-	// Sender 这一条是重复的（投递方设 GrantRoots 时已经查过），故意留着。
-	// 这是"授权只能由人发起"那条线唯一的执行点，它不该依赖别处某个布尔值填对了。
-	//
+
 	// The Sender check is redundant — whoever set GrantRoots already made it — and deliberately kept.
 	// This is the one place the "a grant can only start with a person" line is enforced, and it must not
 	// rest on some boolean elsewhere having been filled in correctly.
@@ -244,7 +213,6 @@ func (w *BotWorker) run() {
 	}
 }
 
-// next 先发上一轮干活期间攒下的消息，攒完了才回收件箱等新的。
 // next serves whatever piled up during the last turn before going back to wait on the inbox.
 func (w *BotWorker) next() (Msg, bool) {
 	if len(w.deferred) > 0 {
@@ -257,33 +225,22 @@ func (w *BotWorker) next() (Msg, bool) {
 	return msg, ok
 }
 
-// defer_ 把一条消息留到本轮之后再办。
 // defer_ holds a message over until the current turn is done.
 func (w *BotWorker) defer_(msgs ...Msg) {
 	w.deferred = append(w.deferred, msgs...)
 	w.deferredN.Store(int32(len(w.deferred)))
 }
 
-// pumpInbox 在一轮工作的安全点上清一次收件箱：属于当前会话的用户插话和群聊背景消息
-// 立刻并进上下文，其余的留到本轮之后。
-//
-// 这是"插话"和"排队"的分界。用户中途改主意——「别动那个文件」——这句话的价值全在当下；
-// 让它等到活干完，纠正到达时错误已经犯完了，而用户手上只剩「停止」这一个整轮作废的钝器。
-// 反过来，例程触发和别的 bot 派来的活是新工单，不是对本轮的修正，插进来只会串味，照旧排队。
-//
-// 调用点必须在补齐 tool_result 之后、发下一次请求之前：assistant 的 tool_use 和它配对的结果
-// 之间插一条用户消息，历史就非法了。
-//
 // pumpInbox drains the inbox at a safe point mid-turn: the user's interjections and group-chat
 // background messages for the running conversation merge into the context at once, everything else
 // waits for the turn to end.
-//
+
 // This is the line between interjecting and queueing. When the user changes their mind mid-task —
 // "don't touch that file" — the whole value of the sentence is that it arrives now; make it wait and
 // the correction lands after the damage, leaving Stop, which throws the entire turn away, as the only
 // recourse. Routine triggers and work handed over by another bot are new assignments rather than
 // corrections to this turn, so those keep queueing.
-//
+
 // It may only be called once tool_results are complete and before the next request goes out: slipping
 // a user message between an assistant's tool_use and its matching result makes the history invalid.
 func (w *BotWorker) pumpInbox(chat string, sess model.Session) []Msg {
@@ -294,7 +251,7 @@ func (w *BotWorker) pumpInbox(chat string, sess model.Session) []Msg {
 			if !ok {
 				return taken
 			}
-			// 停止信号、别的会话、别的 bot 派的活 → 原样留到本轮之后
+
 			// The stop signal, another conversation, work from another bot → held over
 			if msg.Sender == stopSentinel || msg.Chat != chat || (msg.Respond && msg.Sender != "user") {
 				w.defer_(msg)
@@ -325,7 +282,6 @@ func (w *BotWorker) eventChat(chat string) string {
 	return "dm:" + w.Name()
 }
 
-// renderMsg 把一条收件箱消息拼成模型看到的那段文字：谁说的、在回哪一条（若是引用回复）、正文。
 // renderMsg turns an inbox message into the text the model sees: who spoke, which message it answers
 // (when it is a quote reply), and the body.
 func (w *BotWorker) renderMsg(msg Msg) string {
@@ -346,51 +302,31 @@ func (w *BotWorker) renderMsg(msg Msg) string {
 	if q := msg.Quote; q != nil {
 		text = fmt.Sprintf(i18n.T("[Replying to %s: \"%s\"]\n"), w.speakerName(q.From), q.Text) + text
 	}
-	// 插话要自报身份。
-	//
-	// 不标的话，模型看到的和一条崭新的用户消息一模一样，于是很容易答完就收工——而它手上
-	// 那件事引擎根本没记，没有任何代码会把它捡回来（这一轮结束就结束了，看板上那条却还写着
-	// doing）。所以「答完接着干」这句话必须由消息本身带着，不能指望模型自己想起来。
-	//
-	// 也留了改主意的口子：用户中途插话，本来就有可能是要换个方向，逼它一定回去做原来的事
-	// 同样不对。判断权给模型，前提是它知道自己正被打断。
-	//
+
 	// An interjection says so itself.
-	//
+
 	// Unmarked it looks exactly like a fresh user message, which makes it easy to answer and call the
 	// turn done — while the job it was in the middle of is recorded nowhere in the engine and no code
 	// will pick it back up (the turn simply ends, though the board still says doing). So "carry on
 	// afterwards" has to travel with the message rather than be left for the model to remember.
-	//
+
 	// Room is left to change course, too: someone breaking in mid-task may well mean to redirect it, and
 	// forcing a return to the original work would be just as wrong. The judgement stays with the model,
 	// on condition that it knows it is being interrupted.
-	// 背景消息同样要自报身份，而且这一条比插话那条更要紧。
-	//
-	// 投递的那一刻引擎是知道的——Respond=false 就是「这句不是派给你的」——可这个判断
-	// 一个字都没传给模型：群聊里的用户消息一律渲染成 "User: 正文"，是背景还是指派看不出来。
-	// 于是正在干活的那位看到一句普通的用户提问，丢下手上的事去答了，而这句话早已派给了别人。
-	// 一个问题两个答案，用户还分不出哪个是查过的、哪个是猜的。
-	//
-	// 分工协议第 1 条（"没被点名就别动"）本来正是管这个的，但它管不着——模型判断不了
-	// 自己有没有被点名，因为那个结论没给它。这里补上。
-	//
-	// 和插话那条互斥：Respond 为真才是插话（活是你的，答完接着干），为假就是背景
-	// （不是你的，别接话，继续手上的）。
-	//
+
 	// A background message announces itself too, and this one matters more than the interjection note.
-	//
+
 	// The engine knows at delivery time — Respond being false is exactly "this was not addressed to you"
 	// — and not one word of that judgement reaches the model: every user message in a group renders as
 	// "User: <text>", with nothing to separate background from assignment. So whoever is mid-task sees an
 	// ordinary user question, drops what they were doing and answers it, when it went to someone else
 	// entirely. One question, two answers, and no way for the user to tell the researched one from the
 	// guessed one.
-	//
+
 	// Rule 1 of the division-of-labor protocol ("not called on, no action") is meant for precisely this
 	// and cannot reach it: the model has no way to tell whether it was called on, because the conclusion
 	// was never handed over. This hands it over.
-	//
+
 	// Mutually exclusive with the interjection note: Respond true means an interjection (the job is
 	// yours, deal with it and carry on), false means background (not yours, stay out of it).
 	if msg.Sender == "user" && !msg.Respond {
@@ -402,27 +338,17 @@ func (w *BotWorker) renderMsg(msg Msg) string {
 	return text
 }
 
-// receiveFiles 把这条消息带来的附件放进自己的工作目录，并给出该进上下文的正文和图片。
-//
-// 两件事都要做，不是二选一：
-//
-//   - 落盘。附件进 <工作目录>/inbox/，正文末尾附一份清单写明路径。有了它，这份文件才是
-//     它能 read_file、能跑命令去处理的东西；只在上下文里"看见"一张图，是没法拿去裁剪或转换的。
-//   - 喂图。图片同时作为图片块进上下文，模型才真的看得见内容，而不是只知道有这么个文件。
-//
-// 文件放不进去（磁盘满、原件被删）就不硬凑：清单里不列它，模型也就不会去读一个不存在的路径。
-//
 // receiveFiles places this message's attachments into the member's own workspace and returns the text
 // and images that should enter the context.
-//
+
 // Both halves are needed, not one or the other:
-//
-//   - On disk. Attachments land in <workspace>/inbox/ and a list of their paths is appended to the
-//     text. That is what makes a file something it can read_file or run a command over; merely "seeing"
-//     an image in context gives it nothing to crop or convert.
-//   - In context. Images also travel as image blocks, so the model sees what is in them rather than
-//     only learning that a file exists.
-//
+
+// - On disk. Attachments land in <workspace>/inbox/ and a list of their paths is appended to the
+// text. That is what makes a file something it can read_file or run a command over; merely "seeing"
+// an image in context gives it nothing to crop or convert.
+// - In context. Images also travel as image blocks, so the model sees what is in them rather than
+// only learning that a file exists.
+
 // A file that cannot be placed (a full disk, a missing original) is not papered over: it stays off the
 // list, so the model is never pointed at a path that is not there.
 func (w *BotWorker) receiveFiles(msg Msg) (string, []model.ResultImage) {
@@ -447,7 +373,6 @@ func (w *BotWorker) receiveFiles(msg Msg) (string, []model.ResultImage) {
 	return text, images
 }
 
-// speakerName 把发言人 id 说成模型认得的称呼。
 // speakerName renders a speaker id as the name the model knows them by.
 func (w *BotWorker) speakerName(id string) string {
 	switch {
@@ -471,7 +396,7 @@ func (w *BotWorker) handle(msg Msg) {
 
 	sess.MarkTurn()
 	sess.AddUser(text, images...)
-	// 群聊背景消息：只入上下文，不回应
+
 	// Group-chat background message: goes into the context only, no reply.
 	if !msg.Respond {
 		sess.Trim(config.HistoryLimit)
@@ -500,8 +425,7 @@ func (w *BotWorker) handle(msg Msg) {
 	w.injected = nil
 	refused := w.agentLoop(ctx, chat, sess, msg)
 	if refused {
-		// 回滚会把本轮的一切都撤掉，包括中途插进来的话。那几句用户还没得到任何回应，
-		// 不能就这么消失——放回队首，当成新的一轮重来。
+
 		// The rollback undoes everything in this turn, interjections included. The user has had no
 		// answer to those yet, so they must not just vanish: they go back to the head of the queue
 		// and start a turn of their own.
@@ -513,14 +437,11 @@ func (w *BotWorker) handle(msg Msg) {
 	sess.Trim(config.HistoryLimit)
 }
 
-// agentLoop 跑完一个回合。返回 true 表示该回合被安全系统拒绝，需要回滚。
 // agentLoop runs one turn to completion. It returns true if the turn was refused by the safety system and must be rolled back.
 func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Session, trigger Msg) bool {
 	evChat := w.eventChat(chat)
 	w.toolbox.currentChat = chat
-	// 本轮开口的第一句引用触发它的那条消息，之后的不再引用：一段回复只需要指一次"我在答什么"，
-	// 每句都挂个引文就成了噪音。中途有人插话时会换成插话那条——那时候答的已经是新问题了。
-	//
+
 	// The first thing said this turn quotes the message that triggered it, and nothing after does: a
 	// reply needs to point at what it answers once, and a quotation on every line is just noise. An
 	// interjection replaces it, because from then on the answer is to the new question.
@@ -542,8 +463,6 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 		return true
 	}
 
-	// 服务端工具把这一轮暂停时（pause_turn）历史要原样再发一遍才能续上，
-	// 那个位置不能塞消息进去；除此之外的每次请求之前都是安全的收话点。
 	// When a server-side tool pauses the turn, the history has to go back out unchanged to resume, so
 	// nothing may be slipped in at that point; before every other request is a safe place to listen.
 	listen := true
@@ -569,7 +488,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 				return false
 			}
 			w.bus.Emit("msg", evChat, w.Name(), ""+err.Error(), nil)
-			// 额度耗尽：额外发全局告警（限频），确保用户在任何界面都能看到
+
 			// Quota exhausted: also emit a rate-limited global alert so the user sees it from any view.
 			var qe *model.QuotaError
 			if errors.As(err, &qe) {
@@ -591,7 +510,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 		}
 
 		switch res.StopReason {
-		// 服务端工具轮次被暂停：原样再请求即可续跑
+
 		// A server-side tool round got paused: just re-send the request as-is to resume.
 		case "pause_turn":
 			listen = false
@@ -613,8 +532,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 					ID: call.ID, Content: content, IsError: isErr,
 					Images: w.toolbox.TakeImages(),
 				})
-				// 一批里只要有一个转到头就算，而且记住是哪一个——后面那句话要说清楚
-				// 是哪个工具卡住了，不能被同一批里紧随其后的别的调用盖掉。
+
 				// One call in a batch reaching the limit is enough, and which one is remembered: the line
 				// printed afterwards has to name the tool that got stuck, not whichever call happened to
 				// come next in the same batch.
@@ -622,9 +540,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 					spinning, spinningTool = true, call.Name
 				}
 			}
-			// 结果照样补齐再停。tool_use 和它配对的 tool_result 之间断开，历史就非法了，
-			// 下一条消息进来时整段上下文都用不了——为了少写一次结果把会话废掉，不划算。
-			//
+
 			// The results still go in before stopping. A tool_use left without its matching tool_result
 			// makes the history invalid, and the whole context is unusable when the next message arrives
 			// — a poor trade for skipping one write.
@@ -640,7 +556,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 			}
 			continue
 		case "max_tokens":
-			// 截断时可能已生成完整 tool_use 块：必须补上配对的 tool_result，否则历史非法
+
 			// Truncation may leave complete tool_use blocks behind: matching tool_results must be appended, or the history becomes invalid.
 			if len(res.ToolCalls) > 0 {
 				results := make([]model.ToolResult, 0, len(res.ToolCalls))
@@ -654,7 +570,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 			}
 			w.bus.Emit("msg", evChat, w.Name(), i18n.T("(The reply was cut off for length — tell me to continue.)"), nil)
 			return false
-		default: // end_turn 等 / end_turn etc.
+		default: // end_turn etc.
 			return false
 		}
 	}
@@ -662,20 +578,13 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 	return false
 }
 
-// repeatWatch 数同一个工具带同样参数连着调了几次。
-//
-// 比的是"工具名 + 参数"的整体，不是工具名：同一个 bash 换条命令、同一个 read_file 换个文件，
-// 都是在往前走，只有参数一个字没变的重复才说明它卡住了——结果不会变，再跑多少圈都一样。
-//
-// 只数"连着"的。中间插进任何别的调用就归零：那说明它换了思路，前面那几次重复已经过去了。
-//
 // repeatWatch counts how many times in a row the same tool has been called with the same arguments.
-//
+
 // It compares the tool name and its arguments together rather than the name alone: the same bash with a
 // different command, or the same read_file on a different file, is progress. Only a repeat with not one
 // argument changed says it is stuck, because the result cannot come back any different however many
 // more laps it runs.
-//
+
 // Consecutive only. Any other call in between resets it: that means the approach changed, and whatever
 // repeated before is behind it.
 type repeatWatch struct {
@@ -684,7 +593,7 @@ type repeatWatch struct {
 }
 
 func (r *repeatWatch) saw(call model.ToolCall) int {
-	// map 的键在 encoding/json 里是排好序输出的，所以同样的参数必然得到同一串签名
+
 	// Map keys are emitted in sorted order by encoding/json, so identical arguments always yield the
 	// same signature
 	args, _ := json.Marshal(call.Input)
@@ -731,9 +640,6 @@ func (w *BotWorker) loadSessions() {
 	}
 }
 
-// RestoreFrom 把旧 worker 的会话上下文迁到新 worker 上。
-// 编辑 bot 会重建 worker，但只要 provider 家族没变，对话就不该被清空。
-//
 // RestoreFrom carries the previous worker's conversation context over to a new one. Editing a bot
 // rebuilds its worker, yet the conversation must survive as long as the provider family is unchanged.
 func (w *BotWorker) RestoreFrom(old *BotWorker) {
@@ -767,7 +673,7 @@ func describeToolCall(call model.ToolCall) string {
 }
 
 func (w *BotWorker) systemPrompt(chat string) string {
-	// 群聊场景只列群成员；私聊列全员（便于建议用户找对的人）
+
 	// In group chat, list only group members; in DM, list everyone (so the bot can point the user to the right person).
 	var names []string
 	if IsGroupChat(chat) {
@@ -830,7 +736,6 @@ board are unavailable in DMs). If the task suits someone else or needs several m
 raise it in the group chat.`)
 	}
 
-	// 技能清单。没有技能时整段不出现——空标题会让模型以为自己少了什么能力。
 	// The skills section. It disappears entirely when there are none: an empty heading reads to the model
 	// as a capability it is somehow missing.
 	skillSection := ""
@@ -845,8 +750,6 @@ the procedure yourself.
 %s`), roster)
 	}
 
-	// 用户指定的目录。一个都没有时整行不出现——空着的一句"你还可以去这些地方：（无）"
-	// 只会让模型琢磨它是不是漏了什么。
 	// Directories the user named. The line disappears when there are none: "you may also reach: (none)"
 	// only invites the model to wonder what it is missing.
 	rootsLine := ""
@@ -854,8 +757,6 @@ the procedure yourself.
 		rootsLine = d + "\n"
 	}
 
-	// 没有服务端联网工具的 provider 也有 fetch_url 可用，所以这里不再把人往 curl 上引——
-	// 那条路每取一个网页都要用户点一次头，而点下去交出的是一整个 shell。
 	// A provider without server-side web tools still has fetch_url, so nothing points at curl any more:
 	// that route cost the user one approval per page, and what it approved was a whole shell.
 	webLine := i18n.T("- Use fetch_url to read a page or an API online; you have no search engine, so work from addresses you already know or that the user gave you")
@@ -904,9 +805,6 @@ Reply in the user's language (English by default). Lead with the conclusion, the
 		customPrompt(w.Cfg.Prompt))
 }
 
-// customPrompt 渲染 bot 自带的附加说明（导入的成员模板就靠它）。
-// 加一层小标题而不是裸拼：模型要能分辨"这是我这个角色的说明"和"这是引擎的规则"。
-//
 // customPrompt renders a bot's own extra instructions (how an imported member template takes effect).
 // It gets a heading rather than being pasted on raw: the model has to be able to tell "this describes my
 // role" apart from "this is the engine's rules".

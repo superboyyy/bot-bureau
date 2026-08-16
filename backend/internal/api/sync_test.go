@@ -42,9 +42,7 @@ func TestTokenMiddleware(t *testing.T) {
 	if get("/api/state", "secret123") != 200 {
 		t.Fatal("the right pairing code should 200")
 	}
-	// 配对码不再从 query 走：URL 会被反代原样写进 access log，长期凭据落在那里就是泄漏。
-	// 消息流改用短时效票据（覆盖在 netx 的 ticket_test.go 里）。
-	//
+
 	// The pairing code is no longer accepted from the query: URLs land verbatim in proxy access logs,
 	// and a long-lived credential sitting there is a leak. The message stream uses a short-lived ticket
 	// instead (covered by ticket_test.go in netx).
@@ -79,19 +77,19 @@ func TestEngineLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 已持锁：第二个引擎应被拒
+
 	// Lock already held: a second engine should be rejected
 	if _, err := netx.AcquireEngineLock(dir); err == nil || !strings.Contains(err.Error(), "Another engine is already using") {
 		t.Fatalf("a second acquire should fail while held: %v", err)
 	}
-	// 释放后可再次获取
+
 	// Can be acquired again after release
 	l1.Release()
 	l2, err := netx.AcquireEngineLock(dir)
 	if err != nil {
 		t.Fatalf("should acquire after release: %v", err)
 	}
-	// 陈旧锁（崩溃残留）可被顶替
+
 	// A stale lock (crash leftover) can be taken over
 	l2.Release()
 	lockPath := filepath.Join(dir, "engine.lock")

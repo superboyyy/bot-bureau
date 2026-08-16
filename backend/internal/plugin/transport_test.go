@@ -18,7 +18,7 @@ import (
 )
 
 func TestMCPHTTPTransport(t *testing.T) {
-	// 最小 Streamable HTTP MCP server：直接回 JSON
+
 	// Minimal Streamable HTTP MCP server: replies with JSON directly
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		var req rpcRequest
@@ -70,14 +70,11 @@ func TestMCPHTTPTransport(t *testing.T) {
 	}
 }
 
-// 远程连接器要按服务端说定的版本继续说话，并且用完把会话还回去。
-// 以前 initialize 的返回值被丢掉、close() 是空函数：版本从不协商，会话一路挂在对方那里。
-//
 // A remote connector must keep speaking the version the server settled on, and hand the session back
 // when done. The initialize result used to be discarded and close() did nothing: the version was never
 // negotiated and sessions were left dangling on the far side.
 func TestHTTPVersionNegotiationAndSessionTermination(t *testing.T) {
-	const serverPicks = "2025-03-26" // 服务端挑了个和我们提议的不同的版本 / the server picks a different one
+	const serverPicks = "2025-03-26" // the server picks a different one
 	var (
 		mu          sync.Mutex
 		laterHeader string
@@ -138,11 +135,6 @@ func TestHTTPVersionNegotiationAndSessionTermination(t *testing.T) {
 	}
 }
 
-// TestMCPStdioTransport 端到端跑一遍本地插件：起进程、握手、列工具、调用。
-// 用测试二进制自己当插件进程（BOTBUREAU_MCP_FAKE=1 时进入 server 分支），不引入外部依赖。
-// 关键在于这个假 server 只按行读 JSON——和官方 SDK 的 stdio server 一样。之前客户端写的是
-// LSP 的 Content-Length 帧，真插件一个都握不上手，而当时的测试只测了读方向，没测出来。
-//
 // TestMCPStdioTransport exercises a local plugin end to end: spawn, handshake, list tools, call one.
 // The test binary doubles as the plugin process (it takes the server branch when BOTBUREAU_MCP_FAKE=1),
 // so no external dependency is needed. The point is that this fake server only reads line-delimited
@@ -175,10 +167,6 @@ func TestMCPStdioTransport(t *testing.T) {
 	}
 }
 
-// TestStdioConnectMissingCommand 命令不存在时要老实报错，不能崩。
-// 曾经会 panic：newStdioConn 返回的 (*stdioConn)(nil) 被装进 mcpConn 接口后，
-// connect 里的 conn != nil 判断拦不住它，close() 一调就空指针。
-//
 // TestStdioConnectMissingCommand: a missing command must report an error rather than crash.
 // It used to panic — the (*stdioConn)(nil) returned by newStdioConn became a non-nil mcpConn interface,
 // which connect's conn != nil check did not stop, so close() dereferenced nil.
@@ -196,7 +184,6 @@ func TestStdioConnectMissingCommand(t *testing.T) {
 	}
 }
 
-// runFakeStdioServer 是个最小 MCP server：只按行读、按行写。
 // runFakeStdioServer is a minimal MCP server that reads and writes one line at a time.
 func runFakeStdioServer() {
 	r := bufio.NewReader(os.Stdin)
@@ -207,7 +194,7 @@ func runFakeStdioServer() {
 		}
 		var req rpcRequest
 		if json.Unmarshal(bytes.TrimSpace(line), &req) != nil || req.ID == nil {
-			continue // 坏消息或通知 / a bad message or a notification
+			continue // a bad message or a notification
 		}
 		var result any
 		switch req.Method {
@@ -240,9 +227,6 @@ func runFakeStdioServer() {
 	}
 }
 
-// 插件进程自己没了的时候，状态必须立刻变成不可用并自动重连——而不是留着一颗绿点，
-// 让模型对着一份已经不存在的工具列表接着调。
-//
 // When a plugin process goes away on its own, the state must turn unavailable at once and reconnect —
 // rather than leaving a green dot up while the model keeps calling a tool list that no longer exists.
 func TestStdioReconnectsAfterProcessDies(t *testing.T) {
@@ -263,7 +247,6 @@ func TestStdioReconnectsAfterProcessDies(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 从外面杀掉进程，模拟插件崩溃
 	// Kill the process from outside, standing in for a plugin crash
 	mgr.mu.Lock()
 	client := mgr.servers["local"]
@@ -276,11 +259,11 @@ func TestStdioReconnectsAfterProcessDies(t *testing.T) {
 	}
 	_ = sc.cmd.Process.Kill()
 
-	// 先掉到不可用 / first it must fall out of the connected state
+	// first it must fall out of the connected state
 	if !waitFor(2*time.Second, func() bool { return statusOf(mgr, "local") != "connected" }) {
 		t.Fatalf("a dead plugin must not keep reporting connected, got %q", statusOf(mgr, "local"))
 	}
-	// 再自己回来 / then it must come back on its own
+	// then it must come back on its own
 	if !waitFor(20*time.Second, func() bool { return statusOf(mgr, "local") == "connected" }) {
 		t.Fatalf("it should reconnect by itself, still %q", statusOf(mgr, "local"))
 	}
@@ -289,7 +272,6 @@ func TestStdioReconnectsAfterProcessDies(t *testing.T) {
 	}
 }
 
-// 主动删除不该触发重连——否则删掉的插件会自己爬回来。
 // A deliberate removal must not trigger a reconnect, or a deleted plugin crawls back on its own.
 func TestRemoveDoesNotReconnect(t *testing.T) {
 	if os.Getenv("BOTBUREAU_MCP_FAKE") == "1" {
@@ -341,9 +323,6 @@ func writeRPC(rw http.ResponseWriter, id *int64, result any) {
 	_ = json.NewEncoder(rw).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
-// 插件进程只该拿到白名单里的环境变量。这条守的是一个安全边界：面板上点一下就能装的东西，
-// 不该顺手拿到 SSH_AUTH_SOCK 和你 shell 里的各种令牌。
-//
 // A plugin process must receive only the allowlisted environment. This guards a security boundary:
 // something installed by one click from a panel has no business also receiving SSH_AUTH_SOCK and
 // whatever tokens live in your shell.
@@ -373,7 +352,7 @@ func TestPluginEnvIsAllowlisted(t *testing.T) {
 			t.Fatalf("%s must not reach a plugin process", leaked)
 		}
 	}
-	// 代理必须过去，否则公司网里所有插件都连不出去，而症状只是"超时"
+
 	// The proxy has to get through, or every plugin behind a corporate network fails with nothing but a
 	// timeout to go on
 	if got["HTTPS_PROXY"] != "http://proxy.corp:8080" {
@@ -382,14 +361,13 @@ func TestPluginEnvIsAllowlisted(t *testing.T) {
 	if got["PATH"] == "" {
 		t.Fatal("PATH should pass through, or nothing can be executed")
 	}
-	// 插件自己声明的照旧，$ 开头的仍从密钥仓库解析
+
 	// What the plugin declares still arrives, and a $ value still resolves from the key store
 	if got["ACME_TOKEN"] != "tok-123" || got["PLAIN"] != "value" {
 		t.Fatalf("declared env should survive: %+v", got)
 	}
 }
 
-// 写方向必须是按行 JSON。这条断言比端到端那条快，坏了也更直指原因。
 // The write direction must be line-delimited JSON. This assertion is faster than the end-to-end test and
 // points straight at the cause when it breaks.
 func TestWriteMCPFrameIsLineDelimited(t *testing.T) {

@@ -2,7 +2,6 @@ package model
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -41,13 +40,9 @@ func TestCodexRequestHeaders(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotAcct = r.Header.Get("ChatGPT-Account-Id")
 		gotOrig = r.Header.Get("originator")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "completed",
-			"output": []map[string]any{{
-				"type":    "message",
-				"content": []map[string]any{{"type": "output_text", "text": "hi"}},
-			}},
-		})
+		codexSSE(w,
+			`{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"hi"}]}]}}`,
+		)
 	}))
 	defer srv.Close()
 	c := secret.NewChatGPTOAuth("")

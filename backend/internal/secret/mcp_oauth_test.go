@@ -14,10 +14,6 @@ import (
 	"time"
 )
 
-// fakeAS 是一个最小的「受保护资源 + 授权服务器」：发现文档、动态注册、令牌端点齐活。
-// 它按规范校验 PKCE——不校验的话，这个测试就只是在确认我们发出去的字段拼对了，
-// 而不是确认这套流程真的能换到令牌。
-//
 // fakeAS is a minimal "protected resource plus authorization server": discovery documents, dynamic
 // registration and a token endpoint. It verifies PKCE the way the spec requires — without that, the test
 // would only confirm the fields we send are spelled right, not that the flow actually yields a token.
@@ -67,7 +63,7 @@ func newFakeAS(t *testing.T) *fakeAS {
 				http.Error(rw, `{"error":"invalid_grant"}`, 400)
 				return
 			}
-			// PKCE：verifier 的 S256 摘要必须等于授权时提交的 challenge
+
 			// PKCE: the S256 digest of the verifier must equal the challenge submitted at authorization
 			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
 			if base64.RawURLEncoding.EncodeToString(sum[:]) != f.challenge {
@@ -95,7 +91,6 @@ func newFakeAS(t *testing.T) *fakeAS {
 	return f
 }
 
-// approve 扮演用户在浏览器里点"同意"：授权服务器会带着 code 回调本地地址。
 // approve plays the user approving in a browser: the authorization server redirects back to the local
 // address with a code.
 func (f *fakeAS) approve(t *testing.T, authURL string) {
@@ -168,7 +163,6 @@ func TestOAuthFullFlow(t *testing.T) {
 	}
 }
 
-// 令牌过期要能自动刷新，而且刷新响应里没重发 refresh_token 时不能把旧的弄丢。
 // An expired token must refresh itself, and a refresh response that omits refresh_token must not lose the
 // one already held.
 func TestOAuthRefresh(t *testing.T) {
@@ -197,14 +191,12 @@ func TestOAuthRefresh(t *testing.T) {
 		t.Fatalf("the refresh token must survive a response that omits it, got %q", kept)
 	}
 
-	// 令牌要落盘，重启后不必重新授权
 	// Tokens must persist so a restart does not mean authorizing again
 	if reloaded := NewMCPOAuth(path); !reloaded.Connected("linear") {
 		t.Fatal("the authorization should survive a reload")
 	}
 }
 
-// state 对不上就必须拒绝：这是回调唯一的 CSRF 防线。
 // A mismatched state must be rejected: it is the callback's only line of defence against CSRF.
 func TestOAuthRejectsBadState(t *testing.T) {
 	as := newFakeAS(t)
@@ -231,7 +223,6 @@ func TestOAuthRejectsBadState(t *testing.T) {
 	}
 }
 
-// 授权服务器不支持动态注册时，要给一句能照做的话，而不是把用户扔在一个走不通的授权页上。
 // When the authorization server has no dynamic registration, say something actionable rather than
 // stranding the user on an authorization page that cannot work.
 func TestOAuthWithoutRegistrationEndpoint(t *testing.T) {

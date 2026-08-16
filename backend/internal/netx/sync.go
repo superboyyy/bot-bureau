@@ -1,12 +1,8 @@
 package netx
 
-// 多客户端（无服务器）支持：
-// - 引擎监听局域网 + mDNS 广播（_botbureau._tcp），同一网络的客户端自动发现直连；
-// - 配对码认证：除 /api/ping 外所有接口需要 token（Authorization: Bearer 或 ?token=）；
-// - 引擎锁：数据目录放同步盘（iCloud/Syncthing）时，防止两台设备同时跑引擎。
 // Multi-client (serverless) support:
 // - The engine listens on the LAN and advertises via mDNS (_botbureau._tcp); clients on the same network auto-discover it and connect directly;
-// - Pairing-code auth: every endpoint except /api/ping requires the token (Authorization: Bearer or ?token=);
+// - Pairing-code auth: every API endpoint except /api/ping requires the Authorization header; /api/events may instead use a short-lived SSE ticket;
 // - Engine lock: prevents two devices from running the engine at once when the data directory lives on a sync drive (iCloud/Syncthing).
 
 import (
@@ -27,7 +23,6 @@ import (
 	zeroconf "github.com/libp2p/zeroconf/v2"
 )
 
-// ---- 配对码 ----
 // ---- Pairing code ----
 
 func LoadOrCreateToken(dataDir string) (string, error) {
@@ -51,22 +46,14 @@ func LoadOrCreateToken(dataDir string) (string, error) {
 	return tok, nil
 }
 
-// SSETicketPath 是拿票据的地方：必须带 Authorization 头，所以网页拿不到。
 // SSETicketPath is where a ticket comes from: it demands the Authorization header, so a web page cannot get one.
 const SSETicketPath = "/api/sse-ticket"
 
-// EventsPath 是唯一接受票据的路径。
 // EventsPath is the only path that accepts a ticket.
 const EventsPath = "/api/events"
 
-// RequireToken 给整个 API 挂配对码门；/、/api/ping 与 CORS 预检放行。
-//
-// 配对码只认 Authorization 头。消息流那条连接没法带头（EventSource 的限制），
-// 走短时效票据：先 POST /api/sse-ticket 换票，票据只在 /api/events 上有效。
-// 这样配对码本身永远不会出现在任何 URL 里，也就不会落进反代的 access log。
-//
 // RequireToken gates the whole API behind the pairing code; /, /api/ping and CORS preflight are exempt.
-//
+
 // The pairing code is accepted from the Authorization header only. The message stream cannot send
 // headers (an EventSource limitation), so it uses a short-lived ticket: POST /api/sse-ticket to get
 // one, and it works solely on /api/events. The pairing code itself therefore never appears in any URL
@@ -79,7 +66,6 @@ func RequireToken(token string, next http.Handler) http.Handler {
 			return
 		}
 
-		// 票据只用于消息流；其余路径一律要配对码
 		// A ticket serves the message stream only; every other path still wants the pairing code
 		if r.URL.Path == EventsPath && tickets.valid(r.URL.Query().Get("ticket")) {
 			next.ServeHTTP(rw, r)
@@ -108,15 +94,11 @@ func RequireToken(token string, next http.Handler) http.Handler {
 	})
 }
 
-// ---- mDNS 广播 ----
 // ---- mDNS advertising ----
 
 func AdvertiseMDNS(port int) (func(), error) {
 	host, _ := os.Hostname()
-	// 广播名带上端口：同一台机器可以跑好几个引擎（不同的数据目录，见 BOTBUREAU_DATA_DIR），
-	// 只用主机名的话两者在 mDNS 上是同一个实例名，后注册的那个会把先来的挤掉，
-	// 结果是本机上只有一个引擎能被发现。
-	//
+
 	// The advertised name carries the port: one machine can run several engines (different data
 	// directories — see BOTBUREAU_DATA_DIR), and with the hostname alone they share one mDNS instance
 	// name, so whichever registers last displaces the other and only one is ever discoverable.
@@ -129,7 +111,6 @@ func AdvertiseMDNS(port int) (func(), error) {
 	return server.Shutdown, nil
 }
 
-// ---- 引擎锁（防止同一数据目录被两个引擎同时使用）----
 // ---- Engine lock (prevents two engines from using the same data directory at once) ----
 
 const (

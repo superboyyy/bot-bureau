@@ -10,9 +10,6 @@ import (
 	"botbureau/backend/internal/config"
 )
 
-// 思考强度在三条路径上的旋钮名字不同，但都必须"选了才发"。
-// 留空还硬塞一个字段，会把不支持思考的模型直接打成 400——这是最要紧的一条。
-//
 // The knob has a different name on each path, but all three must send it only when a tier was chosen.
 // Forcing the field on an unset bot is a plain 400 from any model that does not support thinking,
 // which is the case that matters most.
@@ -40,7 +37,6 @@ func TestEffortReachesEachPathOnlyWhenSet(t *testing.T) {
 		return got
 	}
 
-	// chat/completions：顶层 reasoning_effort
 	if b := step(srv.URL+"/v1", config.EffortHigh); b["reasoning_effort"] != "high" {
 		t.Fatalf("chat/completions should carry reasoning_effort, got %+v", b)
 	}
@@ -48,7 +44,7 @@ func TestEffortReachesEachPathOnlyWhenSet(t *testing.T) {
 		t.Fatalf("an unset effort must send no reasoning_effort, got %+v", b["reasoning_effort"])
 	}
 
-	// Responses：reasoning.effort
+	// Responses API: reasoning.effort
 	b := step(srv.URL+"/v1/responses", config.EffortLow)
 	r, ok := b["reasoning"].(map[string]any)
 	if !ok || r["effort"] != "low" {
@@ -59,9 +55,6 @@ func TestEffortReachesEachPathOnlyWhenSet(t *testing.T) {
 	}
 }
 
-// 档位到 Anthropic 思考预算的换算：必须单调递增，且始终低于总输出上限
-// （预算比 max_tokens 还大的请求会被直接拒）。
-//
 // The tier-to-budget mapping for Anthropic must increase monotonically and stay under the total output
 // cap — a budget larger than max_tokens is rejected outright.
 func TestThinkingBudgetShape(t *testing.T) {
@@ -75,7 +68,7 @@ func TestThinkingBudgetShape(t *testing.T) {
 	if hi >= config.MaxTokens {
 		t.Fatalf("the highest budget %d must stay below MaxTokens %d", hi, config.MaxTokens)
 	}
-	for _, bad := range []string{"HIGH", "max", "yes", "2"} {
+	for _, bad := range []string{"HIGH", "MAX", "yes", "2"} {
 		if config.ValidEffort(bad) {
 			t.Fatalf("%q should not be a valid effort", bad)
 		}
@@ -83,54 +76,95 @@ func TestThinkingBudgetShape(t *testing.T) {
 			t.Fatalf("%q should map to no thinking", bad)
 		}
 	}
+	for _, notAnthropicBudget := range []string{config.EffortNone, config.EffortXHigh, config.EffortMax} {
+		if config.ThinkingBudget(notAnthropicBudget) != 0 {
+			t.Fatalf("%q should not be converted to an Anthropic budget", notAnthropicBudget)
+		}
+	}
 }
 
-// 档位是按服务商发的：一张表套所有人时，选中对方不认的那一档就是一个说不清的 400。
-// Tiers are served per provider: with one table for everyone, picking a tier the vendor does not take
-// produced an inscrutable 400.
-func TestEffortOptionsFollowTheProvider(t *testing.T) {
-	ids := func(provider string) []string {
+func TestDeepSeekEffortUsesBetaEndpoint(t *testing.T) {
+	if got := chatCompletionsURL("https://api.deepseek.com/v1", config.EffortHigh); got != "https://api.deepseek.com/beta/chat/completions" {
+		t.Fatalf("DeepSeek effort should use beta endpoint, got %s", got)
+	}
+	if got := chatCompletionsURL("https://api.deepseek.com/v1", ""); got != "https://api.deepseek.com/v1/chat/completions" {
+		t.Fatalf("default DeepSeek request should keep the normal endpoint, got %s", got)
+	}
+}
+
+// Tiers are served per concrete model: two models under one provider can accept different values.
+func TestEffortOptionsFollowTheModel(t *testing.T) {
+	ids := func(provider, model string) []string {
 		var out []string
-		for _, o := range config.EffortOptionsFor(provider) {
+		for _, o := range config.EffortOptionsForModel(provider, model) {
 			out = append(out, o["id"].(string))
 		}
 		return out
 	}
-	// 每一家的第一项都得是"服务商默认"，那是唯一处处都能用的选择
-	// Every provider must lead with "vendor default", the one choice that works everywhere
-	for _, p := range []string{"anthropic", "openai", "xai", "deepseek", "fake", "whatever"} {
-		if got := ids(p); len(got) == 0 || got[0] != "" {
-			t.Fatalf("%s should lead with the vendor default, got %v", p, got)
+
+	tests := []struct {
+		provider string
+		model    string
+		want     []string
+	}{
+		{"anthropic", "claude-opus-5", []string{"", "low", "medium", "high"}},
+		{"openai", "gpt-5", []string{"", "minimal", "low", "medium", "high"}},
+		{"openai", "gpt-5.6-luna", []string{"", "none", "low", "medium", "high", "xhigh", "max"}},
+		{"openai", "gpt-4.1", []string{""}},
+		{"xai", "grok-4.6", []string{"", "low", "medium", "high", "xhigh"}},
+		{"xai", "grok-4.5", []string{"", "low", "medium", "high"}},
+		{"xai", "grok-3", []string{""}},
+		{"deepseek", "deepseek-v4-flash", []string{"", "high", "max"}},
+		{"deepseek", "deepseek-v4-pro", []string{"", "high", "max"}},
+		{"deepseek", "deepseek-reasoner", []string{"", "high", "max"}},
+		{"deepseek", "deepseek-chat", []string{""}},
+		{"custom", "gpt-5", []string{"", "minimal", "low", "medium", "high"}},
+		{"fake", "fake", []string{""}},
+		{"custom", "qwen3", []string{""}},
+	}
+	for _, tt := range tests {
+		if got := ids(tt.provider, tt.model); !equalStrings(got, tt.want) {
+			t.Fatalf("%s/%s: got %v, want %v", tt.provider, tt.model, got, tt.want)
 		}
 	}
-	// OpenAI 独有 minimal；xAI 的推理模型不认 medium
-	// minimal is OpenAI's alone; xAI's reasoning models do not take medium
-	if !config.EffortSupported("openai", config.EffortMinimal) {
-		t.Fatal("openai should offer minimal")
+
+	if !config.EffortSupportedForModel("xai", "grok-4.6", config.EffortXHigh) {
+		t.Fatal("grok-4.6 should offer xhigh")
 	}
-	for _, p := range []string{"anthropic", "xai", "deepseek"} {
-		if config.EffortSupported(p, config.EffortMinimal) {
-			t.Fatalf("%s should not offer minimal", p)
-		}
+	if config.EffortSupportedForModel("xai", "grok-4.6", config.EffortNone) {
+		t.Fatal("grok-4.6 should not offer none")
 	}
-	if config.EffortSupported("xai", config.EffortMedium) {
-		t.Fatal("xai should not offer medium")
+	if !config.EffortSupportedForModel("openai", "gpt-5.6-luna", config.EffortMax) {
+		t.Fatal("gpt-5.6-luna should offer max")
 	}
-	if !config.EffortSupported("xai", config.EffortHigh) {
-		t.Fatal("xai should offer high")
+	if config.EffortSupportedForModel("openai", "gpt-5.6-luna", config.EffortMinimal) {
+		t.Fatal("gpt-5.6-luna should not offer minimal")
 	}
-	// 离线回声没有模型可想；未知服务商按 OpenAI 兼容处理
-	// The offline echo has no model to think with; an unknown provider is treated as OpenAI-compatible
-	if got := ids("fake"); len(got) != 1 {
-		t.Fatalf("fake should offer the default alone, got %v", got)
+	if !config.EffortSupportedForModel("openai", "gpt-5", config.EffortMinimal) {
+		t.Fatal("gpt-5 should offer minimal")
 	}
-	if !config.EffortSupported("some-self-hosted-thing", config.EffortMedium) {
-		t.Fatal("an unknown provider should behave as OpenAI-compatible")
+	if config.EffortSupportedForModel("openai", "gpt-4.1", config.EffortHigh) {
+		t.Fatal("gpt-4.1 should not offer a reasoning effort")
 	}
-	// 留空处处可用 / empty is accepted everywhere
+	if config.EffortSupportedForModel("some-self-hosted-thing", "local-model", config.EffortMedium) {
+		t.Fatal("unknown models should not guess a reasoning parameter")
+	}
+	// empty is accepted everywhere, including unknown models
 	for _, p := range []string{"anthropic", "openai", "xai", "fake"} {
-		if !config.EffortSupported(p, "") {
+		if !config.EffortSupportedForModel(p, "unknown", "") {
 			t.Fatalf("%s should accept the vendor default", p)
 		}
 	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

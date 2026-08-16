@@ -31,13 +31,13 @@ description: Review a diff for correctness bugs before it is merged.
 1. Read the diff.
 2. Look for off-by-one errors.
 `)
-	// frontmatter 缺 name：应当退回用目录名，而不是整个跳过
+
 	// Missing name in the frontmatter: fall back to the directory name rather than skipping the skill
 	writeSkill(t, root, "release-notes", "---\ndescription: Turn merged PRs into release notes.\n---\n\nBody here.\n")
-	// 没有 description 就没法被模型选中，属于坏技能，要跳过
+
 	// Without a description the model cannot select it, so it is a bad skill and gets skipped
 	writeSkill(t, root, "broken", "---\nname: broken\n---\n\nNo description.\n")
-	// 不是技能目录（没有 SKILL.md），静默忽略
+
 	// Not a skill directory (no SKILL.md): ignored quietly
 	if err := os.MkdirAll(filepath.Join(root, "not-a-skill"), 0o755); err != nil {
 		t.Fatal(err)
@@ -66,8 +66,6 @@ description: Review a diff for correctness bugs before it is merged.
 	}
 }
 
-// 正文里的 --- 分割线不能被当成 frontmatter 结束标记，否则技能会被腰斩，
-// 而且是静默的：前半段照常返回，谁也看不出丢了东西。
 // A --- rule inside the body must not be taken for the frontmatter's closing fence: the skill would be
 // cut in half silently, the first part coming back as normal with nothing to show something was lost.
 func TestFrontmatterStopsAtFirstFenceOnly(t *testing.T) {
@@ -101,7 +99,6 @@ func TestNoFrontmatterIsSkipped(t *testing.T) {
 	}
 }
 
-// 插件带来的技能和本地技能同名时：先到先得，且两边都还在各自目录里。
 // When a plugin's skill collides with a local one: first wins, and both remain in their own directories.
 func TestRootsAndCollision(t *testing.T) {
 	local := t.TempDir()
@@ -126,7 +123,6 @@ func TestRootsAndCollision(t *testing.T) {
 	}
 }
 
-// 技能目录里的附带文件要列进 read_skill 的返回值——模型得知道手边有什么脚本可用。
 // Files bundled beside SKILL.md must appear in what read_skill returns: the model has to know which
 // scripts are at hand.
 func TestRenderListsBundledFiles(t *testing.T) {

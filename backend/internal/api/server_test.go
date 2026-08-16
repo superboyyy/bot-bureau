@@ -35,14 +35,13 @@ func newTestApp(t *testing.T) (*App, *httptest.Server) {
 	bus := engine.NewBus()
 	sched := engine.NewScheduler(bus, filepath.Join(dir, "routines.json"))
 	deps := engine.NewTeamDeps(dir, secret.NewKeyStore(filepath.Join(dir, "keys.json")), filepath.Join(dir, "mcp.yaml"))
-	// 断言直接对着源码里的英文原文，所以把语言钉死为 en（否则会跟随系统环境，
-	// 中文机器上跑出来的就是译文，断言全炸）。专门测翻译的用例自己再切回 zh。
+
 	// The assertions read the English source text directly, so pin the locale to en (it would otherwise
 	// follow the environment and every assertion would face translated output on a Chinese machine).
 	// The tests that specifically exercise translation switch to zh themselves.
 	settings := config.NewSettings(dir)
 	settings.SetLocalePref("en")
-	deps.Settings = settings // 必须在建 bot 之前挂上，工具箱是在那时抓走它的 / must be attached before bots are built; the toolbox captures it then
+	deps.Settings = settings // must be attached before bots are built; the toolbox captures it then
 	for _, c := range cfgs {
 		w, err := engine.NewBotWorker(c, bus, sched, dir, deps)
 		if err != nil {
@@ -101,7 +100,6 @@ func waitForEvent(t *testing.T, srv *httptest.Server, pred func(engine.Event) bo
 func TestHTTPGroupAndDMFlow(t *testing.T) {
 	_, srv := newTestApp(t)
 
-	// 群聊：不点名 → 默认 chief 回应（fake 回声）
 	// Group chat: no mention → chief responds by default (fake echo)
 	code, _ := postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "hello"})
 	if code != 200 {
@@ -112,14 +110,12 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 			strings.Contains(ev["text"].(string), "hello")
 	})
 
-	// 群聊：@scout 点名 → scout 回应
 	// Group chat: mentioning @scout → scout responds
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "@scout take a look"})
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout"
 	})
 
-	// 私聊 scout
 	// DM scout
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:scout", "text": "dm test"})
 	waitForEvent(t, srv, func(ev engine.Event) bool {
@@ -127,14 +123,35 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 			strings.Contains(ev["text"].(string), "dm test")
 	})
 
-	// 目标不存在
 	// Target does not exist
 	if code, _ := postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:ghost", "text": "x"}); code != 404 {
 		t.Fatalf("a nonexistent dm target should 404, got %d", code)
 	}
 }
 
-// 群里引用某位成员的发言，就等于在跟 ta 说话：不必再敲一遍名字，也不该落回默认接单人。
+func TestConversationPreviewsEndpointIsIndependentOfHistory(t *testing.T) {
+	app, srv := newTestApp(t)
+	app.bus.Emit("msg", "dm:chief", "user", "hello from the inbox", nil)
+
+	resp, err := http.Get(srv.URL + "/api/conversations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("conversation list failed with %d", resp.StatusCode)
+	}
+	var out struct {
+		Conversations []engine.ConversationPreview `json:"conversations"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Conversations) != 1 || out.Conversations[0].Chat != "dm:chief" || out.Conversations[0].Text != "hello from the inbox" {
+		t.Fatalf("unexpected conversation previews: %+v", out.Conversations)
+	}
+}
+
 // Quoting a member's line in the group is addressing them: the name need not be typed again, and the
 // message must not fall back to the default responder.
 func TestQuoteReplyAddressesTheQuotedBot(t *testing.T) {
@@ -155,7 +172,7 @@ func TestQuoteReplyAddressesTheQuotedBot(t *testing.T) {
 	if quoted["reply_to"] == nil || quoted["reply_src"] != "scout" {
 		t.Fatalf("the sent message should carry the quotation: %+v", quoted)
 	}
-	// chief 是默认接单人，所以"scout 回了这句"才说明引用把话指对了人
+
 	// chief is the default responder, so scout answering this one is what proves the quotation aimed it
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		text, _ := ev["text"].(string)
@@ -176,14 +193,13 @@ func TestHTTPBotCRUD(t *testing.T) {
 	if !strings.Contains(string(raw), "coder") {
 		t.Fatal("the new bot was not persisted to bots.yaml")
 	}
-	// 新 bot 立即可用（私聊回声）
+
 	// The new bot is usable immediately (DM echo)
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:coder", "text": "you there"})
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		return ev["kind"] == "msg" && ev["chat"] == "dm:coder" && ev["source"] == "coder"
 	})
 
-	// 非法参数
 	// Invalid parameters
 	if code, _ := postJSON(t, srv.URL+"/api/bots", map[string]any{"name": "Bad Name"}); code != 400 {
 		t.Fatal("an invalid name should 400")
@@ -195,7 +211,6 @@ func TestHTTPBotCRUD(t *testing.T) {
 		t.Fatal("a duplicate name should 400")
 	}
 
-	// 删除
 	// Delete
 	if code, _ := postJSON(t, srv.URL+"/api/bots/delete", map[string]any{"name": "coder"}); code != 200 {
 		t.Fatal("delete failed")
@@ -208,7 +223,7 @@ func TestHTTPBotCRUD(t *testing.T) {
 
 func TestHTTPApprovalFlow(t *testing.T) {
 	app, srv := newTestApp(t)
-	// 手工造一个审批（等价于 bot 里 bash 走审批）
+
 	// Manually create an approval (equivalent to bash going through approval inside a bot)
 	go app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	var id int
@@ -269,7 +284,7 @@ func TestHTTPKeysAPI(t *testing.T) {
 
 func TestHTTPGroupMembersAPI(t *testing.T) {
 	app, srv := newTestApp(t)
-	// 移出 scout：@scout 失效，默认接单人仍是 chief
+
 	// Remove scout: @scout stops working, the default responder is still chief
 	if code, _ := postJSON(t, srv.URL+"/api/group/set", map[string]any{"name": "scout", "in": false}); code != 200 {
 		t.Fatal("removal failed")
@@ -278,13 +293,13 @@ func TestHTTPGroupMembersAPI(t *testing.T) {
 		t.Fatalf("wrong member list: %v", got)
 	}
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "@scout take a look"})
-	// @群外成员无效 → 落到默认 chief
+
 	// @ on a non-member has no effect → falls back to the default chief
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "chief" &&
 			strings.Contains(ev["text"].(string), "take a look")
 	})
-	// 拉回来
+
 	// Add back
 	if code, _ := postJSON(t, srv.URL+"/api/group/set", map[string]any{"name": "scout", "in": true}); code != 200 {
 		t.Fatal("re-adding failed")
@@ -313,13 +328,12 @@ func TestSSEStream(t *testing.T) {
 			t.Fatal(err)
 		}
 		if strings.HasPrefix(line, "data: ") && strings.Contains(line, "sse test") {
-			return // 收到了 / received
+			return // received
 		}
 	}
 	t.Fatal("SSE never pushed the event")
 }
 
-// 编辑 bot：改头像/显示名不能动列表位次（群聊默认收件人就是第一个），也不能掉出群。
 // Editing a bot: changing its avatar or display name must not shift its position (the group's default
 // recipient is whoever is first) and must not drop it from the group.
 func TestUpdateBotKeepsOrderAndMembership(t *testing.T) {
@@ -349,7 +363,7 @@ func TestUpdateBotKeepsOrderAndMembership(t *testing.T) {
 	if w == nil || w.Cfg.Title() != "Chief of Staff" || w.Cfg.Avatar != "#c9b9a6" {
 		t.Fatalf("the new config did not take effect: %+v", w)
 	}
-	// 落盘的 bots.yaml 也要带上新字段 / the new fields must survive to bots.yaml
+	// the new fields must survive to bots.yaml
 	saved, err := config.LoadBotConfigs(app.cfgPath)
 	if err != nil {
 		t.Fatal(err)
@@ -376,13 +390,12 @@ func TestUpdateBotRejectsBadInput(t *testing.T) {
 	if err := app.UpdateBot(config.BotConfig{Name: "scout", Provider: "fake", DisplayName: long}); err == nil {
 		t.Fatal("an overlong display name should be rejected")
 	}
-	// 被拒之后原 bot 必须还活着 / the original bot must still be alive after a rejection
+	// the original bot must still be alive after a rejection
 	if app.bus.Bot("scout") == nil {
 		t.Fatal("scout vanished after a failed validation")
 	}
 }
 
-// 群聊的名字和头像存在 settings 里，改语言不能把它们清掉。
 // The group's name and avatar live in settings; changing the language must not wipe them.
 func TestGroupMetaSurvivesLocaleChange(t *testing.T) {
 	dir := t.TempDir()
@@ -398,12 +411,9 @@ func TestGroupMetaSurvivesLocaleChange(t *testing.T) {
 	if reloaded.LocalePref != "en" {
 		t.Fatalf("the locale preference was not kept: %q", reloaded.LocalePref)
 	}
-	i18n.SetLocale("zh") // 复原，别影响其他用例 / restore so other tests are unaffected
+	i18n.SetLocale("zh") // restore so other tests are unaffected
 }
 
-// 置顶：群聊和私聊走同一个口，存在引擎里（换设备连上来还是那几个），
-// 会话没了置顶也跟着走——否则 settings.json 里会攒下一堆界面上既看不见也取消不掉的 id。
-//
 // Pinning: group chats and DMs go through the same endpoint and live in the engine (connect from
 // another device and the same ones are on top). A pin leaves with its conversation, or settings.json
 // would collect ids that are invisible in the UI and impossible to take back.
@@ -424,7 +434,6 @@ func TestPinnedConversations(t *testing.T) {
 		t.Fatalf("the state should carry both pins, got %v", got)
 	}
 
-	// 不存在的会话钉不住：打错的 id 会永远留在设置里，界面上根本没有那一行去取消它
 	// A conversation that is not there cannot be pinned: a mistyped id would stay in settings forever,
 	// with no row in the UI to take it back from
 	if code, _ := postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "dm:ghost", "pinned": true}); code != 404 {
@@ -434,20 +443,17 @@ func TestPinnedConversations(t *testing.T) {
 		t.Fatalf("an empty conversation id should 400, got %d", code)
 	}
 
-	// 重启引擎后还在
 	// Still there after a restart
 	if got := config.NewSettings(app.dataDir).Pins(); len(got) != 2 {
 		t.Fatalf("the pins did not survive a reload: %v", got)
 	}
 
-	// 取消置顶
 	// Unpin
 	_, out = postJSON(t, srv.URL+"/api/pins", map[string]any{"chat": "group", "pinned": false})
 	if got := pinsIn(t, out); len(got) != 1 || got[0] != "dm:scout" {
 		t.Fatalf("unpinning left the wrong set: %v", got)
 	}
 
-	// 群没了，它的置顶也没了
 	// The group goes, and its pin with it
 	_, made := postJSON(t, srv.URL+"/api/groups", map[string]any{"title": "War Room", "members": []string{"chief"}})
 	id, _ := made["id"].(string)
@@ -462,7 +468,6 @@ func TestPinnedConversations(t *testing.T) {
 		}
 	}
 
-	// bot 走人，它的私聊置顶也一样
 	// A member leaves, and the pin on their DM goes too
 	if _, err := app.RemoveBot("scout", true); err != nil {
 		t.Fatalf("removing scout failed: %v", err)
@@ -499,9 +504,6 @@ func statePins(t *testing.T, srv *httptest.Server) []string {
 	return st.Pins
 }
 
-// 团队可以删空：空团队是新装用户的初始状态，客户端会显示引导。
-// 早先这里是"最后一个不许删"，那是因为引擎当时拒绝空 bots.yaml 启动。
-//
 // The team may be emptied: that is the initial state for a fresh install, where the client shows
 // onboarding. This used to assert the opposite, back when the engine refused to start on an empty file.
 func TestRemoveBotCanEmptyTheTeam(t *testing.T) {
@@ -516,7 +518,7 @@ func TestRemoveBotCanEmptyTheTeam(t *testing.T) {
 	if n := len(app.bus.Bots()); n != 0 {
 		t.Fatalf("should be empty, %d left", n)
 	}
-	// 空的 bots.yaml 必须还能加载，否则下次启动就废了
+
 	// An empty bots.yaml must still load, or the next start is broken
 	saved, err := config.LoadBotConfigs(app.cfgPath)
 	if err != nil {
@@ -530,9 +532,6 @@ func TestRemoveBotCanEmptyTheTeam(t *testing.T) {
 	}
 }
 
-// 默认移除保留资料：工作目录改名成离职档案，之后能在「已离职成员」里找到。
-// 顺带确认例程跟着人走——那是行为，不是档案。
-//
 // A removal keeps the files by default: the workspace is renamed into an archive that turns up under
 // "Former members". Also confirms routines leave with their owner — those are behaviour, not records.
 func TestRemoveBotArchivesWorkspaceByDefault(t *testing.T) {
@@ -563,14 +562,13 @@ func TestRemoveBotArchivesWorkspaceByDefault(t *testing.T) {
 	if d.ID != "scout" || !d.HasMemory || d.Files < 2 || d.RemovedAt == 0 {
 		t.Fatalf("the archive does not describe what was kept: %+v", d)
 	}
-	// 例程只剩别人的那条 / only the other bot's routine survives
+	// only the other bot's routine survives
 	left := app.sched.List()
 	if len(left) != 1 || left[0].Bot != "chief" {
 		t.Fatalf("scout's routines should be gone, left: %+v", left)
 	}
 }
 
-// 用户明确选了"一并删除"就真的删干净，不留档案。
 // Choosing "delete the files too" really deletes them, leaving no archive behind.
 func TestRemoveBotPurgesWorkspaceWhenAsked(t *testing.T) {
 	app, srv := newTestApp(t)
@@ -591,7 +589,6 @@ func TestRemoveBotPurgesWorkspaceWhenAsked(t *testing.T) {
 	}
 }
 
-// 离职档案能列、能看、能删；目录名是从 HTTP 进来的，所以顺带盯住它不能被拿来跳出 workspaces。
 // Archives can be listed, viewed and deleted; the directory name arrives over HTTP, so this also
 // pins down that it cannot be used to climb out of the workspaces directory.
 func TestDepartedArchivesAreListedViewedAndDeleted(t *testing.T) {
@@ -627,7 +624,7 @@ func TestDepartedArchivesAreListedViewedAndDeleted(t *testing.T) {
 		t.Fatalf("the memory should be readable, got %q", body["memory"])
 	}
 
-	// 越界的目录名要在拼进 RemoveAll 之前就被挡住 / a climbing name is refused before any RemoveAll
+	// a climbing name is refused before any RemoveAll
 	for _, bad := range []string{"..", "../..", "scout", "scout.removed-x", filepath.Join("..", "keys.json")} {
 		if code, _ := postJSON(t, srv.URL+"/api/bots/departed/delete", map[string]any{"dir": bad}); code != 400 {
 			t.Fatalf("deleting %q should have been refused, got %d", bad, code)
@@ -645,7 +642,6 @@ func TestDepartedArchivesAreListedViewedAndDeleted(t *testing.T) {
 	}
 }
 
-// 例程能就地改派给别人，且不会因为换人就重新计时。
 // A routine can be handed to someone else in place, without the clock restarting.
 func TestRoutineCanBeReassigned(t *testing.T) {
 	app, srv := newTestApp(t)
@@ -664,7 +660,7 @@ func TestRoutineCanBeReassigned(t *testing.T) {
 	if got[0].NextRun != due {
 		t.Fatalf("reassigning must not reschedule: was %d, now %d", due, got[0].NextRun)
 	}
-	// 派给不存在的人要挡住，否则这条例程到点只会被跳过
+
 	// Handing it to nobody must be refused, or it would only ever be skipped when due
 	if code, _ := postJSON(t, srv.URL+"/api/routines/update", map[string]any{"name": "daily", "bot": "ghost"}); code != 400 {
 		t.Fatal("reassigning to a nonexistent bot should 400")
@@ -674,7 +670,6 @@ func TestRoutineCanBeReassigned(t *testing.T) {
 	}
 }
 
-// 两位成员不能重名：群里点名 id 和显示名都算，重名等于一句话把同一件活派了两遍。
 // Two members cannot share a name: a group call matches ids and display names alike, so a duplicate
 // hands the same job out twice.
 func TestDuplicateDisplayNameIsRejected(t *testing.T) {
@@ -687,17 +682,16 @@ func TestDuplicateDisplayNameIsRejected(t *testing.T) {
 	if _, err := app.AddBot(config.BotConfig{Name: "wumin-k3f9a", Role: "r", Provider: "fake", DisplayName: "吴敏"}); err == nil {
 		t.Fatal("a second 吴敏 should have been refused")
 	}
-	// 撞上别人的 id 一样会被同时点到 / colliding with someone's id calls on both, too
+	// colliding with someone's id calls on both, too
 	if _, err := app.AddBot(config.BotConfig{Name: "newbie", Role: "r", Provider: "fake", DisplayName: "scout"}); err == nil {
 		t.Fatal("a display name equal to another member's id should have been refused")
 	}
-	// 自己改自己不算撞名 / a bot keeping its own name is not a clash
+	// a bot keeping its own name is not a clash
 	if err := app.UpdateBot(config.BotConfig{Name: "chief", Role: "Boss", Provider: "fake", DisplayName: "吴敏"}); err != nil {
 		t.Fatalf("editing a bot without changing its display name should be fine: %v", err)
 	}
 }
 
-// 新建的 bot 不该自动进群：谁在群里是用户的决定，不是系统替他决定的。
 // A newly created bot must not join any group: who belongs in a room is the user's call, not the system's.
 func TestNewBotDoesNotAutoJoinGroups(t *testing.T) {
 	app, srv := newTestApp(t)
@@ -713,12 +707,12 @@ func TestNewBotDoesNotAutoJoinGroups(t *testing.T) {
 			}
 		}
 	}
-	// 私聊照常可用：不在群里只影响群，不影响一对一
+
 	// The DM still works: staying out of a group affects the group only, never one-on-one
 	if app.bus.Bot("newbie") == nil {
 		t.Fatal("the bot should still exist and be reachable in a DM")
 	}
-	// 用户主动拉进去就该生效
+
 	// Adding it deliberately must work
 	if ok, changed := app.bus.SetGroupMemberIn("group", "newbie", true); !ok || !changed {
 		t.Fatal("adding it to the group should succeed")
@@ -728,7 +722,6 @@ func TestNewBotDoesNotAutoJoinGroups(t *testing.T) {
 	}
 }
 
-// 预检必须放行 Authorization：配对码就走这个头，少了它跨源客户端连不上。
 // The preflight must allow Authorization: the pairing code travels in that header, and without it a
 // cross-origin client cannot connect at all.
 func TestCORSAllowsAuthorizationHeader(t *testing.T) {
@@ -753,14 +746,8 @@ func TestCORSAllowsAuthorizationHeader(t *testing.T) {
 	}
 }
 
-// 本机模式同样要认证。
-//
-// "只绑 127.0.0.1" 不是安全边界：本机上每个网页都能访问 localhost。这个洞真实存在过——
-// 免认证时任何站点都能读走团队和聊天记录，还能建 bot、把权限改成 full、给 bot 发消息，
-// 串起来就是从一个网页在用户机器上执行任意命令。
-//
 // Local mode is authenticated too.
-//
+
 // "Bound to 127.0.0.1" is not a security boundary: every page open on the machine can reach localhost.
 // This hole was real — unauthenticated, any site could read the team and its history, create bots, set
 // the permission tier to full and send messages, which chains into arbitrary command execution on the
@@ -772,7 +759,6 @@ func TestLocalModeStillRequiresToken(t *testing.T) {
 	guarded := httptest.NewServer(netx.RequireToken("the-secret", app.Handler()))
 	defer guarded.Close()
 
-	// 外站页面能发出的每一种请求都必须被挡住
 	// Every request a foreign page could make must be refused
 	attacks := []struct{ method, path, body string }{
 		{http.MethodGet, "/api/state", ""},
@@ -797,7 +783,7 @@ func TestLocalModeStillRequiresToken(t *testing.T) {
 			t.Fatalf("%s %s without a token should be 401, got %d", a.method, a.path, res.StatusCode)
 		}
 	}
-	// 副作用一个都不能发生 / and not one of them may have taken effect
+	// and not one of them may have taken effect
 	if app.bus.Bot("pwned") != nil {
 		t.Fatal("an unauthenticated request created a bot")
 	}
@@ -805,7 +791,7 @@ func TestLocalModeStillRequiresToken(t *testing.T) {
 		t.Fatalf("an unauthenticated request raised the permission tier to %q", got)
 	}
 
-	// 带上配对码则照常放行 / with the pairing code it goes through as usual
+	// with the pairing code it goes through as usual
 	req, err := http.NewRequest(http.MethodGet, guarded.URL+"/api/state", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -821,9 +807,6 @@ func TestLocalModeStillRequiresToken(t *testing.T) {
 	}
 }
 
-// 工作目录清单必须在 state 里露出来，而且撤销要真的撤得掉——
-// 权限档位说的"工作目录内免审批"，用户只能靠这两样去核对和收回。
-//
 // The working-directory list has to surface in state and revocation has to actually revoke: those two
 // are the user's only means of checking, and taking back, what "no approvals inside the workspace"
 // grants.
@@ -868,7 +851,6 @@ func TestBotRootsSurfaceInStateAndCanBeRevoked(t *testing.T) {
 		t.Fatalf("granted directory missing from state: %v", roots)
 	}
 
-	// 别人的目录撤不掉，不存在的目录也报错——撤销接口收的是 HTTP 请求
 	// Another member's list is untouched and an unknown directory errors: this endpoint takes HTTP input
 	if code, _ := postJSON(t, srv.URL+"/api/bots/roots/remove", map[string]any{"name": "scout", "dir": granted}); code != 404 {
 		t.Fatalf("removing from a member who was never granted it should 404, got %d", code)
@@ -888,10 +870,6 @@ func TestBotRootsSurfaceInStateAndCanBeRevoked(t *testing.T) {
 	}
 }
 
-// 审批卡上的「批准并设为工作目录」：一次点击既放行这条命令，也让同一目录里往后的命令不再问。
-// 这是「把 bot-bureau 当工作目录」那种说法唯一能可靠落地的地方——到审批这一刻，
-// 是哪个目录已经写在命令里了，不用猜。
-//
 // "Approve and make this a working directory" on the approval card: one click both lets this command
 // through and stops the questions about that directory. It is the only place a phrasing like "treat
 // bot-bureau as your working directory" can land reliably — by approval time the command spells the
@@ -903,7 +881,6 @@ func TestApproveCanGrantTheDirectoryOnTheCard(t *testing.T) {
 	w := app.bus.Bot("chief")
 	ap := app.bus.RequestApproval("chief", "bash: ls "+proj, "group", proj)
 
-	// 没有可授目录的审批不能被当成授权用
 	// An approval with no grantable directory cannot be used as one
 	bare := app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	if code, _ := postJSON(t, srv.URL+"/api/approve", map[string]any{"id": bare.ID, "approved": true, "grant": true}); code != 400 {

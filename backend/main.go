@@ -1,6 +1,3 @@
-// Bot Bureau backend — 一支常驻本机的 AI 成员团队，这是它的 Go 引擎。
-// 提供 HTTP + SSE 接口，由 Electron 客户端（app/）或任何前端消费。
-// 默认监听局域网并通过 mDNS 广播，同一网络的客户端可自动发现直连（配对码认证）。
 // Bot Bureau backend — the Go engine behind a resident team of AI members on your own machine.
 // Serves HTTP + SSE APIs, consumed by the Electron client (app/) or any frontend.
 // By default it listens on the LAN and advertises via mDNS; clients on the same network auto-discover it and connect directly (pairing-code auth).
@@ -29,7 +26,7 @@ import (
 func ensureDir(p string) error { return os.MkdirAll(p, 0o755) }
 
 func main() {
-	// flag 帮助文本在设置加载前就要用，先按系统语言预置（之后 config.NewSettings 会用显式偏好覆盖）
+
 	// Flag help text is needed before settings load, so preset the locale from the system (config.NewSettings later applies an explicit preference)
 	i18n.SetLocale(i18n.DetectSystemLocale())
 
@@ -38,7 +35,7 @@ func main() {
 	tlsFlag := flag.String("tls", "", i18n.T(`TLS (for public-internet access): "auto" = self-signed cert + fingerprint pinning; "cert.pem:key.pem" = your own cert; empty = plaintext (LAN / virtual network only)`))
 	cfgPath := flag.String("config", "bots.yaml", i18n.T("Path to bots.yaml"))
 	mcpPath := flag.String("mcp", "mcp.yaml", i18n.T("Path to mcp.yaml (plugin/connector definitions)"))
-	// 直接跑二进制时也认 BOTBUREAU_DATA_DIR，跟客户端保持一致；显式给了 -data 就以它为准
+
 	// Running the binary directly honours BOTBUREAU_DATA_DIR too, matching the client; an explicit
 	// -data still wins
 	defaultData := "data"
@@ -58,7 +55,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 引擎锁：数据目录放同步盘时防止两台设备同时跑引擎（bot 会重复应答）
 	// Engine lock: keeps two devices from running the engine at once when the data directory is on a sync drive (bots would answer twice)
 	lock, err := netx.AcquireEngineLock(*dataDir)
 	if err != nil {
@@ -70,12 +66,12 @@ func main() {
 	bus := engine.NewBus()
 	bus.EnableEventLog(filepath.Join(*dataDir, "events.json"))
 	sched := engine.NewScheduler(bus, filepath.Join(*dataDir, "routines.json"))
-	settings := config.NewSettings(*dataDir) // 解析语言偏好，之后所有文案跟随 / resolves the language preference; all text follows it
+	settings := config.NewSettings(*dataDir) // resolves the language preference; all text follows it
 	ks := secret.NewKeyStore(filepath.Join(*dataDir, "keys.json"))
 	deps := engine.NewTeamDeps(*dataDir, ks, *mcpPath)
-	deps.Settings = settings // 工具箱靠它读全局权限档位 / the toolbox reads the global permission tier from it
+	deps.Settings = settings // the toolbox reads the global permission tier from it
 	deps.MCP.SetOnChange(func() { bus.Emit("refresh", "", "system", "mcp", nil) })
-	deps.MCP.ConnectAll() // 插件异步连接，不阻塞启动 / plugins connect asynchronously; won't block startup
+	deps.MCP.ConnectAll() // plugins connect asynchronously; won't block startup
 	for _, c := range cfgs {
 		w, err := engine.NewBotWorker(c, bus, sched, *dataDir, deps)
 		if err != nil {
@@ -102,15 +98,8 @@ func main() {
 	app := api.NewApp(bus, sched, deps, tg, settings, cfgs, *cfgPath, *dataDir)
 	handler := http.Handler(app.Handler())
 
-	// 认证不分模式，本机也要。
-	//
-	// "只绑 127.0.0.1" 不是安全边界：本机上每一个网页都能访问 localhost。之前 local 模式完全免认证，
-	// 于是任何你打开的站点都能读走整个团队和聊天记录，还能建 bot、把全局权限改成"完全放开"、
-	// 给 bot 发消息——串起来就是从一个网页在你机器上执行任意命令。
-	// 配对码放在 data/token（0600），网页读不到；客户端读得到。
-	//
 	// Authentication applies in every mode, including local.
-	//
+
 	// "Bound to 127.0.0.1" is not a security boundary: every web page open on this machine can reach
 	// localhost. Local mode used to require nothing, so any site the user visited could read the whole
 	// team and its history, create bots, set the global permission tier to "no approvals" and send
@@ -140,7 +129,6 @@ func main() {
 	}
 	fmt.Printf(i18n.T("Members: %v\n"), bus.BotNames())
 
-	// 收到退出信号时释放引擎锁
 	// Release the engine lock when an exit signal arrives
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

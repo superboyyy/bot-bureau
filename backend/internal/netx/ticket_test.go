@@ -16,9 +16,6 @@ func okHandler() http.Handler {
 	})
 }
 
-// 配对码不再从 query 走。这才是这次改动的要点：URL 会被反代原样记进日志，
-// 长期凭据落在那里就是泄漏。
-//
 // The pairing code is no longer accepted from the query. That is the point of this change: URLs land
 // verbatim in proxy logs, and a long-lived credential sitting there is a leak.
 func TestPairingCodeNotAcceptedInQuery(t *testing.T) {
@@ -37,7 +34,7 @@ func TestPairingCodeNotAcceptedInQuery(t *testing.T) {
 		}
 	}
 
-	// 头里带着照常放行 / it still passes in the header
+	// it still passes in the header
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/state", nil)
 	req.Header.Set("Authorization", "Bearer master-secret")
 	res, err := http.DefaultClient.Do(req)
@@ -50,13 +47,12 @@ func TestPairingCodeNotAcceptedInQuery(t *testing.T) {
 	}
 }
 
-// 换票要认证，票据只对消息流有效，别的路径一概不认。
 // Minting requires auth, and a ticket works on the message stream alone.
 func TestTicketScopeAndAuth(t *testing.T) {
 	srv := httptest.NewServer(RequireToken("master-secret", okHandler()))
 	defer srv.Close()
 
-	// 没有配对码换不到票 / no pairing code, no ticket
+	// no pairing code, no ticket
 	res, err := http.Post(srv.URL+SSETicketPath, "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +67,7 @@ func TestTicketScopeAndAuth(t *testing.T) {
 		t.Fatalf("a ticket must be its own secret, got %q", ticket)
 	}
 
-	// 票据在消息流上有效 / valid on the stream
+	// valid on the stream
 	res, err = http.Get(srv.URL + EventsPath + "?ticket=" + ticket)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +77,7 @@ func TestTicketScopeAndAuth(t *testing.T) {
 		t.Fatalf("a ticket should open the stream, got %d", res.StatusCode)
 	}
 
-	// 票据换不来别的路径 / and buys nothing else
+	// and buys nothing else
 	for _, path := range []string{"/api/state", "/api/send", "/api/bots"} {
 		res, err := http.Get(srv.URL + path + "?ticket=" + ticket)
 		if err != nil {
@@ -93,7 +89,7 @@ func TestTicketScopeAndAuth(t *testing.T) {
 		}
 	}
 
-	// 伪造的票据不认 / a made-up ticket is refused
+	// a made-up ticket is refused
 	res, err = http.Get(srv.URL + EventsPath + "?ticket=deadbeefdeadbeef")
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +100,6 @@ func TestTicketScopeAndAuth(t *testing.T) {
 	}
 }
 
-// 票据会过期；有效期内可重复使用（EventSource 的内部重连不经过我们的代码）。
 // Tickets expire, and stay reusable inside their window (EventSource's internal reconnects never reach our code).
 func TestTicketExpiryAndReuse(t *testing.T) {
 	s := newTicketStore()

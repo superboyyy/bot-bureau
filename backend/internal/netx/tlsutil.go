@@ -1,7 +1,5 @@
 package netx
 
-// 内置 TLS：给公网直连用。`-tls auto` 自动生成并复用自签名证书，
-// 客户端侧用「证书指纹钉扎（TOFU）」校验，无需 CA 与域名。
 // Built-in TLS, for direct connections over the public internet. `-tls auto` auto-generates and reuses a self-signed certificate;
 // the client side verifies it via certificate fingerprint pinning (TOFU) — no CA or domain name required.
 
@@ -24,14 +22,13 @@ import (
 	"time"
 )
 
-// EnsureSelfSignedCert 生成（或复用）自签名证书，返回 cert/key 路径与 SHA-256 指纹（hex）。
 // EnsureSelfSignedCert generates (or reuses) a self-signed certificate, returning the cert/key paths and the SHA-256 fingerprint (hex).
 func EnsureSelfSignedCert(dataDir string) (certPath, keyPath, fingerprint string, err error) {
 	dir := filepath.Join(dataDir, "tls")
 	certPath = filepath.Join(dir, "cert.pem")
 	keyPath = filepath.Join(dir, "key.pem")
 	if fp, ferr := certFingerprint(certPath); ferr == nil {
-		// 已有证书，复用（指纹稳定才有钉扎意义）
+
 		// Certificate already exists — reuse it (pinning is only meaningful if the fingerprint stays stable)
 		return certPath, keyPath, fp, nil
 	}
@@ -71,7 +68,6 @@ func EnsureSelfSignedCert(dataDir string) (certPath, keyPath, fingerprint string
 	return certPath, keyPath, hex.EncodeToString(sum[:]), nil
 }
 
-// certFingerprint 读取 PEM 证书并返回其 DER 的 SHA-256 指纹（hex）。
 // certFingerprint reads a PEM certificate and returns the SHA-256 fingerprint (hex) of its DER bytes.
 func certFingerprint(certPath string) (string, error) {
 	raw, err := os.ReadFile(certPath)
@@ -86,7 +82,6 @@ func certFingerprint(certPath string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// ModernTLSConfig 收紧到 TLS 1.2+。
 // ModernTLSConfig tightens the config to TLS 1.2+.
 func ModernTLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12}

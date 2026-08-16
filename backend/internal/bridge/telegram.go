@@ -1,9 +1,5 @@
 package bridge
 
-// Telegram 桥：把群聊/私聊/审批接到 Telegram（官方 Bot API，长轮询，无需公网 IP）。
-// - 首个发 /start 的账号独占绑定（data/telegram.json）
-// - 私聊 bot 的普通消息 = Bot Bureau 群聊（@bot名 点名照常）；/dm <bot> <内容> = Bot Bureau 私聊
-// - 审批推送带内联按钮，点一下即批准/拒绝
 // Telegram bridge: hooks group chat / DMs / approvals up to Telegram (official Bot API, long polling, no public IP required).
 // - The first account to send /start owns the exclusive binding (data/telegram.json)
 // - Plain messages in the bot's DM = Bot Bureau group chat (@botname mentions work as usual); /dm <bot> <content> = Bot Bureau DM
@@ -31,7 +27,7 @@ type tgConfig struct {
 	Enabled     bool   `json:"enabled"`
 	OwnerChatID int64  `json:"owner_chat_id"`
 	OwnerName   string `json:"owner_name"`
-	// "group"（默认）或某个 bot 名：普通消息去向 + 默认转发哪个会话
+
 	// "group" (default) or a bot name: where plain messages go + which conversation is forwarded by default
 	BindTarget string `json:"bind_target"`
 }
@@ -40,7 +36,7 @@ type TGBridge struct {
 	bus     *engine.Bus
 	ks      *secret.KeyStore
 	cfgPath string
-	apiBase string // 测试时可指向假服务器 / tests can point this at a fake server
+	apiBase string // tests can point this at a fake server
 
 	mu      sync.Mutex
 	cfg     tgConfig
@@ -49,7 +45,7 @@ type TGBridge struct {
 	errMsg  string
 	stopCh  chan struct{}
 	httpc   *http.Client
-	// 通过 /dm 点名过的私聊会话，其回复也转发
+
 	// DM conversations addressed via /dm; their replies are forwarded too
 	dmTouched map[string]bool
 }
@@ -70,9 +66,8 @@ func NewTGBridge(bus *engine.Bus, ks *secret.KeyStore, cfgPath string) *TGBridge
 	return b
 }
 
-// bindTarget 返回当前绑定；绑定的 bot 已被删除时回退群聊。
 // bindTarget returns the current binding; falls back to the group chat if the bound bot has been deleted.
-// SetAPIBase 改 Telegram API 的地址：走自建反代或指向测试桩时用。
+
 // SetAPIBase points the bridge at a different Telegram API base: a self-hosted proxy, or a test stub.
 func (b *TGBridge) SetAPIBase(u string) { b.apiBase = u }
 
@@ -93,7 +88,6 @@ func (b *TGBridge) saveLocked() {
 
 func (b *TGBridge) token() string { return b.ks.Get("TELEGRAM_BOT_TOKEN") }
 
-// ---- Bot API 调用 ----
 // ---- Bot API calls ----
 
 func (b *TGBridge) api(method string, payload any, timeout time.Duration) (json.RawMessage, error) {
@@ -140,7 +134,6 @@ func (b *TGBridge) send(chatID int64, text string, markup any) {
 	}
 }
 
-// ---- 生命周期 ----
 // ---- lifecycle ----
 
 func (b *TGBridge) SetEnabled(enabled bool) error {
@@ -220,7 +213,6 @@ func (b *TGBridge) Status() map[string]any {
 	}
 }
 
-// ---- 收：Telegram → Bot Bureau ----
 // ---- inbound: Telegram → Bot Bureau ----
 
 type TGUpdate struct {
@@ -292,7 +284,6 @@ func (b *TGBridge) handleUpdate(u TGUpdate) {
 	owner := b.cfg.OwnerChatID
 	b.mu.Unlock()
 
-	// 绑定：首个 /start 的账号独占
 	// binding: the first account to send /start gets exclusive ownership
 	if owner == 0 {
 		if strings.HasPrefix(text, "/start") {
@@ -364,7 +355,7 @@ func (b *TGBridge) handleUpdate(u TGUpdate) {
 			return
 		}
 		b.mu.Lock()
-		// 之后该私聊的回复也转发过来
+
 		// from now on, replies in this DM are forwarded over as well
 		b.dmTouched["dm:"+name] = true
 		b.mu.Unlock()
@@ -385,7 +376,7 @@ func (b *TGBridge) handleUpdate(u TGUpdate) {
 			b.bus.PostGroup("user", text, targets)
 			return
 		}
-		// 绑定到某个 bot：普通消息直达其私聊
+
 		// bound to a specific bot: plain messages go straight to its DM
 		b.bus.Emit("msg", "dm:"+target, "user", text, nil)
 		b.bus.Deliver("user", target, "dm", text, true)
@@ -422,11 +413,10 @@ func (b *TGBridge) handleCallback(u TGUpdate) {
 	}
 }
 
-// ---- 发：Bot Bureau → Telegram ----
 // ---- outbound: Bot Bureau → Telegram ----
 
 func (b *TGBridge) forwardLoop(stop chan struct{}) {
-	after := b.bus.LatestID() // 只转发接入之后的新事件 / forward only events newer than the connect time
+	after := b.bus.LatestID() // forward only events newer than the connect time
 	for {
 		select {
 		case <-stop:
@@ -465,9 +455,9 @@ func (b *TGBridge) forwardEvent(ev engine.Event) {
 	switch kind {
 	case "msg":
 		if source == "user" {
-			return // 不回声用户自己的话 / don't echo the user's own messages back
+			return // don't echo the user's own messages back
 		}
-		// 只转发绑定会话的消息（/dm 点名过的私聊也转发），避免无关会话刷屏
+
 		// only forward messages from the bound conversation (plus DMs addressed via /dm), to avoid flooding from unrelated chats
 		target := b.bindTarget()
 		bound := "group"

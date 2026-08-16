@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// Memory 是每个 bot 的长期记忆：工作目录下的 MEMORY.md，跨会话保留。
 // Memory is each bot's long-term memory: MEMORY.md in its working directory, preserved across sessions.
 type Memory struct {
 	path string

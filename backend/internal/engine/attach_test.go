@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// 一份文件存两处：仓库里一份原件（界面回看历史用），收件人工作目录里一份（机器人真正读的那份）。
 // One file, two places: an original in the store for the UI to draw history from, and a copy in the
 // recipient's workspace, which is the one the bot actually reads.
 func TestUploadsDeliverIntoWorkspace(t *testing.T) {
@@ -24,7 +23,7 @@ func TestUploadsDeliverIntoWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 同样的内容再来一次不重复落盘，但两次说的是同一份东西
+
 	// Identical content a second time costs no extra copy, and both refer to the same thing
 	b, err := u.Put("报价单.pdf", "application/pdf", []byte("%PDF-1.4 hello"))
 	if err != nil || b.ID != a.ID {
@@ -40,7 +39,6 @@ func TestUploadsDeliverIntoWorkspace(t *testing.T) {
 		t.Fatalf("the file did not arrive in the workspace: %v %q", err, got)
 	}
 
-	// 同名不覆盖：两张都叫 screenshot.png 的截图是两件不同的东西
 	// Same name never overwrites: two screenshots both called screenshot.png are two different things
 	c, _ := u.Put("报价单.pdf", "application/pdf", []byte("a different document"))
 	paths = u.Deliver(ws, []Attachment{c})
@@ -48,7 +46,6 @@ func TestUploadsDeliverIntoWorkspace(t *testing.T) {
 		t.Fatalf("a colliding name should be given a suffix: %v", paths)
 	}
 
-	// 清单要写清楚路径和大小——模型得知道去哪儿读
 	// The list has to state the path and the size: the model needs to know where to read
 	desc := Describe([]Attachment{a}, []string{paths[0]})
 	if !strings.Contains(desc, "inbox/") {
@@ -56,7 +53,6 @@ func TestUploadsDeliverIntoWorkspace(t *testing.T) {
 	}
 }
 
-// 文件名是从外面来的，会被拼进收件箱的路径。
 // A filename arrives from outside and gets joined into an inbox path.
 func TestSafeNameCannotEscapeTheInbox(t *testing.T) {
 	for _, in := range []string{"../../etc/passwd", "/etc/passwd", "..", ".", "", "a/b/c.txt", "..\\..\\win.ini"} {
@@ -70,7 +66,6 @@ func TestSafeNameCannotEscapeTheInbox(t *testing.T) {
 	}
 }
 
-// 只有这四种图片能直接给模型看；别的附件是文件，不是图。
 // Four image types can be shown to the model; anything else is a file, not a picture.
 func TestIsImage(t *testing.T) {
 	for _, m := range []string{"image/png", "image/jpeg", "image/gif", "image/webp", "IMAGE/PNG"} {
@@ -85,7 +80,6 @@ func TestIsImage(t *testing.T) {
 	}
 }
 
-// 附件到达时该发生的三件事：落进工作目录、正文里写明路径、图片进上下文。
 // Three things happen when an attachment arrives: it lands in the workspace, the text names its path,
 // and an image enters the context.
 func TestReceiveFilesPlacesAndDescribes(t *testing.T) {
@@ -117,7 +111,7 @@ func TestReceiveFilesPlacesAndDescribes(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}
 	}
-	// 图片进上下文，文本文件不进——它是拿去读的，不是拿去看的
+
 	// The image enters the context and the text file does not: that one is to be read, not looked at
 	if len(images) != 1 || images[0].MIME != "image/png" {
 		t.Fatalf("exactly the image should become an image block: %+v", images)

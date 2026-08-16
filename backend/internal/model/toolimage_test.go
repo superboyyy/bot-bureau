@@ -8,9 +8,6 @@ import (
 	"botbureau/backend/internal/secret"
 )
 
-// 图片要真的落进 tool_result 的内容块里。只测到"字段填了"不够——
-// 关键是序列化出去的形状对不对，那才是模型真正收到的东西。
-//
 // The image has to land in the tool_result's content blocks. Checking that a field was set is not
 // enough: what matters is the shape that gets serialized, since that is what the model actually receives.
 func TestAnthropicToolResultCarriesImage(t *testing.T) {
@@ -38,7 +35,6 @@ func TestAnthropicToolResultCarriesImage(t *testing.T) {
 	}
 }
 
-// 没有图片时形状必须和以前完全一样，别为了支持图片把普通工具结果也改形。
 // With no image the shape must be exactly what it was: supporting images should not reshape ordinary
 // tool results.
 func TestAnthropicToolResultWithoutImageUnchanged(t *testing.T) {
@@ -56,9 +52,6 @@ func TestAnthropicToolResultWithoutImageUnchanged(t *testing.T) {
 	}
 }
 
-// OpenAI 兼容端点塞不进图片，那就把"返回了几张图"说清楚，让模型能改口要文字版，
-// 而不是收到一段沉默然后以为工具没干活。
-//
 // An OpenAI-compatible endpoint cannot carry the image, so it states how many came back, letting the
 // model ask for a textual form instead of meeting silence and concluding the tool did nothing.
 func TestOpenAIToolResultMentionsImages(t *testing.T) {

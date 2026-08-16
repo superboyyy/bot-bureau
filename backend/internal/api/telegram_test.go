@@ -23,14 +23,13 @@ import (
 	"time"
 )
 
-// ---- 假 Telegram Bot API ----
 // ---- Fake Telegram Bot API ----
 
 type fakeTG struct {
 	mu       sync.Mutex
 	updates  []bridge.TGUpdate
-	sent     []map[string]any // sendMessage 调用 / sendMessage calls
-	answered []string         // answerCallbackQuery 文本 / answerCallbackQuery texts
+	sent     []map[string]any // sendMessage calls
+	answered []string         // answerCallbackQuery texts
 }
 
 func (f *fakeTG) push(u bridge.TGUpdate) {
@@ -134,14 +133,13 @@ func TestSelfSignedTLS(t *testing.T) {
 	if len(fp1) != 64 {
 		t.Fatalf("the fingerprint should be sha256 hex: %q", fp1)
 	}
-	// 复用同一证书，指纹稳定（钉扎的前提）
+
 	// Reuses the same certificate so the fingerprint stays stable (prerequisite for pinning)
 	_, _, fp2, _ := netx.EnsureSelfSignedCert(dir)
 	if fp1 != fp2 {
 		t.Fatal("a repeated call should reuse the certificate")
 	}
 
-	// 起 HTTPS 服务，客户端按指纹校验（模拟 TOFU 钉扎）
 	// Start an HTTPS server; the client verifies by fingerprint (simulating TOFU pinning)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(rw, `{"app":"botbureau"}`)
@@ -155,7 +153,7 @@ func TestSelfSignedTLS(t *testing.T) {
 	defer srv.Close()
 
 	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
-		// 自签名：跳过 CA 校验，改为校验指纹
+
 		// Self-signed: skip CA verification and verify the fingerprint instead
 		InsecureSkipVerify: true,
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
@@ -172,7 +170,6 @@ func TestSelfSignedTLS(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// 篡改场景：期望指纹不同 → 连接失败
 	// Tampering scenario: the expected fingerprint differs → connection fails
 	badClient := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
 		InsecureSkipVerify: true,
@@ -222,21 +219,18 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 	defer app.tg.Stop()
 	waitFor(t, "the bridge to be ready", func() bool { return app.tg.Status()["running"] == true })
 
-	// 1. /start 绑定
 	// 1. /start binding
 	fake.push(msgUpdate(1, 777, "/start"))
 	waitFor(t, "the binding welcome message", func() bool {
 		return len(fake.sentTexts()) > 0 && strings.Contains(strings.Join(fake.sentTexts(), ""), "Bound to your account")
 	})
 
-	// 2. 其他账号被拒
 	// 2. Other accounts are rejected
 	fake.push(msgUpdate(2, 888, "hello"))
 	waitFor(t, "the stranger to be rejected", func() bool {
 		return strings.Contains(strings.Join(fake.sentTexts(), ""), "already bound to another user")
 	})
 
-	// 3. 普通消息 → 群聊，chief（fake 回声）回复被转发回 TG
 	// 3. Plain message → group chat; chief's reply (fake echo) is forwarded back to TG
 	fake.push(msgUpdate(3, 777, "good morning"))
 	waitFor(t, "the group reply to be forwarded", func() bool {
@@ -248,7 +242,6 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 		return false
 	})
 
-	// 4. /dm 私聊路由
 	// 4. /dm DM routing
 	fake.push(msgUpdate(4, 777, "/dm scout dm test"))
 	waitFor(t, "the dm reply to be forwarded", func() bool {
@@ -260,7 +253,6 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 		return false
 	})
 
-	// 5. 审批 → 内联按钮推送 → 回调批准
 	// 5. engine.Approval → inline button pushed → callback approves
 	ap := app.bus.RequestApproval("chief", "bash: touch x", "group", "")
 	waitFor(t, "the approval push", func() bool {
@@ -293,7 +285,6 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 		t.Fatal("the callback should grant the approval")
 	}
 
-	// 6. /bind scout：普通消息直达 scout 私聊；群聊消息不再转发
 	// 6. /bind scout: plain messages go straight to scout's DM; group chat messages are no longer forwarded
 	fake.push(msgUpdate(6, 777, "/bind scout"))
 	waitFor(t, "the bind confirmation", func() bool {
@@ -308,7 +299,7 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 		}
 		return false
 	})
-	// 群聊里发生的消息此时不应转发
+
 	// Group chat messages should not be forwarded at this point
 	before := len(fake.sentTexts())
 	app.bus.PostGroup("user", "group message from the web client", []string{"chief"})
@@ -321,7 +312,7 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 		}
 		return false
 	})
-	// 给转发循环机会（不应转发）
+
 	// Give the forwarding loop a chance (it should not forward)
 	time.Sleep(300 * time.Millisecond)
 	for _, s := range fake.sentTexts()[before:] {
@@ -329,27 +320,25 @@ func TestTelegramBridgeEndToEnd(t *testing.T) {
 			t.Fatalf("group messages must not be forwarded while bound to scout: %q", s)
 		}
 	}
-	// /bind group 切回
+
 	// /bind group switches back
 	fake.push(msgUpdate(8, 777, "/bind group"))
 	waitFor(t, "switch back to the group", func() bool {
 		return strings.Contains(strings.Join(fake.sentTexts(), ""), "Connected to the team group chat")
 	})
-	// /bind 不存在的 bot
+
 	// /bind a nonexistent bot
 	fake.push(msgUpdate(9, 777, "/bind ghost"))
 	waitFor(t, "the invalid bind error", func() bool {
 		return strings.Contains(strings.Join(fake.sentTexts(), ""), "No bot named ghost")
 	})
 
-	// 7. 全局额度告警（chat 为空的 system）必转发
 	// 7. Global quota alert (a system event with empty chat) must be forwarded
 	app.bus.QuotaAlert("openai:gpt-x", "test quota alert")
 	waitFor(t, "the quota alert to be forwarded", func() bool {
 		return strings.Contains(strings.Join(fake.sentTexts(), ""), "test quota alert")
 	})
 
-	// 8. 未存 token 时开启应报错
 	// 8. Enabling without a stored token should fail
 	tg2 := bridge.NewTGBridge(app.bus, secret.NewKeyStore(filepath.Join(t.TempDir(), "k.json")), filepath.Join(t.TempDir(), "t.json"))
 	if err := tg2.SetEnabled(true); err == nil {

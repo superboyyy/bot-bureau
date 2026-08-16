@@ -1,19 +1,10 @@
 package skill
 
-// Agent Skills：MCP 之外的另一层。
-// MCP 给的是「能做什么」（一批工具），skill 给的是「怎么做」（一套流程、约定、领域知识）。
-// 一个 skill 就是一个目录：SKILL.md 带 YAML frontmatter（name/description），正文是写给模型看的
-// 说明书，旁边可以放脚本和资料。
-//
-// 关键取舍是**两段式加载**：平时只把每个 skill 的一行 name + description 放进系统提示，模型判断
-// 用得上时再调 read_skill 拉全文。装几十个 skill 也就多几十行提示词，而不是几十篇文档——
-// 一次性全塞进去的话，上下文很快就没了，而且大部分内容当前任务根本用不上。
-//
 // Agent Skills: the layer next to MCP.
 // MCP supplies "what can be done" (a set of tools); a skill supplies "how it is done" (a procedure, a
 // convention, domain knowledge). A skill is a directory: SKILL.md with YAML frontmatter (name and
 // description), a body written for the model, and optionally scripts and material beside it.
-//
+
 // The key decision is **two-stage loading**: only the one-line name + description of each skill goes
 // into the system prompt, and the model calls read_skill for the full text when it judges one to
 // apply. Fifty installed skills then cost fifty lines of prompt rather than fifty documents — loading
@@ -35,15 +26,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// skill 名沿用 bot / 插件那一套字母表：它要出现在提示词里被模型原样抄回来当参数，
-// 短、无空格、无大小写歧义才不容易抄错。
 // A skill name uses the same alphabet as bots and plugins: it appears in the prompt and comes back
 // verbatim as a tool argument, so short, space-free and case-unambiguous is what keeps it from being
 // mistyped.
 var nameRe = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
-// SKILL.md 正文的上限。技能说明书本来就该是给人读的长度；真要塞几万字，
-// 该拆成旁边的资料文件按需再读。
 // Cap on the SKILL.md body. A skill's instructions should be readable in one sitting; material that
 // genuinely runs to tens of thousands of characters belongs in files beside it, read on demand.
 const BodyLimit = 20000
@@ -51,19 +38,18 @@ const BodyLimit = 20000
 type Skill struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// 来源：内置目录为 "local"，插件带来的是插件名——卸载插件时要按它回收
+
 	// Origin: "local" for the built-in directory, otherwise the plugin's name — uninstalling a plugin
 	// reclaims its skills by this field
 	Source string `json:"source"`
 	Dir    string `json:"dir"`
 	Body   string `json:"-"`
-	// 目录里除 SKILL.md 以外的文件（相对路径），列给模型看，让它知道手边有什么可用
+
 	// Files other than SKILL.md in the directory (relative paths), listed for the model so it knows what
 	// is at hand
 	Files []string `json:"files,omitempty"`
 }
 
-// Root 是一处扫描根目录及其来源标签。
 // Root is one directory to scan plus the label of where it came from.
 type Root struct {
 	Source string
@@ -84,7 +70,6 @@ func NewManager(localDir string) *Manager {
 	return m
 }
 
-// SetRoots 覆盖「本地目录之外」的扫描根（插件装/卸后调用）。
 // SetRoots replaces the scan roots beyond the local directory (called after a plugin is installed or
 // removed).
 func (m *Manager) SetRoots(extra []Root) {
@@ -95,8 +80,6 @@ func (m *Manager) SetRoots(extra []Root) {
 	m.Rescan()
 }
 
-// Rescan 重扫全部根目录。技能是文件，用户可能直接在编辑器里改——每次装卸插件、
-// 以及界面主动刷新时重扫，比缓存到进程退出要好用得多。
 // Rescan re-reads every root. Skills are files a user may well edit in an editor, so rescanning on each
 // install/uninstall and on an explicit refresh from the UI beats caching until the process exits.
 func (m *Manager) Rescan() {
@@ -109,7 +92,7 @@ func (m *Manager) Rescan() {
 	for _, root := range roots {
 		entries, err := os.ReadDir(root.Dir)
 		if err != nil {
-			continue // 根目录不存在是正常的（还没建过任何技能）/ a missing root is normal (no skills yet)
+			continue
 		}
 		for _, e := range entries {
 			if !e.IsDir() {
@@ -122,7 +105,7 @@ func (m *Manager) Rescan() {
 				}
 				continue
 			}
-			// 同名先到先得，并且说出来——静默覆盖会让人对着一个不生效的技能查半天
+
 			// First one wins on a name clash, and it says so: silently shadowing one leaves someone
 			// debugging a skill that was never in play
 			if prev, dup := found[s.Name]; dup {
@@ -141,7 +124,6 @@ func (m *Manager) Rescan() {
 	m.mu.Unlock()
 }
 
-// loadSkill 读一个技能目录。没有 SKILL.md 就不是技能目录，返回 os.ErrNotExist 让调用方静默跳过。
 // loadSkill reads one skill directory. Without a SKILL.md it is not a skill directory, and os.ErrNotExist
 // is returned so the caller can skip it quietly.
 func loadSkill(dir, source string) (*Skill, error) {
@@ -161,7 +143,7 @@ func loadSkill(dir, source string) (*Skill, error) {
 	}
 	name := strings.TrimSpace(fm.Name)
 	if name == "" {
-		// frontmatter 没写 name 就用目录名——别人写的技能不一定规矩，能跑起来比挑剔好
+
 		// A missing name falls back to the directory name: skills written elsewhere are not always tidy,
 		// and running them beats being fussy
 		name = filepath.Base(dir)
@@ -187,10 +169,9 @@ func loadSkill(dir, source string) (*Skill, error) {
 	return s, nil
 }
 
-// splitFrontmatter 切出 --- 包住的 YAML 头。没有头就整篇当正文。
 // splitFrontmatter separates the YAML header fenced by ---. With no header the whole file is the body.
 func splitFrontmatter(text string) (meta, body string) {
-	// 编辑器保存出来的 SKILL.md 常带 BOM，不剥掉就识别不出开头的 ---
+
 	// Editors routinely save SKILL.md with a BOM, which hides the opening --- unless it is stripped
 	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
 	if !strings.HasPrefix(trimmed, "---") {
@@ -198,7 +179,7 @@ func splitFrontmatter(text string) (meta, body string) {
 	}
 	rest := strings.TrimPrefix(trimmed, "---")
 	rest = strings.TrimLeft(rest, "\r\n")
-	// 结束分隔符必须自成一行，否则正文里的 --- 分割线会把文件腰斩
+
 	// The closing fence must be a line of its own, or a --- rule in the body would cut the file in half
 	for _, sep := range []string{"\n---\n", "\n---\r\n"} {
 		if i := strings.Index(rest, sep); i >= 0 {
@@ -239,10 +220,6 @@ func (m *Manager) Names() []string {
 	return append([]string(nil), m.order...)
 }
 
-// Roster 是放进系统提示的那几行：一个技能一行，只有名字和描述。
-// 描述是模型唯一的判断依据，所以它必须写清楚「什么时候该用我」——这一点在
-// 用户自己写技能时最容易忽略，提示词里也就顺带把这个约定讲明白了。
-//
 // Roster is the handful of lines that go into the system prompt: one line per skill, name and
 // description only. The description is the model's only basis for choosing, so it has to say when the
 // skill applies — the thing most easily missed when writing one's own skill, which is why the prompt
@@ -259,10 +236,6 @@ func (m *Manager) Roster() string {
 	return b.String()
 }
 
-// Render 把一个技能渲染成 read_skill 的返回值：正文，加上一段「东西在哪儿」。
-// 目录是绝对路径，且在 bot 工作目录之外——所以脚本要跑就得过审批门，这里如实说明，
-// 免得模型以为可以直接执行然后困惑于被拦。
-//
 // Render turns a skill into what read_skill returns: the body, plus a note on where its files are.
 // The directory is absolute and outside the bot's workspace, so running a script from it goes through
 // the approval gate; saying so here keeps the model from expecting a free run and being puzzled by the
