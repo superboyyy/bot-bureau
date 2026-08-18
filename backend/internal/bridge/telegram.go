@@ -8,6 +8,7 @@ package bridge
 import (
 	"botbureau/backend/internal/engine"
 	"botbureau/backend/internal/secret"
+	"botbureau/backend/internal/textutil"
 
 	"botbureau/backend/internal/i18n"
 
@@ -486,6 +487,15 @@ func (b *TGBridge) forwardEvent(ev engine.Event) {
 				{"text": i18n.T("Reject"), "callback_data": fmt.Sprintf("ap:%d:0", id)},
 			}},
 		}
-		b.send(owner, fmt.Sprintf(i18n.T("%s requests approval #%d:\n%s"), source, id, text), markup)
+		b.send(owner, fmt.Sprintf(i18n.T("%s requests approval #%d:\n%s"), source, id, text)+approvalDiffSuffix(ev), markup)
 	}
+}
+
+func approvalDiffSuffix(ev engine.Event) string {
+	d, _ := ev["approval_diff"].(string)
+	d = strings.TrimSpace(d)
+	if d == "" {
+		return ""
+	}
+	return "\n" + textutil.Brief(d, 1500)
 }

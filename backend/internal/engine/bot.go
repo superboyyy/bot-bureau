@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -467,7 +468,6 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 	// nothing may be slipped in at that point; before every other request is a safe place to listen.
 	listen := true
 	var repeat repeatWatch
-	spinning, spinningTool := false, ""
 	for i := 0; i < config.MaxToolIterations; i++ {
 		if cancelled() {
 			return false
@@ -517,38 +517,12 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 			continue
 		case "tool_use":
 			listen = true
-			results := make([]model.ToolResult, 0, len(res.ToolCalls))
-			for _, call := range res.ToolCalls {
-				if ctx != nil && ctx.Err() != nil {
-					results = append(results, model.ToolResult{
-						ID: call.ID, IsError: true,
-						Content: i18n.T("The task was cancelled"),
-					})
-					continue
-				}
-				w.bus.Emit("tool", evChat, w.Name(), ""+describeToolCall(call), nil)
-				content, isErr := w.toolbox.Execute(call.Name, call.Input)
-				results = append(results, model.ToolResult{
-					ID: call.ID, Content: content, IsError: isErr,
-					Images: w.toolbox.TakeImages(),
-				})
-
-				// One call in a batch reaching the limit is enough, and which one is remembered: the line
-				// printed afterwards has to name the tool that got stuck, not whichever call happened to
-				// come next in the same batch.
-				if !spinning && repeat.saw(call) >= config.MaxRepeatedCalls {
-					spinning, spinningTool = true, call.Name
-				}
-			}
-
-			// The results still go in before stopping. A tool_use left without its matching tool_result
-			// makes the history invalid, and the whole context is unusable when the next message arrives
-			// — a poor trade for skipping one write.
+			results := w.runToolCalls(ctx, evChat, res.ToolCalls, &repeat)
 			sess.AddToolResults(results)
 			if cancelled() {
 				return false
 			}
-			if spinning {
+			if spinningTool := repeat.stuck(); spinningTool != "" {
 				w.bus.Emit("msg", evChat, w.Name(), fmt.Sprintf(
 					i18n.T("(I called %s with the same arguments %d times over and got nowhere, so I stopped. Tell me what to try instead.)"),
 					spinningTool, config.MaxRepeatedCalls), nil)
@@ -605,6 +579,82 @@ func (r *repeatWatch) saw(call model.ToolCall) int {
 	return r.count
 }
 
+func (r *repeatWatch) stuck() string {
+	if r.count >= config.MaxRepeatedCalls {
+		if i := strings.IndexByte(r.sig, 0); i >= 0 {
+			return r.sig[:i]
+		}
+		return r.sig
+	}
+	return ""
+}
+
+// runToolCalls executes one StepResult's tools. Consecutive read-only calls run together; anything
+// that writes, runs a shell, or waits on a human stays in order.
+func (w *BotWorker) runToolCalls(ctx context.Context, evChat string, calls []model.ToolCall, repeat *repeatWatch) []model.ToolResult {
+	results := make([]model.ToolResult, len(calls))
+	cancelled := ctx != nil && ctx.Err() != nil
+	i := 0
+	for i < len(calls) {
+		if cancelled || (ctx != nil && ctx.Err() != nil) {
+			for j := i; j < len(calls); j++ {
+				results[j] = model.ToolResult{ID: calls[j].ID, IsError: true, Content: i18n.T("The task was cancelled")}
+			}
+			break
+		}
+		if !w.toolbox.parallelizable(calls[i].Name) {
+			results[i] = w.execOne(evChat, calls[i])
+			repeat.saw(calls[i])
+			if repeat.stuck() != "" {
+				for j := i + 1; j < len(calls); j++ {
+					results[j] = model.ToolResult{ID: calls[j].ID, IsError: true, Content: i18n.T("The task was cancelled")}
+				}
+				break
+			}
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(calls) && w.toolbox.parallelizable(calls[j].Name) {
+			j++
+		}
+		var wg sync.WaitGroup
+		for k := i; k < j; k++ {
+			wg.Add(1)
+			go func(k int) {
+				defer wg.Done()
+				defer func() {
+					if rec := recover(); rec != nil {
+						results[k] = model.ToolResult{
+							ID: calls[k].ID, IsError: true,
+							Content: fmt.Sprintf(i18n.T("Error while handling the message: %v"), rec),
+						}
+					}
+				}()
+				results[k] = w.execOne(evChat, calls[k])
+			}(k)
+		}
+		wg.Wait()
+		for k := i; k < j; k++ {
+			repeat.saw(calls[k])
+		}
+		if repeat.stuck() != "" {
+			for k := j; k < len(calls); k++ {
+				results[k] = model.ToolResult{ID: calls[k].ID, IsError: true, Content: i18n.T("The task was cancelled")}
+			}
+			break
+		}
+		i = j
+	}
+	return results
+}
+
+func (w *BotWorker) execOne(evChat string, call model.ToolCall) model.ToolResult {
+	w.bus.Emit("tool", evChat, w.Name(), describeToolCall(call), nil)
+	content, images, isErr := w.toolbox.Execute(call.Name, call.Input)
+	return model.ToolResult{ID: call.ID, Content: content, IsError: isErr, Images: images}
+}
+
 func (w *BotWorker) sessionsPath() string {
 	return filepath.Join(w.workspace, "sessions.json")
 }
@@ -659,8 +709,12 @@ func describeToolCall(call model.ToolCall) string {
 	switch call.Name {
 	case "bash":
 		return "$ " + str("command")
-	case "read_file", "write_file":
+	case "read_file", "write_file", "edit_file":
 		return call.Name + ": " + str("path")
+	case "grep":
+		return "grep: " + str("pattern")
+	case "glob":
+		return "glob: " + str("pattern")
 	case "fetch_url":
 		return "fetch_url: " + str("url")
 	case "message_bot":
@@ -780,10 +834,11 @@ direction.
 # Other team members
 %s%s
 # Working environment
-- Your workspace: %s (bash runs there, and a relative path in read_file or write_file is relative to it)
+- Your workspace: %s (bash runs there; relative paths in read_file, write_file, edit_file, grep and glob are relative to it)
 %s%s
 - /tmp is scratch space you may use freely for intermediate files; it needs no approval
-- Non-read-only bash, paths outside the directories above, and write_file all need user approval; waiting, being refused, and being cancelled are all normal
+- For an existing file prefer edit_file over write_file; for finding code prefer grep and glob over bash
+- Non-read-only bash, paths outside the directories above, and edit_file / write_file all need user approval; waiting, being refused, and being cancelled are all normal
 
 # Long-term memory
 Use remember for anything worth keeping across sessions: scope=self for your own notes, scope=team for what the

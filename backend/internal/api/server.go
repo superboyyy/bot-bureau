@@ -379,7 +379,7 @@ func (a *App) State() map[string]any {
 	approvals := []map[string]any{}
 	for _, ap := range a.bus.PendingApprovals() {
 		approvals = append(approvals, map[string]any{
-			"id": ap.ID, "bot": ap.Bot, "action": ap.Action, "chat": ap.Chat, "dir": ap.Dir,
+			"id": ap.ID, "bot": ap.Bot, "action": ap.Action, "chat": ap.Chat, "dir": ap.Dir, "diff": ap.Diff,
 		})
 	}
 	routines := []map[string]any{}

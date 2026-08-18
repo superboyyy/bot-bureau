@@ -69,7 +69,7 @@ func TestSystemPromptListsSkillsWithoutBodies(t *testing.T) {
 	}
 
 	// The body only arrives when it is actually read
-	out, isErr := w.Toolbox().Execute("read_skill", map[string]any{"name": "release-notes"})
+	out, _, isErr := w.Toolbox().Execute("read_skill", map[string]any{"name": "release-notes"})
 	if isErr || !strings.Contains(out, "SECRET_BODY_MARKER") {
 		t.Fatalf("read_skill should return the full body: %q", out)
 	}

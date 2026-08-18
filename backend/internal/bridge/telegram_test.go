@@ -161,3 +161,13 @@ func TestTelegramCallbackCanDecideApproval(t *testing.T) {
 		t.Fatalf("approval = %v, %q", approved, reason)
 	}
 }
+
+func TestApprovalDiffSuffix(t *testing.T) {
+	if got := approvalDiffSuffix(engine.Event{}); got != "" {
+		t.Fatalf("empty extra should add nothing, got %q", got)
+	}
+	got := approvalDiffSuffix(engine.Event{"approval_diff": "--- a/x\n+++ b/x\n+hi"})
+	if !strings.Contains(got, "+hi") || !strings.HasPrefix(got, "\n") {
+		t.Fatalf("diff should be appended: %q", got)
+	}
+}

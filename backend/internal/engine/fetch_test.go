@@ -32,7 +32,7 @@ func TestFetchURLNeverAsksForApproval(t *testing.T) {
 		t.Fatal("read-only actions must pass at every tier, including ask")
 	}
 	tb, bus := fetchToolbox(t)
-	out, isErr := tb.Execute("fetch_url", map[string]any{"url": "ftp://example.com/x"})
+	out, _, isErr := tb.Execute("fetch_url", map[string]any{"url": "ftp://example.com/x"})
 	if !isErr || !strings.Contains(out, "ftp") {
 		t.Fatalf("a non-http scheme should be refused by name: %q", out)
 	}
@@ -55,13 +55,13 @@ func TestFetchURLRefusesLocalAndPrivateAddresses(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, isErr := tb.Execute("fetch_url", map[string]any{"url": srv.URL})
+	out, _, isErr := tb.Execute("fetch_url", map[string]any{"url": srv.URL})
 	if !isErr || strings.Contains(out, "this must never be read") {
 		t.Fatalf("a loopback address must not be fetched: %q", out)
 	}
 
 	for _, ip := range []string{"127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1", "169.254.169.254", "[::1]"} {
-		if out, isErr := tb.Execute("fetch_url", map[string]any{"url": "http://" + ip + "/"}); !isErr {
+		if out, _, isErr := tb.Execute("fetch_url", map[string]any{"url": "http://" + ip + "/"}); !isErr {
 			t.Fatalf("%s must be refused: %q", ip, out)
 		}
 	}

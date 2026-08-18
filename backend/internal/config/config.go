@@ -43,6 +43,15 @@ const (
 	HistoryLimit     = 60 // max messages per conversation context
 	BashTimeout      = 120 * time.Second
 	ToolOutputLimit  = 20000 // tool output truncation length (chars)
+
+	// Cap on the unified diff attached to a write/edit approval. The card has to be readable; a
+	// 10 000-line rewrite still needs a human decision, not a second copy of the file in the event.
+	ApprovalDiffLimit = 8000
+
+	GrepMaxMatches     = 80
+	GlobMaxResults     = 200
+	SearchWalkCap      = 8000
+	SearchFileMaxBytes = 2 << 20
 )
 
 // How long an approval waits before it is auto-rejected. Tests shorten it, which is why this is an

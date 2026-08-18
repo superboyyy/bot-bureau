@@ -156,6 +156,10 @@ type Approval struct {
 	// there is none. The UI turns it into a third choice beside Approve and Reject.
 	Dir string `json:"dir,omitempty"`
 
+	// Unified diff of a pending write or edit. Empty for bash and plugins. Optional so older clients
+	// ignore it.
+	Diff string `json:"diff,omitempty"`
+
 	decided  chan struct{}
 	approved bool
 	reason   string
@@ -701,12 +705,20 @@ func mentionAt(text, needle string, checkLeft bool) bool {
 // ---- approvals ----
 
 func (b *Bus) RequestApproval(bot, action, chat, dir string) *Approval {
+	return b.requestApproval(bot, action, chat, dir, "")
+}
+
+func (b *Bus) requestApproval(bot, action, chat, dir, diff string) *Approval {
 	b.mu.Lock()
-	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, Dir: dir, decided: make(chan struct{})}
+	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, Dir: dir, Diff: diff, decided: make(chan struct{})}
 	b.nextApproval++
 	b.approvals[a.ID] = a
 	b.mu.Unlock()
-	b.Emit("approval", chat, bot, action, map[string]any{"approval_id": a.ID, "approval_dir": dir})
+	extra := map[string]any{"approval_id": a.ID, "approval_dir": dir}
+	if diff != "" {
+		extra["approval_diff"] = diff
+	}
+	b.Emit("approval", chat, bot, action, extra)
 	go func() {
 		t := time.NewTimer(config.ApprovalTimeout())
 		defer t.Stop()
