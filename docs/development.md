@@ -17,6 +17,10 @@ make build         # build the backend binary into app/bin/
 
 The backend can also be tested directly with `cd backend && go test ./...`. The Electron client lives under `app/`; run `npm ci` there before the first frontend test.
 
+## Default branch
+
+Changes land on `main` through pull requests. The ruleset in `.github/rulesets/main.json` requires the CI jobs in `.github/workflows/ci.yml` to pass and blocks force-pushes. Apply or update the live GitHub ruleset with `./scripts/protect-main.sh` (repository admin access required).
+
 ## Runtime data
 
 Development defaults place `bots.yaml`, `mcp.yaml`, `data/`, and `connect.json` beside the source tree. They are private runtime state and must remain ignored. Set `BOTBUREAU_DATA_DIR` to a temporary directory when running tests or experimenting with untrusted configurations.
