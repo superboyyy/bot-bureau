@@ -29,3 +29,5 @@ The renderer does not receive Node.js or filesystem access. It calls the backend
 ## Refactoring rule
 
 Keep the engine package cohesive: workers and the event bus deliberately share runtime state. Prefer splitting large files within the same package before introducing new package boundaries. Keep API handlers transport-focused and move repeated business workflows into services only when the behavior is genuinely shared.
+
+The next engine work is the agent-runtime plan in [`docs/agent-runtime.md`](agent-runtime.md): file tools, context compaction, DM planning, two-stage memory, engine-side search, evals, and an audit log. It does not change this layout.

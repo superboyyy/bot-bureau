@@ -90,7 +90,7 @@ BOTBUREAU_RUN_E2E=1 npm run test:e2e
 
 Electron E2E 使用临时数据目录，不会连接真实模型、Telegram、OAuth 或 MCP 服务。没有设置 `BOTBUREAU_RUN_E2E=1` 时会跳过该测试；CI 会运行后端测试、race detector、静态检查、前端覆盖率和 Electron 冒烟测试。
 
-架构和贡献流程见 [`docs/architecture.md`](docs/architecture.md)、[`docs/development.md`](docs/development.md) 与 [`CONTRIBUTING.md`](CONTRIBUTING.md)。在仓库根目录执行 `make test` 可运行快速检查，`make test-e2e` 可运行桌面冒烟测试。
+架构和贡献流程见 [`docs/architecture.md`](docs/architecture.md)、[`docs/development.md`](docs/development.md)、[`docs/agent-runtime.md`](docs/agent-runtime.md) 与 [`CONTRIBUTING.md`](CONTRIBUTING.md)。在仓库根目录执行 `make test` 可运行快速检查，`make test-e2e` 可运行桌面冒烟测试。
 
 ## 数据保存位置
 
@@ -429,6 +429,8 @@ Bot Bureau 不另造插件格式，直接安装 Claude / Codex 的 `.claude-plug
 - 分发使用 electron-builder；npm start 是开发入口。
 
 ## 未来计划
+
+下一步的引擎工作是 agent 运行时：按行读取和补丁编辑、上下文压缩、私聊中的计划门、两段式记忆，以及每个服务商都能用的搜索。顺序、文件清单和验收标准见 [`docs/agent-runtime.md`](docs/agent-runtime.md)。下面的平台项仍在路线图上，但不能代替这项工作。
 
 未来面向用户的路线图包括：
 

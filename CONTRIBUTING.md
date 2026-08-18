@@ -4,7 +4,7 @@ Thanks for helping improve Bot Bureau. The project is intentionally split into a
 
 ## Before opening a pull request
 
-1. Read [the architecture notes](docs/architecture.md) and [the security policy](SECURITY.md).
+1. Read [the architecture notes](docs/architecture.md), the [agent runtime plan](docs/agent-runtime.md), and [the security policy](SECURITY.md).
 2. Keep runtime data, API keys, OAuth tokens, `bots.yaml`, `mcp.yaml`, and coverage output out of commits.
 3. Run the relevant checks from the repository root:
 

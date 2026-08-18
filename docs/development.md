@@ -24,3 +24,5 @@ Development defaults place `bots.yaml`, `mcp.yaml`, `data/`, and `connect.json` 
 ## Refactoring
 
 Refactors should preserve the HTTP/SSE contract and the Electron-to-engine process boundary. Make structural changes separately from behavior changes where possible, and run the affected package tests before moving to the next area.
+
+Agent-loop work follows [`docs/agent-runtime.md`](agent-runtime.md): one phase per pull request, tests in the same PR, no new package boundary for the toolbox.
