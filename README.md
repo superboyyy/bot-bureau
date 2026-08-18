@@ -90,7 +90,7 @@ BOTBUREAU_RUN_E2E=1 npm run test:e2e
 
 The Electron E2E test uses a temporary data directory and never contacts a real model, Telegram account, OAuth provider, or MCP server. It is skipped unless `BOTBUREAU_RUN_E2E=1` is set. CI runs backend tests, the race detector, static checks, frontend coverage, and the Electron smoke test.
 
-Architecture and contributor workflows are documented in [`docs/architecture.md`](docs/architecture.md), [`docs/development.md`](docs/development.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md). From the repository root, `make test` runs the fast checks and `make test-e2e` runs the desktop smoke test.
+Architecture and contributor workflows are documented in [`docs/architecture.md`](docs/architecture.md), [`docs/development.md`](docs/development.md), [`docs/agent-runtime.md`](docs/agent-runtime.md), and [`CONTRIBUTING.md`](CONTRIBUTING.md). From the repository root, `make test` runs the fast checks and `make test-e2e` runs the desktop smoke test.
 
 ## Where data is stored
 
@@ -528,6 +528,8 @@ Detection covers Anthropic (credit balance / billing) and OpenAI-compatible prov
 - Packaged distribution uses electron-builder (`npm run dist:mac:arm64`, `dist:win:x64`, and the other scripts above); `npm start` remains the development entry point.
 
 ## Future plans
+
+The next engine work is the agent runtime: ranged reads and patch edits, context compaction, a plan gate in DMs, two-stage memory, and search that every provider can use. The sequence, file list, and acceptance checks are in [`docs/agent-runtime.md`](docs/agent-runtime.md). Platform work below stays on the list; it does not replace that.
 
 The next user-facing improvements are:
 
