@@ -108,7 +108,7 @@ func TestAutoTierRunsSandboxedCommandButGatesEscape(t *testing.T) {
 	tb.currentChat = "group"
 
 	// Inside the workspace: no approval is raised and the result comes back directly
-	out, isErr := tb.Execute("bash", map[string]any{"command": "echo hello > note.txt && cat note.txt"})
+	out, _, isErr := tb.Execute("bash", map[string]any{"command": "echo hello > note.txt && cat note.txt"})
 	if isErr {
 		t.Fatalf("a workspace command must not fail under auto: %s", out)
 	}
@@ -122,7 +122,7 @@ func TestAutoTierRunsSandboxedCommandButGatesEscape(t *testing.T) {
 	// Escaping: must suspend. We never approve, proving it really waits.
 	done := make(chan string, 1)
 	go func() {
-		res, _ := tb.Execute("bash", map[string]any{"command": "cat /etc/hosts"})
+		res, _, _ := tb.Execute("bash", map[string]any{"command": "cat /etc/hosts"})
 		done <- res
 	}()
 	deadline := time.After(2 * time.Second)
@@ -163,7 +163,7 @@ func TestFullTierSkipsApprovalAndIsLiveReloadable(t *testing.T) {
 	tb := w.toolbox
 	tb.currentChat = "group"
 
-	if out, isErr := tb.Execute("write_file", map[string]any{"path": "a.txt", "content": "x"}); isErr {
+	if out, _, isErr := tb.Execute("write_file", map[string]any{"path": "a.txt", "content": "x"}); isErr {
 		t.Fatalf("a file write must not fail under full: %s", out)
 	}
 	if n := len(bus.PendingApprovals()); n != 0 {

@@ -104,7 +104,7 @@ func TestScreenshotCommandsUnderAutoTier(t *testing.T) {
 		t.Skipf("cannot write to /tmp on this machine: %v", err)
 	}
 	defer os.Remove("/tmp/mba_au.html")
-	out, isErr := tb.Execute("bash", map[string]any{"command": grepPipeline})
+	out, _, isErr := tb.Execute("bash", map[string]any{"command": grepPipeline})
 	if isErr {
 		t.Fatalf("the pipeline should have run: %s", out)
 	}
@@ -166,7 +166,7 @@ func TestListingAndFindNeedsNoApproval(t *testing.T) {
 	}
 
 	// ask is the most conservative tier, and a read-only action passes even there
-	if out, isErr := w.toolbox.Execute("bash", map[string]any{"command": cmd}); isErr {
+	if out, _, isErr := w.toolbox.Execute("bash", map[string]any{"command": cmd}); isErr {
 		t.Fatalf("it should have run: %s", out)
 	}
 	if n := len(bus.PendingApprovals()); n != 0 {

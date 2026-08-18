@@ -230,6 +230,10 @@ function approvalNode(ap) {
   const box = el("div", "approval");
   box.append(el("div", "head", t("%s requests permission to run", titleOf(ap.bot))));
   box.append(el("div", "code", ap.action));
+  if (ap.diff) {
+    const pre = el("pre", "diff", ap.diff);
+    box.append(pre);
+  }
   const acts = el("div", "acts");
   const yes = el("button", "yes", t("Approve"));
   yes.type = "button";

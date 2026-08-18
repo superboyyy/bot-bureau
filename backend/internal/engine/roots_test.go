@@ -210,7 +210,7 @@ func TestNamedDirectoryBecomesWorkspaceForTheBotAddressed(t *testing.T) {
 	}
 
 	// A command in that directory runs straight through and raises no approval
-	out, isErr := tb.Execute("bash", map[string]any{"command": "ls " + proj})
+	out, _, isErr := tb.Execute("bash", map[string]any{"command": "ls " + proj})
 	if isErr {
 		t.Fatalf("a command in a named directory must not fail under auto: %s", out)
 	}
@@ -221,7 +221,7 @@ func TestNamedDirectoryBecomesWorkspaceForTheBotAddressed(t *testing.T) {
 	// Absolute reads and writes work too, and land where they say: read_file used to be joined onto the
 	// workspace and actually reached <workspace>/Users/..., which was never there
 	target := filepath.Join(proj, "note.txt")
-	if out, isErr := tb.Execute("write_file", map[string]any{"path": target, "content": "written"}); isErr {
+	if out, _, isErr := tb.Execute("write_file", map[string]any{"path": target, "content": "written"}); isErr {
 		t.Fatalf("a write into a named directory should succeed: %s", out)
 	}
 	if raw, err := os.ReadFile(target); err != nil || string(raw) != "written" {
@@ -231,7 +231,7 @@ func TestNamedDirectoryBecomesWorkspaceForTheBotAddressed(t *testing.T) {
 	// The directory next door, unnamed, still asks: what was granted is one directory, not a machine
 	done := make(chan string, 1)
 	go func() {
-		res, _ := tb.Execute("bash", map[string]any{"command": "ls " + outside})
+		res, _, _ := tb.Execute("bash", map[string]any{"command": "ls " + outside})
 		done <- res
 	}()
 	deadline := time.After(2 * time.Second)

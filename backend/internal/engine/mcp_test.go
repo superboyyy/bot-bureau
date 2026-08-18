@@ -85,7 +85,7 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 
 	// Read-only tools execute directly
 	w.toolbox.currentChat = "dm"
-	out, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "hi"})
+	out, _, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "hi"})
 	if isErr || out != "echo:hi" {
 		t.Fatalf("echo failed: %q %v", out, isErr)
 	}
@@ -97,7 +97,7 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 		}
 		bus.Decide(bus.PendingApprovals()[0].ID, false, "no")
 	}()
-	out, isErr = w.toolbox.Execute("mcp_fake_write_thing", map[string]any{"text": "x"})
+	out, _, isErr = w.toolbox.Execute("mcp_fake_write_thing", map[string]any{"text": "x"})
 	if !isErr || !strings.Contains(out, "rejected") {
 		t.Fatalf("a non-read-only plugin must go through approval: %q %v", out, isErr)
 	}
@@ -109,14 +109,14 @@ func TestMCPStdioEndToEnd(t *testing.T) {
 		}
 		bus.Decide(bus.PendingApprovals()[0].ID, true, "")
 	}()
-	out, isErr = w.toolbox.Execute("mcp_fake_write_thing", map[string]any{"text": "y"})
+	out, _, isErr = w.toolbox.Execute("mcp_fake_write_thing", map[string]any{"text": "y"})
 	if isErr || out != "write_thing:y" {
 		t.Fatalf("should run after approval: %q %v", out, isErr)
 	}
 
 	// Unsubscribed bots cannot use it
 	w.toolbox.mcpServers = nil
-	if _, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "z"}); !isErr {
+	if _, _, isErr := w.toolbox.Execute("mcp_fake_echo", map[string]any{"text": "z"}); !isErr {
 		t.Fatal("an unsubscribed bot should error")
 	}
 

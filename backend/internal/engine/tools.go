@@ -47,11 +47,6 @@ type Toolbox struct {
 	turnCtx     context.Context
 	botPerm     string           // this bot's tier; empty follows the global one
 	settings    *config.Settings // source of the global tier
-
-	// Images produced by the most recent tool call, collected by the bot layer right after Execute.
-	// Each bot has one Toolbox and one resident goroutine handling messages in order, so nothing writes
-	// this concurrently.
-	lastImages []model.ResultImage
 }
 
 // perm settles the tier in force for this call. It is resolved per call rather than fixed at startup:
@@ -67,10 +62,14 @@ func (t *Toolbox) perm() config.PermLevel {
 // gate is the single approval checkpoint: it suspends for a human when required and returns true to
 // proceed. Every tool goes through it, so a new tool that forgets the gate stands out.
 func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool, bool) {
+	return t.gateDiff(act, action, waitMsg, "")
+}
+
+func (t *Toolbox) gateDiff(act config.ToolAct, action, waitMsg, diff string) (string, bool, bool) {
 	if !t.perm().NeedsApproval(act) {
 		return "", false, true
 	}
-	req := t.bus.RequestApproval(t.botName, action, t.eventChat(), act.Dir)
+	req := t.bus.requestApproval(t.botName, action, t.eventChat(), act.Dir, diff)
 	t.bus.Emit("tool", t.eventChat(), t.botName, fmt.Sprintf(waitMsg, req.ID), nil)
 	approved, reason := t.awaitApproval(req)
 	if approved {
@@ -133,20 +132,52 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		},
 		{
 			Name:        "read_file",
-			Description: i18n.T("Read a text file in your workspace."),
+			Description: i18n.T("Read a text file in your workspace. Optional offset (1-based line) and limit (line count) return a numbered window; omit them to read the whole file."),
 			Properties: map[string]any{
-				"path": map[string]any{"type": "string", "description": i18n.T("Path relative to the workspace")},
+				"path":   map[string]any{"type": "string", "description": i18n.T("Path relative to the workspace")},
+				"offset": map[string]any{"type": "integer", "description": i18n.T("1-based line to start from")},
+				"limit":  map[string]any{"type": "integer", "description": i18n.T("Number of lines to return")},
 			},
 			Required: []string{"path"},
 		},
 		{
+			Name:        "edit_file",
+			Description: i18n.T("Replace text in an existing file. Prefer this over write_file when changing a file that is already there: it fails if old_string is not unique, so it will not silently edit the wrong site. Writes go through user approval."),
+			Properties: map[string]any{
+				"path":        map[string]any{"type": "string", "description": i18n.T("Path relative to the workspace")},
+				"old_string":  map[string]any{"type": "string", "description": i18n.T("The exact text to find; must match once unless replace_all is set")},
+				"new_string":  map[string]any{"type": "string", "description": i18n.T("Replacement text")},
+				"replace_all": map[string]any{"type": "boolean", "description": i18n.T("Replace every match instead of requiring a unique match")},
+			},
+			Required: []string{"path", "old_string", "new_string"},
+		},
+		{
 			Name:        "write_file",
-			Description: i18n.T("Write (overwrite) a text file in your workspace; parent directories are created automatically. Writes are submitted to the user for approval first."),
+			Description: i18n.T("Write (overwrite) a text file in your workspace; parent directories are created automatically. Use this to create a new file. For an existing file prefer edit_file. Writes are submitted to the user for approval first."),
 			Properties: map[string]any{
 				"path":    map[string]any{"type": "string", "description": i18n.T("Path relative to the workspace")},
 				"content": map[string]any{"type": "string", "description": i18n.T("The complete file content")},
 			},
 			Required: []string{"path", "content"},
+		},
+		{
+			Name:        "grep",
+			Description: i18n.T("Search file contents in your workspace and the directories the user pointed you at. The pattern is a regular expression. Prefer this over bash grep."),
+			Properties: map[string]any{
+				"pattern": map[string]any{"type": "string", "description": i18n.T("Regular expression to search for")},
+				"path":    map[string]any{"type": "string", "description": i18n.T("Directory or file to search; defaults to the workspace")},
+				"glob":    map[string]any{"type": "string", "description": i18n.T("Only files whose relative path matches this glob (e.g. **/*.go)")},
+				"max":     map[string]any{"type": "integer", "description": i18n.T("Maximum matches to return")},
+			},
+			Required: []string{"pattern"},
+		},
+		{
+			Name:        "glob",
+			Description: i18n.T("List files whose names match a glob pattern (supports **). Prefer this over bash find."),
+			Properties: map[string]any{
+				"pattern": map[string]any{"type": "string", "description": i18n.T("Glob pattern relative to the workspace, e.g. **/*.md")},
+			},
+			Required: []string{"pattern"},
 		},
 		{
 			Name:        "remember",
@@ -245,67 +276,115 @@ func (t *Toolbox) Defs() []model.ToolDef {
 	return defs
 }
 
-// TakeImages collects and clears the images from the last tool call.
-// Clearing matters: without it the next tool that returns no image would re-attach the previous one.
-func (t *Toolbox) TakeImages() []model.ResultImage {
-	imgs := t.lastImages
-	t.lastImages = nil
-	return imgs
-}
-
-func toResultImages(in []plugin.Image) []model.ResultImage {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]model.ResultImage, 0, len(in))
-	for _, img := range in {
-		out = append(out, model.ResultImage{MIME: img.MIME, Base64: img.Base64})
-	}
-	return out
-}
-
-// Execute runs one client-side tool and returns (result text, whether it errored).
-func (t *Toolbox) Execute(name string, input map[string]any) (string, bool) {
+// Execute runs one client-side tool and returns (result text, images, whether it errored).
+func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.ResultImage, bool) {
 	str := func(k string) string { v, _ := input[k].(string); return v }
+	text := func(s string, err bool) (string, []model.ResultImage, bool) { return s, nil, err }
 	switch name {
 	case "bash":
-		return t.runBash(str("command"))
+		s, err := t.runBash(str("command"))
+		return text(s, err)
 	case "fetch_url":
-		return t.runFetchURL(str("url"))
+		s, err := t.runFetchURL(str("url"))
+		return text(s, err)
 	case "read_file":
-		return t.runReadFile(str("path"))
+		off, hasOff := intArg(input, "offset")
+		lim, hasLim := intArg(input, "limit")
+		s, err := t.runReadFile(str("path"), off, lim, hasOff, hasLim)
+		return text(s, err)
+	case "edit_file":
+		s, err := t.runEditFile(str("path"), str("old_string"), str("new_string"), boolArg(input, "replace_all"))
+		return text(s, err)
 	case "write_file":
-		return t.runWriteFile(str("path"), str("content"))
+		s, err := t.runWriteFile(str("path"), str("content"))
+		return text(s, err)
+	case "grep":
+		max, hasMax := intArg(input, "max")
+		s, err := t.runGrep(str("pattern"), str("path"), str("glob"), max, hasMax)
+		return text(s, err)
+	case "glob":
+		s, err := t.runGlob(str("pattern"))
+		return text(s, err)
 	case "remember":
-		return t.runRemember(str("note"), str("scope"))
+		s, err := t.runRemember(str("note"), str("scope"))
+		return text(s, err)
 	case "read_skill":
-		return t.runReadSkill(str("name"))
+		s, err := t.runReadSkill(str("name"))
+		return text(s, err)
 	case "message_bot":
-		return t.runMessageBot(str("to"), str("content"))
+		s, err := t.runMessageBot(str("to"), str("content"))
+		return text(s, err)
 	case "assign_task":
-		return t.runAssignTask(str("to"), str("title"), str("detail"))
+		s, err := t.runAssignTask(str("to"), str("title"), str("detail"))
+		return text(s, err)
 	case "update_task":
 		id := 0
-		if f, ok := input["id"].(float64); ok {
-			id = int(f)
+		if n, ok := intArg(input, "id"); ok {
+			id = n
 		}
-		return t.runUpdateTask(id, str("status"), str("note"))
+		s, err := t.runUpdateTask(id, str("status"), str("note"))
+		return text(s, err)
 	case "list_tasks":
 		if !IsGroupChat(t.currentChat) {
-			return i18n.T("The task board is for group chat collaboration and is not available in a DM"), true
+			return text(i18n.T("The task board is for group chat collaboration and is not available in a DM"), true)
 		}
-		return t.board.Render(), false
+		return text(t.board.Render(), false)
 	case "save_routine":
 		every := 0
-		if f, ok := input["every_minutes"].(float64); ok {
-			every = int(f)
+		if n, ok := intArg(input, "every_minutes"); ok {
+			every = n
 		}
-		return t.runSaveRoutine(str("name"), str("prompt"), every)
+		s, err := t.runSaveRoutine(str("name"), str("prompt"), every)
+		return text(s, err)
 	}
 	if strings.HasPrefix(name, "mcp_") {
 		return t.runMCPTool(name, input)
 	}
-	return i18n.T("Unknown tool: ") + name, true
+	return text(i18n.T("Unknown tool: ")+name, true)
+}
+
+func intArg(input map[string]any, key string) (int, bool) {
+	v, ok := input[key]
+	if !ok || v == nil {
+		return 0, false
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		return int(i), err == nil
+	default:
+		return 0, false
+	}
+}
+
+func boolArg(input map[string]any, key string) bool {
+	v, _ := input[key].(bool)
+	return v
+}
+
+// parallelizable reports whether this tool has no side effects the rest of the batch can race with.
+// Writes, bash, and anything that waits on a human stay in order.
+func (t *Toolbox) parallelizable(name string) bool {
+	switch name {
+	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks":
+		return true
+	}
+	if strings.HasPrefix(name, "mcp_") {
+		for _, server := range t.mcpServers {
+			for _, mt := range t.mcp.Tools(server) {
+				if plugin.MCPToolName(server, mt.Name) == name {
+					return mt.ReadOnly
+				}
+			}
+		}
+	}
+	return false
 }
 
 // inBounds is the single definition of "inside": this member's own workspace, plus any directory the
@@ -504,45 +583,6 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	return text, false
 }
 
-func (t *Toolbox) runReadFile(rel string) (string, bool) {
-	p, err := t.resolve(rel)
-	if err != nil {
-		return err.Error(), true
-	}
-	raw, err := os.ReadFile(p)
-	if err != nil {
-		return i18n.T("Read failed: ") + err.Error(), true
-	}
-	return truncateOutput(string(raw)), false
-}
-
-func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
-	p, err := t.resolve(rel)
-	if err != nil {
-		return err.Error(), true
-	}
-	preview := content
-	if len(preview) > 400 {
-		preview = preview[:400] + "…"
-	}
-	action := fmt.Sprintf("write_file: %s (%d bytes)\n%s", rel, len(content), preview)
-
-	// resolve has already pinned the path inside the bounds (the workspace, or a directory the user
-	// named), so a write can never escape
-	act := config.ToolAct{Kind: config.ActWrite}
-	if reason, rejected, _ := t.gate(act, action,
-		i18n.T("File write requested, waiting for approval #%d: ")+rel); rejected {
-		return denied(i18n.T("The user rejected this file write"), reason), true
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return i18n.T("Failed to create directory: ") + err.Error(), true
-	}
-	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
-		return i18n.T("Write failed: ") + err.Error(), true
-	}
-	return fmt.Sprintf(i18n.T("Wrote %s (%d bytes)"), rel, len(content)), false
-}
-
 // runReadSkill fetches a skill's full text. Reading one has no side effects — it is a file read — so it
 // does not go through the approval gate; running a script the skill ships is bash's business and gets
 // approved there.
@@ -643,8 +683,19 @@ func (t *Toolbox) runMessageBot(to, content string) (string, bool) {
 	return i18n.T("Sent in the group chat to ") + t.title(to) + i18n.T("; they will reply once they are done"), false
 }
 
+func toResultImages(in []plugin.Image) []model.ResultImage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]model.ResultImage, 0, len(in))
+	for _, img := range in {
+		out = append(out, model.ResultImage{MIME: img.MIME, Base64: img.Base64})
+	}
+	return out
+}
+
 // runMCPTool resolves mcp_<plugin>_<tool> back into a plugin call; non-read-only tools go through the approval gate first.
-func (t *Toolbox) runMCPTool(name string, input map[string]any) (string, bool) {
+func (t *Toolbox) runMCPTool(name string, input map[string]any) (string, []model.ResultImage, bool) {
 	for _, server := range t.mcpServers {
 		for _, mt := range t.mcp.Tools(server) {
 			if plugin.MCPToolName(server, mt.Name) != name {
@@ -655,20 +706,16 @@ func (t *Toolbox) runMCPTool(name string, input map[string]any) (string, bool) {
 			act := config.ToolAct{Kind: config.ActPlugin, ReadOnly: mt.ReadOnly}
 			if reason, rejected, _ := t.gate(act, action,
 				i18n.T("Plugin call requested, waiting for approval #%d: ")+action); rejected {
-				return denied(i18n.T("The user rejected this plugin call"), reason), true
+				return denied(i18n.T("The user rejected this plugin call"), reason), nil, true
 			}
 			out, isBizErr, err := t.mcp.Call(server, mt.Name, input)
 			if err != nil {
-				return i18n.T("Plugin call failed: ") + err.Error(), true
+				return i18n.T("Plugin call failed: ") + err.Error(), nil, true
 			}
-
-			// Images are parked on the toolbox and collected by the bot layer into the ToolResult:
-			// Execute's signature is shared by a dozen built-in tools and should not change for this one.
-			t.lastImages = toResultImages(out.Images)
-			return out.Text, isBizErr
+			return out.Text, toResultImages(out.Images), isBizErr
 		}
 	}
-	return i18n.T("Unknown plugin tool: ") + name + i18n.T(" (the plugin may not be connected, or may not be assigned to you)"), true
+	return i18n.T("Unknown plugin tool: ") + name + i18n.T(" (the plugin may not be connected, or may not be assigned to you)"), nil, true
 }
 
 func (t *Toolbox) runSaveRoutine(name, prompt string, everyMinutes int) (string, bool) {

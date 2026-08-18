@@ -121,7 +121,7 @@ func TestBashReadonlyGate(t *testing.T) {
 	tb.currentChat = "dm"
 
 	// Read-only commands execute directly
-	if out, isErr := tb.Execute("bash", map[string]any{"command": "echo hi"}); isErr || !strings.Contains(out, "hi") {
+	if out, _, isErr := tb.Execute("bash", map[string]any{"command": "echo hi"}); isErr || !strings.Contains(out, "hi") {
 		t.Fatalf("echo should run directly: %q %v", out, isErr)
 	}
 
@@ -134,7 +134,7 @@ func TestBashReadonlyGate(t *testing.T) {
 			}
 			bus.Decide(bus.PendingApprovals()[0].ID, false, "test rejection")
 		}()
-		out, isErr := tb.Execute("bash", map[string]any{"command": cmd})
+		out, _, isErr := tb.Execute("bash", map[string]any{"command": cmd})
 		if !isErr || !strings.Contains(out, "rejected") {
 			t.Fatalf("%q should go through approval and be rejected: %q %v", cmd, out, isErr)
 		}
@@ -147,7 +147,7 @@ func TestBashReadonlyGate(t *testing.T) {
 		}
 		bus.Decide(bus.PendingApprovals()[0].ID, true, "")
 	}()
-	if out, isErr := tb.Execute("bash", map[string]any{"command": "touch approved.txt"}); isErr {
+	if out, _, isErr := tb.Execute("bash", map[string]any{"command": "touch approved.txt"}); isErr {
 		t.Fatalf("should run after approval: %q", out)
 	}
 	if _, err := os.Stat(filepath.Join(w.workspace, "approved.txt")); err != nil {
@@ -165,13 +165,13 @@ func TestSandboxPaths(t *testing.T) {
 		}
 		bus.Decide(bus.PendingApprovals()[0].ID, true, "")
 	}()
-	if out, isErr := tb.Execute("write_file", map[string]any{"path": "notes/x.txt", "content": "hello"}); isErr {
+	if out, _, isErr := tb.Execute("write_file", map[string]any{"path": "notes/x.txt", "content": "hello"}); isErr {
 		t.Fatalf("write failed: %q", out)
 	}
-	if out, isErr := tb.Execute("read_file", map[string]any{"path": "notes/x.txt"}); isErr || out != "hello" {
+	if out, _, isErr := tb.Execute("read_file", map[string]any{"path": "notes/x.txt"}); isErr || out != "hello" {
 		t.Fatalf("read failed: %q %v", out, isErr)
 	}
-	if out, isErr := tb.Execute("read_file", map[string]any{"path": "../../../etc/passwd"}); !isErr || !strings.Contains(out, "Path escapes the workspace") {
+	if out, _, isErr := tb.Execute("read_file", map[string]any{"path": "../../../etc/passwd"}); !isErr || !strings.Contains(out, "Path escapes the workspace") {
 		t.Fatalf("an escaping path should be rejected: %q %v", out, isErr)
 	}
 }
@@ -181,11 +181,11 @@ func TestMessageBotDMGate(t *testing.T) {
 	w2 := addTestBot(t, bus, sched, "c")
 
 	w.toolbox.currentChat = "dm"
-	if out, isErr := w.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "x"}); !isErr || !strings.Contains(out, "A DM is one-on-one") {
+	if out, _, isErr := w.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "x"}); !isErr || !strings.Contains(out, "A DM is one-on-one") {
 		t.Fatalf("message_bot should be rejected in a dm: %q %v", out, isErr)
 	}
 	w.toolbox.currentChat = "group"
-	if out, isErr := w.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "do the work"}); isErr {
+	if out, _, isErr := w.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "do the work"}); isErr {
 		t.Fatalf("message_bot should succeed in a group: %q", out)
 	}
 	select {
@@ -246,7 +246,7 @@ func TestGroupMembership(t *testing.T) {
 	}
 	a := bus.Bot("a")
 	a.toolbox.currentChat = "group"
-	if out, isErr := a.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "x"}); !isErr {
+	if out, _, isErr := a.toolbox.Execute("message_bot", map[string]any{"to": "c", "content": "x"}); !isErr {
 		t.Fatalf("message_bot to a non-member should error: %q", out)
 	}
 
@@ -292,11 +292,11 @@ func TestTaskBoardFlow(t *testing.T) {
 
 	tb := w.toolbox
 	tb.currentChat = "dm"
-	if _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "x"}); !isErr {
+	if _, _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "x"}); !isErr {
 		t.Fatal("assign_task should be rejected in a dm")
 	}
 	tb.currentChat = "group"
-	out, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "write the script", "detail": "count the lines"})
+	out, _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "write the script", "detail": "count the lines"})
 	if isErr {
 		t.Fatalf("assign_task failed: %q", out)
 	}
@@ -309,20 +309,20 @@ func TestTaskBoardFlow(t *testing.T) {
 
 	// Bots outside the group chat cannot be assigned tasks
 	bus.SetGroupMember("coder", false)
-	if _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "y"}); !isErr {
+	if _, _, isErr := tb.Execute("assign_task", map[string]any{"to": "coder", "title": "y"}); !isErr {
 		t.Fatal("assigning to a non-member should error")
 	}
 	bus.SetGroupMember("coder", true)
 
 	// Update status + render the board
-	if out, isErr := tb.Execute("update_task", map[string]any{"id": float64(1), "status": "done", "note": "done"}); isErr {
+	if out, _, isErr := tb.Execute("update_task", map[string]any{"id": float64(1), "status": "done", "note": "done"}); isErr {
 		t.Fatalf("update_task failed: %q", out)
 	}
-	board, _ := tb.Execute("list_tasks", map[string]any{})
+	board, _, _ := tb.Execute("list_tasks", map[string]any{})
 	if !strings.Contains(board, "#1 [done] write the script — owner: coder") {
 		t.Fatalf("wrong board rendering: %q", board)
 	}
-	if _, isErr := tb.Execute("update_task", map[string]any{"id": float64(99), "status": "done"}); !isErr {
+	if _, _, isErr := tb.Execute("update_task", map[string]any{"id": float64(99), "status": "done"}); !isErr {
 		t.Fatal("updating a nonexistent task should error")
 	}
 }
@@ -330,10 +330,10 @@ func TestTaskBoardFlow(t *testing.T) {
 func TestRememberScopes(t *testing.T) {
 	w, _, _ := newTestWorker(t, "a", nil)
 	tb := w.toolbox
-	if _, isErr := tb.Execute("remember", map[string]any{"note": "a personal preference"}); isErr {
+	if _, _, isErr := tb.Execute("remember", map[string]any{"note": "a personal preference"}); isErr {
 		t.Fatal("self remember failed")
 	}
-	if _, isErr := tb.Execute("remember", map[string]any{"note": "a team convention", "scope": "team"}); isErr {
+	if _, _, isErr := tb.Execute("remember", map[string]any{"note": "a team convention", "scope": "team"}); isErr {
 		t.Fatal("team remember failed")
 	}
 	if !strings.Contains(w.mem.Load(), "a personal preference") {
@@ -624,7 +624,7 @@ func TestWriteFileAndHostPathGate(t *testing.T) {
 			}
 			bus.Decide(bus.PendingApprovals()[0].ID, false, "test rejection")
 		}()
-		out, isErr := tb.Execute("bash", map[string]any{"command": cmd})
+		out, _, isErr := tb.Execute("bash", map[string]any{"command": cmd})
 		if !isErr || !strings.Contains(out, "rejected") {
 			t.Fatalf("%q should go through approval and be rejected: %q %v", cmd, out, isErr)
 		}
@@ -635,7 +635,7 @@ func TestWriteFileAndHostPathGate(t *testing.T) {
 		}
 		bus.Decide(bus.PendingApprovals()[0].ID, false, "test rejection")
 	}()
-	out, isErr := tb.Execute("write_file", map[string]any{"path": "x.txt", "content": "nope"})
+	out, _, isErr := tb.Execute("write_file", map[string]any{"path": "x.txt", "content": "nope"})
 	if !isErr || !strings.Contains(out, "rejected") {
 		t.Fatalf("write_file should go through approval and be rejected: %q %v", out, isErr)
 	}
@@ -650,7 +650,7 @@ func TestApprovalTimeout(t *testing.T) {
 	w, _, _ := newTestWorker(t, "a", nil)
 	w.toolbox.currentChat = "dm"
 	start := time.Now()
-	out, isErr := w.toolbox.Execute("bash", map[string]any{"command": "touch x"})
+	out, _, isErr := w.toolbox.Execute("bash", map[string]any{"command": "touch x"})
 	if time.Since(start) > 2*time.Second {
 		t.Fatal("an approval timeout must not hang")
 	}
