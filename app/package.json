@@ -10,7 +10,7 @@
     "test": "npm run test:unit",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "node --test e2e/*.test.js",
+    "test:e2e": "node --test --test-concurrency=1 e2e/*.test.js",
     "test:all": "npm run test:unit && npm run test:e2e",
     "build:backend": "node scripts/build-backend.js",
     "build:icon": "cd .. && python3 assets/make_icon.py",
