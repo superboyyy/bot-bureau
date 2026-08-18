@@ -257,6 +257,57 @@ func TestHTTPCancel(t *testing.T) {
 	}
 }
 
+func TestHTTPSessionReset(t *testing.T) {
+	app, srv := newTestApp(t)
+	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:chief", "text": "reset-me-please"})
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "dm:chief" && ev["source"] == "chief" &&
+			strings.Contains(ev["text"].(string), "reset-me-please")
+	})
+
+	ws := engine.WorkspaceDir(app.dataDir, "chief")
+	memPath := filepath.Join(ws, "MEMORY.md")
+	if err := os.WriteFile(memPath, []byte("- keep me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, out := postJSON(t, srv.URL+"/api/session/reset", map[string]any{"chat": "dm:chief"}); code != 200 {
+		t.Fatalf("reset failed: %v", out)
+	}
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		text, _ := ev["text"].(string)
+		return ev["kind"] == "system" && ev["chat"] == "dm:chief" &&
+			strings.Contains(text, "New conversation started")
+	})
+
+	matches, err := filepath.Glob(filepath.Join(ws, "sessions-*.json"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected one sessions archive, got %v (%v)", matches, err)
+	}
+	archived, _ := os.ReadFile(matches[0])
+	if !strings.Contains(string(archived), "reset-me-please") {
+		t.Fatalf("the archive should keep the old session: %s", archived)
+	}
+	live, _ := os.ReadFile(filepath.Join(ws, "sessions.json"))
+	if strings.Contains(string(live), "reset-me-please") {
+		t.Fatalf("the live session should be empty of the old text: %s", live)
+	}
+	got, err := os.ReadFile(memPath)
+	if err != nil || !strings.Contains(string(got), "keep me") {
+		t.Fatalf("MEMORY.md must stay: %s", got)
+	}
+
+	if code, _ := postJSON(t, srv.URL+"/api/session/reset", map[string]any{}); code != 400 {
+		t.Fatal("reset without a conversation should 400")
+	}
+	if code, _ := postJSON(t, srv.URL+"/api/session/reset", map[string]any{"chat": "dm:ghost"}); code != 404 {
+		t.Fatal("reset of a missing bot should 404")
+	}
+	if code, out := postJSON(t, srv.URL+"/api/session/reset", map[string]any{"chat": "group"}); code != 200 {
+		t.Fatalf("group reset should succeed: %v", out)
+	}
+}
+
 func TestHTTPKeysAPI(t *testing.T) {
 	_, srv := newTestApp(t)
 	if code, out := postJSON(t, srv.URL+"/api/keys", map[string]any{"name": "XAI_API_KEY", "value": "xai-secret-12345678"}); code != 200 {

@@ -41,10 +41,11 @@ func (s *scriptedSession) AddToolResults(rs []model.ToolResult) {
 
 // This fake only serves the engine's tests, so it carries the plainest possible trim and snapshot:
 // borrowing model's internal cursor would just tie the two test suites together.
-func (s *scriptedSession) Trim(limit int) {
-	if len(s.history) > limit {
-		s.history = append([]string(nil), s.history[len(s.history)-limit:]...)
+func (s *scriptedSession) Trim(maxMessages, _ int) {
+	if maxMessages <= 0 || len(s.history) <= maxMessages {
+		return
 	}
+	s.history = append([]string(nil), s.history[len(s.history)-maxMessages:]...)
 }
 func (s *scriptedSession) Snapshot() json.RawMessage {
 	raw, _ := json.Marshal(s.history)
@@ -796,7 +797,7 @@ func (s *quotaFailSession) AddUser(text string, _ ...model.ResultImage) {
 	s.history = append(s.history, text)
 }
 func (s *quotaFailSession) AddToolResults(rs []model.ToolResult) {}
-func (s *quotaFailSession) Trim(limit int)                       {}
+func (s *quotaFailSession) Trim(int, int)                        {}
 func (s *quotaFailSession) Snapshot() json.RawMessage            { return nil }
 func (s *quotaFailSession) Restore(raw json.RawMessage) bool     { return false }
 

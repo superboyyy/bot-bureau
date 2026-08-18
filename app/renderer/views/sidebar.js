@@ -148,6 +148,15 @@ function convRow({ id, av, name, ev, badge, deletable, groupDel }) {
   // Nothing is lost in discoverability: clicking the chat header opens the same settings (renderHeader).
   const menu = [
     [pinned ? t("Unpin") : t("Pin to top"), "", () => setPinned(id, !pinned)],
+    [t("New conversation"), "", async () => {
+      const ok = await ask({
+        title: t("Start a new conversation?"),
+        hint: t("The model starts fresh. Messages already in this chat stay on screen, and MEMORY.md is kept."),
+        ok: t("New conversation"),
+      });
+      if (!ok) return;
+      api("/api/session/reset", { chat: id }).catch((err) => toast(err.message));
+    }],
     [t("Settings"), "", () => (isGroupChatId(id) ? openGroupModal(id) : openBotModal(id.slice(3)))],
   ];
   if (groupDel) {
