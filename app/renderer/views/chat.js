@@ -228,21 +228,27 @@ function foldNode(key, evs) {
 
 function approvalNode(ap) {
   const box = el("div", "approval");
-  box.append(el("div", "head", t("%s requests permission to run", titleOf(ap.bot))));
-  box.append(el("div", "code", ap.action));
-  if (ap.diff) {
-    const pre = el("pre", "diff", ap.diff);
-    box.append(pre);
+  if (ap.kind === "plan") {
+    box.append(el("div", "head", t("%s submitted a plan", titleOf(ap.bot))));
+    box.append(el("div", "code", ap.title || ap.action || ""));
+    if (ap.body) box.append(el("pre", "diff", ap.body));
+  } else {
+    box.append(el("div", "head", t("%s requests permission to run", titleOf(ap.bot))));
+    box.append(el("div", "code", ap.action));
+    if (ap.diff) {
+      const pre = el("pre", "diff", ap.diff);
+      box.append(pre);
+    }
   }
   const acts = el("div", "acts");
-  const yes = el("button", "yes", t("Approve"));
+  const yes = el("button", "yes", ap.kind === "plan" ? t("Accept plan") : t("Approve"));
   yes.type = "button";
   yes.onclick = () => api("/api/approve", { id: ap.id, approved: true }).catch((e) => toast(e.message));
-  const no = el("button", "no", t("Reject"));
+  const no = el("button", "no", ap.kind === "plan" ? t("Reject plan") : t("Reject"));
   no.type = "button";
   no.onclick = async () => {
     const reason = await ask({
-      title: t("Reject this action"),
+      title: ap.kind === "plan" ? t("Reject this plan") : t("Reject this action"),
       hint: t("You can explain why — the member will see your explanation."),
       field: true,
       fieldLabel: t("Reason"),
@@ -256,12 +262,6 @@ function approvalNode(ap) {
   acts.append(yes, no);
   box.append(acts);
 
-
-
-
-
-
-
   // "Approve and remember this directory." This is the one moment when handing a directory to
   // a member is unambiguous: the user says "bot-bureau" and the engine cannot tell where that is, while
   // the card in front of them spells the full path out. The button prints it verbatim, so the directory
@@ -270,7 +270,7 @@ function approvalNode(ap) {
   // It sits below the two buttons and is deliberately quieter than either: this click approves not just
   // the command in view but everything that directory will see afterwards. Making it big or primary
   // would be using visual weight to decide on the user's behalf.
-  if (ap.dir) {
+  if (ap.dir && ap.kind !== "plan") {
     const grant = el("button", "grant");
     grant.type = "button";
     grant.title = t("This member will read, write and run commands in this directory without asking. Remove it in its settings.");

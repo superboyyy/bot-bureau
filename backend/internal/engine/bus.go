@@ -160,6 +160,12 @@ type Approval struct {
 	// ignore it.
 	Diff string `json:"diff,omitempty"`
 
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+
+	// Kind is "plan" for submit_plan cards; empty for command/file/plugin approvals.
+	Kind string `json:"kind,omitempty"`
+
 	decided  chan struct{}
 	approved bool
 	reason   string
@@ -719,6 +725,31 @@ func (b *Bus) requestApproval(bot, action, chat, dir, diff string) *Approval {
 		extra["approval_diff"] = diff
 	}
 	b.Emit("approval", chat, bot, action, extra)
+	go func() {
+		t := time.NewTimer(config.ApprovalTimeout())
+		defer t.Stop()
+		select {
+		case <-a.decided:
+		case <-t.C:
+			b.Decide(a.ID, false, i18n.T("Approval timed out"))
+		}
+	}()
+	return a
+}
+
+func (b *Bus) requestPlan(bot, chat, title, body string) *Approval {
+	b.mu.Lock()
+	a := &Approval{
+		ID: b.nextApproval, Bot: bot, Action: title, Chat: chat,
+		Kind: "plan", Title: title, Body: body, decided: make(chan struct{}),
+	}
+	b.nextApproval++
+	b.approvals[a.ID] = a
+	b.mu.Unlock()
+	b.Emit("approval", chat, bot, title, map[string]any{
+		"approval_id": a.ID, "approval_kind": "plan",
+		"approval_title": title, "approval_body": body,
+	})
 	go func() {
 		t := time.NewTimer(config.ApprovalTimeout())
 		defer t.Stop()

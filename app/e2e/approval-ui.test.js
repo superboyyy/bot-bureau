@@ -87,3 +87,35 @@ test("approval card in the desktop chat pane shows a unified diff", { skip: e2e,
     await closeDesktop(session);
   }
 });
+
+test("plan card shows the body and has no directory-grant button", { skip: e2e, timeout: 90000 }, async () => {
+  const session = await launchDesktop();
+  try {
+    const { window } = session;
+    await skipOnboarding(window);
+    await hireFakeBot(window);
+
+    await showApprovals(window, [{
+      id: 9,
+      bot: "assistant",
+      action: "Split the auth package",
+      chat: "group",
+      kind: "plan",
+      title: "Split the auth package",
+      body: "1. edit a.go\n2. edit b.go"
+    }]);
+
+    const card = window.locator("#msgs .approval");
+    await card.waitFor({ state: "visible", timeout: 8000 });
+    const text = await card.locator("pre.diff").innerText();
+    assert.match(text, /edit a\.go/);
+    assert.match(text, /edit b\.go/);
+    const head = await card.locator(".head").innerText();
+    assert.match(head, /plan|计划/i);
+    assert.equal(await card.locator("button.yes").count(), 1);
+    assert.equal(await card.locator("button.no").count(), 1);
+    assert.equal(await card.locator("button.grant").count(), 0);
+  } finally {
+    await closeDesktop(session);
+  }
+});

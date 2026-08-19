@@ -1,12 +1,13 @@
 package engine
 
 import (
+	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/secret"
+
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"botbureau/backend/internal/config"
 )
 
 func writeTestSkill(t *testing.T, dataDir, name, desc, body string) {
@@ -117,5 +118,19 @@ func TestCustomPromptIsAppendedAfterEngineRules(t *testing.T) {
 	gate := strings.Index(prompt, "need user approval")
 	if gate < 0 || gate > idx {
 		t.Fatal("the engine's own rules must precede the imported instructions")
+	}
+}
+
+func TestNewTeamDepsSeedsBundledSkills(t *testing.T) {
+	dir := t.TempDir()
+	deps := NewTeamDeps(dir, secret.NewKeyStore(filepath.Join(dir, "keys.json")), filepath.Join(dir, "mcp.yaml"))
+	got := map[string]bool{}
+	for _, n := range deps.Skills.Names() {
+		got[n] = true
+	}
+	for _, want := range []string{"edit-code", "verify", "research"} {
+		if !got[want] {
+			t.Errorf("an empty data/skills should receive %s, got %v", want, deps.Skills.Names())
+		}
 	}
 }

@@ -31,6 +31,30 @@ function renderTasks() {
   }
 }
 
+function renderTodos() {
+  const head = $("todosHead");
+  const wrap = $("todos");
+  if (!head || !wrap) return;
+  const dm = typeof current === "string" && current.startsWith("dm:");
+  head.hidden = !dm;
+  wrap.hidden = !dm;
+  if (!dm) return;
+  wrap.replaceChildren();
+  const name = current.slice(3);
+  const bot = (state.bots || []).find((b) => b.name === name);
+  const todos = (bot && bot.todos) || [];
+  if (!todos.length) {
+    wrap.append(el("div", "empty", t("This member has no personal list yet")));
+    return;
+  }
+  for (const todo of todos) {
+    const title = el("div", "title");
+    const cls = todo.status === "done" ? "done" : "pending";
+    title.append(el("span", "pill " + cls, todo.status || "pending"), document.createTextNode(" " + todo.content));
+    wrap.append(item({ title, sub: todo.id }));
+  }
+}
+
 // The owner on a routine row is a dropdown that reassigns in place.
 
 // It used to be dead text printing the internal id — a string that appears nowhere else in the UI and

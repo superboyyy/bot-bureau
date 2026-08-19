@@ -71,6 +71,15 @@ func (s *scriptedSession) Step(ctx context.Context, system string, tools []model
 
 func newTestDeps(t *testing.T, dataDir string) *TeamDeps {
 	t.Helper()
+	// A non-empty skills directory skips the bundled starter set, so existing tests that expect
+	// no skills (or that write their own) keep that shape.
+	skillsDir := filepath.Join(dataDir, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, ".keep"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	deps := NewTeamDeps(dataDir, secret.NewKeyStore(filepath.Join(dataDir, "keys.json")),
 		filepath.Join(dataDir, "mcp.yaml"))
 

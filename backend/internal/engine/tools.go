@@ -189,6 +189,35 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			Required: []string{"note"},
 		},
 		{
+			Name:        "todo_write",
+			Description: i18n.T("Replace your personal checklist with this list. Each item is {id, content, status: pending|done}. This is not the group task board and never assigns work to anyone else. Use it to track multi-step work; call it again to update statuses."),
+			Properties: map[string]any{
+				"items": map[string]any{
+					"type":        "array",
+					"description": i18n.T("The complete list; omit items or pass [] to clear it"),
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":      map[string]any{"type": "string", "description": i18n.T("Short stable id (letters, digits, - or _)")},
+							"content": map[string]any{"type": "string", "description": i18n.T("What to do")},
+							"status":  map[string]any{"type": "string", "enum": []string{"pending", "done"}},
+						},
+						"required": []string{"content"},
+					},
+				},
+			},
+			Required: []string{"items"},
+		},
+		{
+			Name:        "submit_plan",
+			Description: i18n.T("Show the user a plan and wait for them to accept or reject it. If the work will touch more than one file, call todo_write first, then this, and wait. Do not start those edits until the plan is accepted."),
+			Properties: map[string]any{
+				"title": map[string]any{"type": "string", "description": i18n.T("Short title for the plan")},
+				"body":  map[string]any{"type": "string", "description": i18n.T("The plan: what you will change and in what order")},
+			},
+			Required: []string{"title", "body"},
+		},
+		{
 			Name:        "save_routine",
 			Description: i18n.T("When the user wants something done automatically on a regular / recurring basis, save it as a scheduled routine. When it fires, the prompt is sent to you automatically as a group chat task."),
 			Properties: map[string]any{
@@ -307,6 +336,12 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.Re
 		return text(s, err)
 	case "remember":
 		s, err := t.runRemember(str("note"), str("scope"))
+		return text(s, err)
+	case "todo_write":
+		s, err := t.runTodoWrite(input["items"])
+		return text(s, err)
+	case "submit_plan":
+		s, err := t.runSubmitPlan(str("title"), str("body"))
 		return text(s, err)
 	case "read_skill":
 		s, err := t.runReadSkill(str("name"))
@@ -610,6 +645,37 @@ func (t *Toolbox) runRemember(note, scope string) (string, bool) {
 		return i18n.T("Failed to write to memory: ") + err.Error(), true
 	}
 	return i18n.T("Written to your personal long-term memory"), false
+}
+
+func (t *Toolbox) runTodoWrite(raw any) (string, bool) {
+	items, err := parseTodoItems(raw)
+	if err != nil {
+		return err.Error(), true
+	}
+	if err := SaveTodos(t.workspace, items); err != nil {
+		return i18n.T("Failed to write the personal list: ") + err.Error(), true
+	}
+	t.bus.Emit("refresh", "", t.botName, "todos", nil)
+	if len(items) == 0 {
+		return i18n.T("Personal list cleared"), false
+	}
+	return fmt.Sprintf(i18n.T("Personal list now has %d item(s)"), len(items)), false
+}
+
+func (t *Toolbox) runSubmitPlan(title, body string) (string, bool) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if title == "" || body == "" {
+		return i18n.T("submit_plan needs a title and a body"), true
+	}
+	req := t.bus.requestPlan(t.botName, t.eventChat(), title, body)
+	t.bus.Emit("tool", t.eventChat(), t.botName,
+		fmt.Sprintf(i18n.T("Plan submitted, waiting for approval #%d: %s"), req.ID, title), nil)
+	approved, reason := t.awaitApproval(req)
+	if approved {
+		return i18n.T("The user accepted the plan. Continue from it."), false
+	}
+	return denied(i18n.T("The user rejected the plan"), reason), true
 }
 
 func (t *Toolbox) runAssignTask(to, title, detail string) (string, bool) {

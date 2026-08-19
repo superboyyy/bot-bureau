@@ -51,12 +51,14 @@ type TeamDeps struct {
 
 func NewTeamDeps(dataDir string, ks *secret.KeyStore, mcpPath string) *TeamDeps {
 	mcp := plugin.NewMCPManager(mcpPath, ks)
+	skillsDir := filepath.Join(dataDir, "skills")
+	_ = skill.SeedBundled(skillsDir)
 	deps := &TeamDeps{
 		TeamMem: NewMemory(filepath.Join(dataDir, "TEAM_MEMORY.md")),
 		Board:   NewTaskBoard(filepath.Join(dataDir, "tasks.json")),
 		KS:      ks,
 		MCP:     mcp,
-		Skills:  skill.NewManager(filepath.Join(dataDir, "skills")),
+		Skills:  skill.NewManager(skillsDir),
 		Bundles: plugin.NewBundleManager(filepath.Join(dataDir, "plugins"), mcp),
 		XAI:     secret.NewXaiOAuth(filepath.Join(dataDir, "xai_oauth.json")),
 		ChatGPT: secret.NewChatGPTOAuth(filepath.Join(dataDir, "chatgpt_oauth.json")),
@@ -788,6 +790,10 @@ func describeToolCall(call model.ToolCall) string {
 		return "message_bot → " + str("to")
 	case "save_routine":
 		return "save_routine: " + str("name")
+	case "todo_write":
+		return "todo_write"
+	case "submit_plan":
+		return "submit_plan: " + str("title")
 	default:
 		return call.Name
 	}
@@ -870,6 +876,9 @@ loaded until you ask for it, so reach for a skill whenever it plausibly fits rat
 the procedure yourself.
 %s`), roster)
 	}
+	if todo := RenderTodoSection(w.Todos()); todo != "" {
+		skillSection += todo
+	}
 
 	// Directories the user named. The line disappears when there are none: "you may also reach: (none)"
 	// only invites the model to wonder what it is missing.
@@ -884,6 +893,7 @@ the procedure yourself.
 	if w.provider.SupportsWebTools() {
 		webLine = i18n.T("- Use web_search / web_fetch to research online, or fetch_url for one specific address")
 	}
+	webLine += i18n.T("\n- If the work will touch more than one file, call todo_write with a checklist, then submit_plan with the plan, and wait for the user to accept it before editing")
 	if len(w.Cfg.MCP) > 0 {
 		webLine += fmt.Sprintf(i18n.T("\n- Connected plugins (MCP): %s. Plugin tool names start with mcp_; non-read-only plugin actions go through user approval first"),
 			strings.Join(w.Cfg.MCP, i18n.T(", ")))
