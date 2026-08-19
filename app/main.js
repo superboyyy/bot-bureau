@@ -402,7 +402,11 @@ const TITLEBAR = 56;
 function overlayOpts(appearance) {
   const light = appearance === "light";
   return {
-    color: light ? "#ffffff" : "#141417",
+    // Transparent so the sidebar/paper shows through: Linux may put the overlay on the left
+    // (over --bg) or the right (over --pane). An opaque fill became a slab on whichever side
+    // the desktop did not match. Glyph colour still tracks the app theme (honoured on Windows;
+    // Linux may use the GTK theme instead).
+    color: "rgba(0,0,0,0)",
     symbolColor: light ? "#62626b" : "#9d9da4",
     height: TITLEBAR,
   };
@@ -436,8 +440,8 @@ function createWindow() {
     // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region.
     // macOS keeps the traffic lights. Windows and Linux use the platform Window Controls Overlay
     // (Electron 43+ follows the desktop's button layout on Linux) so min/max/close are real OS
-    // widgets, not HTML. Overlay fill is --pane — the paper the buttons sit on — not --bg, which
-    // used to read as a black slab. Height matches --titlebar so the hit targets are the full strip.
+    // widgets, not HTML. Overlay fill is transparent so it does not paint a slab over --bg or
+    // --pane — Linux may put the buttons on either side. Height matches --titlebar.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset",
