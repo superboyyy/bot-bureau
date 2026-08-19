@@ -786,6 +786,8 @@ func describeToolCall(call model.ToolCall) string {
 		return "glob: " + str("pattern")
 	case "fetch_url":
 		return "fetch_url: " + str("url")
+	case "web_search":
+		return "web_search: " + str("query")
 	case "message_bot":
 		return "message_bot → " + str("to")
 	case "save_routine":
@@ -895,11 +897,10 @@ the procedure yourself.
 		rootsLine = d + "\n"
 	}
 
-	// A provider without server-side web tools still has fetch_url, so nothing points at curl any more:
-	// that route cost the user one approval per page, and what it approved was a whole shell.
-	webLine := i18n.T("- Use fetch_url to read a page or an API online; you have no search engine, so work from addresses you already know or that the user gave you")
+	// Engine web_search is always there. Claude also has vendor web_search / web_fetch; those stay extra.
+	webLine := i18n.T("- Use web_search to find pages, then fetch_url to read one you chose. It does not need approval")
 	if w.provider.SupportsWebTools() {
-		webLine = i18n.T("- Use web_search / web_fetch to research online, or fetch_url for one specific address")
+		webLine = i18n.T("- Use web_search to find pages (the engine tool is always there; you also have the vendor's web_search / web_fetch), then fetch_url for one specific address")
 	}
 	webLine += i18n.T("\n- If the work will touch more than one file, call todo_write with a checklist, then submit_plan with the plan, and wait for the user to accept it before editing")
 	webLine += i18n.T("\n- Memory lists below are id: first-clause only; call recall to load a body, forget to delete by id, and search_history to look up a line from this conversation")

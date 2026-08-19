@@ -4,6 +4,7 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/model"
 	"botbureau/backend/internal/plugin"
+	"botbureau/backend/internal/secret"
 	"botbureau/backend/internal/skill"
 	"botbureau/backend/internal/textutil"
 
@@ -47,6 +48,7 @@ type Toolbox struct {
 	turnCtx     context.Context
 	botPerm     string           // this bot's tier; empty follows the global one
 	settings    *config.Settings // source of the global tier
+	ks          *secret.KeyStore
 }
 
 // perm settles the tier in force for this call. It is resolved per call rather than fixed at startup:
@@ -90,7 +92,7 @@ func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *Team
 	return &Toolbox{
 		botName: botName, workspace: workspace, roots: roots, mem: mem,
 		teamMem: deps.TeamMem, board: deps.Board, mcp: deps.MCP, mcpServers: mcpServers, skills: deps.Skills,
-		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings,
+		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS,
 	}
 }
 
@@ -129,6 +131,14 @@ func (t *Toolbox) Defs() []model.ToolDef {
 				"url": map[string]any{"type": "string", "description": i18n.T("The http or https address to read")},
 			},
 			Required: []string{"url"},
+		},
+		{
+			Name:        "web_search",
+			Description: i18n.T("Search the public web and get up to eight title/url/snippet rows. Then fetch_url a URL you chose. It runs straight away and never needs approval. A Brave or Tavily key in Settings is used when present; otherwise a DuckDuckGo HTML page. It will not open addresses on this machine or this local network."),
+			Properties: map[string]any{
+				"query": map[string]any{"type": "string", "description": i18n.T("What to search for")},
+			},
+			Required: []string{"query"},
 		},
 		{
 			Name:        "read_file",
@@ -343,6 +353,9 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.Re
 	case "fetch_url":
 		s, err := t.runFetchURL(str("url"))
 		return text(s, err)
+	case "web_search":
+		s, err := t.runWebSearch(str("query"))
+		return text(s, err)
 	case "read_file":
 		off, hasOff := intArg(input, "offset")
 		lim, hasLim := intArg(input, "limit")
@@ -443,7 +456,7 @@ func boolArg(input map[string]any, key string) bool {
 // Writes, bash, and anything that waits on a human stay in order.
 func (t *Toolbox) parallelizable(name string) bool {
 	switch name {
-	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks", "recall", "search_history":
+	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks", "recall", "search_history", "web_search":
 		return true
 	}
 	if strings.HasPrefix(name, "mcp_") {
