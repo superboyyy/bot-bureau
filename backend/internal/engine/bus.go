@@ -430,6 +430,29 @@ func (b *Bus) History(chat string, before, limit int) (evs []Event, more bool) {
 	return evs, more
 }
 
+// SearchChat finds messages in this conversation whose text contains query. It reads the durable log
+// when one exists, so a line dropped from the live model session is still findable.
+func (b *Bus) SearchChat(chat, query string, max int) []Event {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil
+	}
+	if max <= 0 {
+		max = maxHistoryHits
+	}
+	if max > 40 {
+		max = 40
+	}
+	b.mu.Lock()
+	log := b.log
+	mem := append([]Event(nil), b.events...)
+	b.mu.Unlock()
+	if log != nil {
+		return log.searchChat(chat, query, max)
+	}
+	return filterChatMessages(mem, chat, query, max)
+}
+
 // DeleteChat wipes one conversation's history. Production reaches it only for an explicit data-deletion
 // action: deleting a group conversation or purging a member.
 func (b *Bus) DeleteChat(chat string) int {

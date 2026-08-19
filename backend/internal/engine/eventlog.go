@@ -39,6 +39,8 @@ const (
 	// How many non-message events survive compaction. It runs only once the count reaches twice this,
 	// so start-up does not rewrite the whole file every time.
 	keepActivity = 4000
+
+	maxHistoryHits = 12
 )
 
 // Two kinds that do not survive a restart: busy/idle is a fact about right now, and a pending approval
@@ -146,6 +148,50 @@ func (l *eventLog) page(chat string, before, limit int) ([]Event, bool) {
 		return hits[len(hits)-limit:], true
 	}
 	return hits, false
+}
+
+func matchChatMessage(ev Event, chat, query string) bool {
+	k, _ := ev["kind"].(string)
+	if k != "msg" {
+		return false
+	}
+	c, _ := ev["chat"].(string)
+	if c != chat {
+		return false
+	}
+	text, _ := ev["text"].(string)
+	return strings.Contains(strings.ToLower(text), query)
+}
+
+func filterChatMessages(evs []Event, chat, query string, max int) []Event {
+	var hits []Event
+	for _, ev := range evs {
+		if !matchChatMessage(ev, chat, query) {
+			continue
+		}
+		hits = append(hits, ev)
+	}
+	if max > 0 && len(hits) > max {
+		hits = hits[len(hits)-max:]
+	}
+	return hits
+}
+
+// searchChat returns the most recent messages in this conversation whose text contains query.
+func (l *eventLog) searchChat(chat, query string, max int) []Event {
+	if l == nil {
+		return nil
+	}
+	var hits []Event
+	_ = l.scan(func(ev Event) {
+		if matchChatMessage(ev, chat, query) {
+			hits = append(hits, ev)
+		}
+	})
+	if max > 0 && len(hits) > max {
+		hits = hits[len(hits)-max:]
+	}
+	return hits
 }
 
 // deleteChat removes one conversation's record from the log and reports how many entries went.
