@@ -1217,8 +1217,27 @@ dialog menu button.primary.danger:hover {
 /* Empty states outside a card still need padding */
 .side-scroll .empty, .pop .empty { color: var(--text-3); font-size: 12px; padding: 12px 10px; }
 
-/* On Windows/Linux the window controls float top-right — reserve room at the end of the header */
+/* On Windows/Linux the window controls are HTML in the top-right — reserve room at the end of the header */
 .win-controls header { padding-right: 150px; }
+
+#winChrome {
+  position: fixed; top: 0; right: 0; z-index: 40;
+  height: var(--titlebar); display: flex;
+  -webkit-app-region: no-drag;
+}
+#winChrome[hidden] { display: none !important; }
+#winChrome button {
+  width: 46px; height: 100%; margin: 0; padding: 0;
+  border: 0; border-radius: 0; background: transparent;
+  color: var(--text-2); cursor: pointer;
+  display: grid; place-items: center;
+}
+#winChrome button:hover { background: var(--glass-2); color: var(--text); }
+#winChrome button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+#winChrome #winClose:hover { background: #e81123; color: #fff; }
+#winChrome .restore { display: none; }
+#winChrome.maximized .maximize { display: none; }
+#winChrome.maximized .restore { display: block; }
 
 /* Avatar editor ---- */
 

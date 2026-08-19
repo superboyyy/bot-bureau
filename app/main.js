@@ -403,6 +403,8 @@ const rendererQuery = () => ({
   remote: remoteMode ? "1" : "0",
   locale: app.getLocale(),
   vibrancy: VIBRANCY ? "1" : "0",
+  // macOS keeps traffic lights; Windows/Linux draw HTML window controls (see #winChrome).
+  chrome: process.platform === "darwin" ? "native" : "html",
 });
 
 function createWindow() {
@@ -415,10 +417,13 @@ function createWindow() {
     icon: appearanceIcon() || ICON,
 
     // Fully transparent under vibrancy, or this flat fill buries the system blur; the right half's
-    // solid ground is painted by main itself
+    // solid ground is painted by main itself. Windows/Linux may replace this once the renderer
+    // reports the resolved light/dark appearance (see set-appearance).
     backgroundColor: VIBRANCY ? "#00000000" : "#0a0a0b",  // keep in sync with --bg in style.css
 
-    // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region
+    // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region.
+    // Native titleBarOverlay is not used: its fill was hardcoded to --bg while the buttons sit on
+    // --pane, so they read as a black slab, and on Linux the glyph colour is ignored entirely.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset",
@@ -428,7 +433,7 @@ function createWindow() {
           // sidebars do fade when the window loses focus, and pinning it to active reads as less native.
           ...(VIBRANCY ? { vibrancy: "sidebar" } : {}),
         }
-      : { titleBarStyle: "hidden", titleBarOverlay: { color: "#0a0a0b", symbolColor: "#9d9da4", height: 56 } }),
+      : { titleBarStyle: "hidden", autoHideMenuBar: true }),
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -457,8 +462,50 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "renderer", "index.html"), {
     query: rendererQuery(),
   });
+  attachWindowControls(win);
   return win;
 }
+
+function attachWindowControls(win) {
+  const sendMaximized = () => {
+    if (win.isDestroyed()) return;
+    win.webContents.send("window-maximized", win.isMaximized());
+  };
+  win.on("maximize", sendMaximized);
+  win.on("unmaximize", sendMaximized);
+}
+
+function canvasColor(appearance) {
+  return appearance === "light" ? "#eceef3" : "#0a0a0b";
+}
+
+function windowFromEvent(e) {
+  return BrowserWindow.fromWebContents(e.sender);
+}
+
+ipcMain.handle("window-minimize", (e) => {
+  const win = windowFromEvent(e);
+  if (win && !win.isDestroyed()) win.minimize();
+});
+ipcMain.handle("window-maximize", (e) => {
+  const win = windowFromEvent(e);
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.handle("window-close", (e) => {
+  const win = windowFromEvent(e);
+  if (win && !win.isDestroyed()) win.close();
+});
+ipcMain.handle("window-is-maximized", (e) => {
+  const win = windowFromEvent(e);
+  return !!(win && !win.isDestroyed() && win.isMaximized());
+});
+ipcMain.handle("set-appearance", (e, appearance) => {
+  const win = windowFromEvent(e);
+  if (!win || win.isDestroyed() || VIBRANCY) return;
+  try { win.setBackgroundColor(canvasColor(appearance === "light" ? "light" : "dark")); } catch { /* some Linux WMs reject this */ }
+});
 
 function reloadAllWindows() {
   for (const w of BrowserWindow.getAllWindows()) {

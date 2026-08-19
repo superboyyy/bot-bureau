@@ -16,6 +16,23 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Windows/Linux window controls. Hidden on macOS, which keeps the traffic lights.
+     Native titleBarOverlay used to paint a black slab here (see main.js). -->
+<div id="winChrome" hidden>
+  <button type="button" id="winMin" title="Minimize" data-i18n-title="Minimize" aria-label="Minimize">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 5h7"/></svg>
+  </button>
+  <button type="button" id="winMax" title="Maximize" data-i18n-title="Maximize" aria-label="Maximize">
+    <svg class="maximize" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.75" y="1.75" width="6.5" height="6.5" rx="0.4"/></svg>
+    <svg class="restore" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2">
+      <path d="M3.2 3.2h5.1v5.1"/>
+      <rect x="1.7" y="1.7" width="5.1" height="5.1" rx="0.3"/>
+    </svg>
+  </button>
+  <button type="button" id="winClose" title="Close" data-i18n-title="Close" aria-label="Close">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2.2 2.2l5.6 5.6M7.8 2.2l-5.6 5.6"/></svg>
+  </button>
+</div>
 <div id="app">
   <aside>
     <div class="side-top">
@@ -453,6 +470,7 @@
 <script src="utils/avatars.js"></script>
 <script src="core/time.js"></script>
 <script src="core/api.js"></script>
+<script src="views/chrome.js"></script>
 <script src="views/sidebar.js"></script>
 <script src="views/chat.js"></script>
 <script src="views/workbench.js"></script>

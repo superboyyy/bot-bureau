@@ -13,7 +13,7 @@ module.exports = defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
-      include: ["renderer/markdown.js", "renderer/i18n.js"],
+      include: ["renderer/markdown.js", "renderer/i18n.js", "renderer/views/chrome.js"],
       exclude: ["renderer/locales/**"],
       thresholds: {
         lines: 80,

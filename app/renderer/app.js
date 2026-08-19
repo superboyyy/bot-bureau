@@ -17,6 +17,7 @@ function applyTheme() {
   const pref = themePref();
   if (pref === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", pref);
+  if (typeof syncWindowAppearance === "function") syncWindowAppearance();
 }
 
 function setThemePref(pref) {
@@ -81,8 +82,13 @@ function showPairHint(engines) {
 }
 
 function boot() {
-  if (!/Mac/i.test(navigator.userAgent)) document.documentElement.classList.add("win-controls");
+  wireWindowChrome();
   applyTheme();
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+      if (themePref() === "auto") applyTheme();
+    });
+  }
   applyStatic();
   if (window.botBureauNative && window.botBureauNative.onEnginesFound) {
     window.botBureauNative.onEnginesFound(showPairHint);
