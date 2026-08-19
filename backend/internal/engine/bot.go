@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // TeamDeps holds the team-wide shared resources: shared memory, the task board, the key store, and the plugin (MCP server) manager.
@@ -85,8 +86,12 @@ func (d *TeamDeps) SyncSkillRoots() {
 type BotWorker struct {
 	Cfg      config.BotConfig
 	provider model.Provider
-	sessions map[string]model.Session // key: "group" / "dm"
+	sessions map[string]model.Session // key: "group" / "dm" / group id
 	inbox    chan Msg
+
+	// sessMu guards the sessions map. HTTP handlers (session reset) write it from another
+	// goroutine while the worker may still be saving a snapshot.
+	sessMu sync.Mutex
 
 	// deferred holds messages pulled from the inbox mid-turn that do not belong in the running turn
 	// (routine triggers, work handed over by another bot, another conversation). They queue ahead of
@@ -268,6 +273,8 @@ func (w *BotWorker) pumpInbox(chat string, sess model.Session) []Msg {
 }
 
 func (w *BotWorker) session(chat string) model.Session {
+	w.sessMu.Lock()
+	defer w.sessMu.Unlock()
 	s, ok := w.sessions[chat]
 	if !ok {
 		s = w.provider.NewSession()
@@ -400,7 +407,7 @@ func (w *BotWorker) handle(msg Msg) {
 
 	// Group-chat background message: goes into the context only, no reply.
 	if !msg.Respond {
-		sess.Trim(config.HistoryLimit)
+		sess.Trim(config.HistoryLimit, config.HistoryCharBudget)
 		w.saveSessions()
 		return
 	}
@@ -435,7 +442,7 @@ func (w *BotWorker) handle(msg Msg) {
 		w.deferredN.Store(int32(len(w.deferred)))
 	}
 	w.injected = nil
-	sess.Trim(config.HistoryLimit)
+	sess.Trim(config.HistoryLimit, config.HistoryCharBudget)
 }
 
 // agentLoop runs one turn to completion. It returns true if the turn was refused by the safety system and must be rolled back.
@@ -468,6 +475,7 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 	// nothing may be slipped in at that point; before every other request is a safe place to listen.
 	listen := true
 	var repeat repeatWatch
+	autoContinues := 0
 	for i := 0; i < config.MaxToolIterations; i++ {
 		if cancelled() {
 			return false
@@ -541,6 +549,13 @@ func (w *BotWorker) agentLoop(ctx context.Context, chat string, sess model.Sessi
 					})
 				}
 				sess.AddToolResults(results)
+			}
+			if autoContinues < config.MaxAutoContinues {
+				autoContinues++
+				w.bus.Emit("tool", evChat, w.Name(), i18n.T("Reply truncated; continuing once")+" …", nil)
+				sess.AddUser(i18n.T("Your previous reply was cut off by the length limit. Continue from where you left off without repeating yourself."))
+				listen = true
+				continue
 			}
 			w.bus.Emit("msg", evChat, w.Name(), i18n.T("(The reply was cut off for length — tell me to continue.)"), nil)
 			return false
@@ -660,6 +675,20 @@ func (w *BotWorker) sessionsPath() string {
 }
 
 func (w *BotWorker) saveSessions() {
+	w.sessMu.Lock()
+	defer w.sessMu.Unlock()
+	w.saveSessionsLocked()
+}
+
+func (w *BotWorker) saveSessionsLocked() {
+	raw := w.marshalSessionsLocked()
+	if raw == nil {
+		return
+	}
+	_ = os.WriteFile(w.sessionsPath(), raw, 0o644)
+}
+
+func (w *BotWorker) marshalSessionsLocked() []byte {
 	out := map[string]json.RawMessage{}
 	for k, s := range w.sessions {
 		if snap := s.Snapshot(); len(snap) > 0 {
@@ -668,9 +697,37 @@ func (w *BotWorker) saveSessions() {
 	}
 	raw, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func (w *BotWorker) archiveSessionsLocked() {
+	raw, err := os.ReadFile(w.sessionsPath())
+	if err != nil || len(strings.TrimSpace(string(raw))) == 0 || strings.TrimSpace(string(raw)) == "{}" {
+		raw = w.marshalSessionsLocked()
+	}
+	if len(strings.TrimSpace(string(raw))) == 0 || strings.TrimSpace(string(raw)) == "{}" {
 		return
 	}
-	_ = os.WriteFile(w.sessionsPath(), raw, 0o644)
+	dest := filepath.Join(w.workspace, fmt.Sprintf("sessions-%d.json", time.Now().Unix()))
+	if _, err := os.Stat(dest); err == nil {
+		dest = filepath.Join(w.workspace, fmt.Sprintf("sessions-%d.json", time.Now().UnixNano()))
+	}
+	_ = os.WriteFile(dest, raw, 0o644)
+}
+
+// ResetChat archives this workspace's sessions.json and replaces one conversation's model
+// context with an empty session. MEMORY.md, the workspace, and granted roots stay put.
+func (w *BotWorker) ResetChat(chat string) {
+	w.Cancel()
+	w.sessMu.Lock()
+	w.archiveSessionsLocked()
+	w.sessions[chat] = w.provider.NewSession()
+	w.saveSessionsLocked()
+	w.sessMu.Unlock()
+	w.bus.Emit("system", w.eventChat(chat), w.Name(),
+		i18n.T("New conversation started. The model starts fresh; the log is kept."), nil)
 }
 
 func (w *BotWorker) loadSessions() {
@@ -682,6 +739,8 @@ func (w *BotWorker) loadSessions() {
 	if json.Unmarshal(raw, &m) != nil {
 		return
 	}
+	w.sessMu.Lock()
+	defer w.sessMu.Unlock()
 	for k, snap := range m {
 		s := w.provider.NewSession()
 		if s.Restore(snap) {
@@ -696,9 +755,17 @@ func (w *BotWorker) RestoreFrom(old *BotWorker) {
 	if old == nil {
 		return
 	}
+	old.sessMu.Lock()
+	snaps := map[string]json.RawMessage{}
 	for k, s := range old.sessions {
+		snaps[k] = s.Snapshot()
+	}
+	old.sessMu.Unlock()
+	w.sessMu.Lock()
+	defer w.sessMu.Unlock()
+	for k, snap := range snaps {
 		ns := w.provider.NewSession()
-		if ns.Restore(s.Snapshot()) {
+		if ns.Restore(snap) {
 			w.sessions[k] = ns
 		}
 	}

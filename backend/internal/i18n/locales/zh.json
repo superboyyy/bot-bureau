@@ -51,9 +51,11 @@
   "(no other members yet)\n": "（暂无其他成员）\n",
   "(no output)": "(无输出)",
   "(none yet)": "（暂无）",
+  "(no extractable text)": "（没有可摘录的文本）",
   "(the board is empty)": "（看板为空）",
   "(The reply was cut off for length — tell me to continue.)": "（回复太长被截断了，可以让我继续）",
   "(The reply was truncated by the length limit; this tool call was not executed.)": "（回复因长度限制被截断，该工具调用未执行）",
+  "Reply truncated; continuing once": "回复被截断，自动续写一次",
   "Directory or file to search; defaults to the workspace": "要搜索的目录或文件；默认是工作目录",
   "Edited %s (%d replacement)": "已编辑 %s（%d 处）",
   "Edited %s (%d replacements)": "已编辑 %s（%d 处）",
@@ -85,6 +87,7 @@
   "[Background — the user said this in the room but it was not addressed to you; it went to someone else. Do not answer it. Carry on with what you were doing; this is here only so you know what is going on.]\n": "[背景消息——这句话是用户在群里说的，但不是对你说的，它派给了别人。不要回答它。继续你手上的事；\n它出现在这里只是让你知道群里在发生什么。]\n",
   "[DM·%s] ": "【私聊·%s】",
   "[error] ": "[错误] ",
+  "[Earlier turns were dropped to free context. What was dropped:\n%s]": "[更早的轮次已丢掉，好腾出上下文。丢掉的内容：\n%s]",
   "[Group] ": "【群聊】",
   "[Plugin %s] %s %s": "[插件 %s] %s %s",
   "[Replying to %s: \"%s\"]\n": "[在回复%s的这句：「%s」]\n",
@@ -253,6 +256,7 @@
   "Name must be 1-24 lowercase letters/digits/-/_": "名字需为 1-24 位小写字母/数字/-/_",
   "New group chat created": "新群聊已创建",
   "New member ": "新成员 ",
+  "New conversation started. The model starts fresh; the log is kept.": "已开始新对话。模型从空白开始；聊天记录仍保留。",
   "no .claude-plugin/marketplace.json found": "没有找到 .claude-plugin/marketplace.json",
   "no .claude-plugin/plugin.json found": "没有找到 .claude-plugin/plugin.json",
   "No approvals": "无需审批",
@@ -452,5 +456,6 @@
   "You can close this tab and go back to Bot Bureau.": "可以关掉这个页面，回到 Bot Bureau。",
   "You can sign in with a ChatGPT Plus/Pro subscription instead of buying API credit": "可用 ChatGPT Plus/Pro 订阅登录，不必买 API 额度",
   "You can sign in with a SuperGrok subscription instead of buying API credit": "可用 SuperGrok 订阅登录，不必买 API 额度",
-  "You cannot message yourself": "不能给自己发消息"
+  "You cannot message yourself": "不能给自己发消息",
+  "Your previous reply was cut off by the length limit. Continue from where you left off without repeating yourself.": "你上一轮回复因长度限制被截断了。请从断点接着写，不要重复已经说过的内容。"
 }

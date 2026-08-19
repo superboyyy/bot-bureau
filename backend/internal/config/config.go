@@ -40,7 +40,15 @@ const (
 	// Five rather than two or three: retrying once is ordinary (a network blip, a file written a moment
 	// ago and not yet visible). Five identical calls in a row is no longer a retry.
 	MaxRepeatedCalls = 5
-	HistoryLimit     = 60 // max messages per conversation context
+	HistoryLimit     = 60 // max messages per conversation context (backstop)
+
+	// Character budget for one session. chars/4 is a rough token estimate; this fires before
+	// HistoryLimit on real traces with large tool results. Zero would disable the budget.
+	HistoryCharBudget = 100_000
+
+	// Automatic "continue" loops after a max_tokens stop. One is enough to finish a cut-off
+	// reply without asking the user; a second truncation still stops as before.
+	MaxAutoContinues = 1
 	BashTimeout      = 120 * time.Second
 	ToolOutputLimit  = 20000 // tool output truncation length (chars)
 

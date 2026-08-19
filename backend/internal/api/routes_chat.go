@@ -199,4 +199,65 @@ func (a *App) registerChatRoutes(mux *http.ServeMux) {
 		httpx.WriteJSON(rw, 200, map[string]any{"ok": true, "granted": granted})
 	}))
 
+	mux.HandleFunc("/api/session/reset", cors(func(rw http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Bot  string `json:"bot"`
+			Chat string `json:"chat"`
+		}
+		if err := httpx.ReadJSON(r, &body); err != nil {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
+			return
+		}
+		chat := strings.TrimSpace(body.Chat)
+		bot := strings.TrimSpace(body.Bot)
+		if chat == "" {
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Which conversation?")})
+			return
+		}
+		resetOne := func(name, sessionKey string) bool {
+			w := a.bus.Bot(name)
+			if w == nil {
+				httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("No bot named ") + name + i18n.T(" exists")})
+				return false
+			}
+			w.ResetChat(sessionKey)
+			return true
+		}
+		switch {
+		case strings.HasPrefix(chat, "dm:"):
+			name := strings.TrimPrefix(chat, "dm:")
+			if bot != "" && bot != name {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("chat must be a group or dm:<bot name>")})
+				return
+			}
+			if !resetOne(name, "dm") {
+				return
+			}
+		case chat == "dm":
+			if bot == "" {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Which conversation?")})
+				return
+			}
+			if !resetOne(bot, "dm") {
+				return
+			}
+		case engine.IsGroupChat(chat):
+			if bot != "" {
+				if !resetOne(bot, chat) {
+					return
+				}
+				break
+			}
+			for _, name := range a.bus.GroupMembersOf(chat) {
+				if w := a.bus.Bot(name); w != nil {
+					w.ResetChat(chat)
+				}
+			}
+		default:
+			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("chat must be a group or dm:<bot name>")})
+			return
+		}
+		httpx.WriteJSON(rw, 200, map[string]any{"ok": true})
+	}))
+
 }

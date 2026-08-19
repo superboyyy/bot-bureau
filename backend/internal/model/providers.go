@@ -91,8 +91,10 @@ type Session interface {
 	AddToolResults(rs []ToolResult)
 	Step(ctx context.Context, system string, tools []ToolDef, includeWeb bool) (StepResult, error)
 
-	// Trim history (cut only at full user-turn boundaries).
-	Trim(limit int)
+	// Trim drops oldest complete turns until the history fits maxMessages and maxChars.
+	// maxChars <= 0 means no character budget. Cuts stay on user-turn boundaries; a compact
+	// note is inserted at the new head so the model knows what disappeared.
+	Trim(maxMessages, maxChars int)
 	Snapshot() json.RawMessage
 	Restore(json.RawMessage) bool
 }
@@ -168,6 +170,9 @@ type cutTracker struct {
 
 	// Start indices of full user turns; trimming may only cut at these positions.
 	cuts []int
+
+	// Latest compact note, persisted so a restart does not look like the dropped turns vanished silently.
+	note string
 }
 
 func (t *cutTracker) markTurn(historyLen int) { t.mark = historyLen }
@@ -186,18 +191,13 @@ func (t *cutTracker) rollbackTo() int {
 }
 
 // trimPoint returns the index from which history should be kept, or 0 when there is no suitable cut point.
+// It still rebases the tracker, which is what TestCutTrackerTrim exercises.
 func (t *cutTracker) trimPoint(historyLen, limit int) int {
-	if historyLen <= limit {
-		return 0
+	p := t.pickTrim(historyLen, limit, 0, nil)
+	if p > 0 {
+		t.rebase(p)
 	}
-	want := historyLen - limit
-	for _, c := range t.cuts {
-		if c >= want {
-			t.rebase(c)
-			return c
-		}
-	}
-	return 0
+	return p
 }
 
 func (t *cutTracker) rebase(offset int) {
@@ -332,10 +332,10 @@ func (s *anthropicSession) AddToolResults(rs []ToolResult) {
 	s.history = append(s.history, anthropic.NewBetaUserMessage(blocks...))
 }
 
-func (s *anthropicSession) Trim(limit int) {
-	if p := s.tracker.trimPoint(len(s.history), limit); p > 0 {
-		s.history = append([]anthropic.BetaMessageParam(nil), s.history[p:]...)
-	}
+func (s *anthropicSession) Trim(maxMessages, maxChars int) {
+	applyTrim(&s.history, &s.tracker, maxMessages, maxChars, func(note string) anthropic.BetaMessageParam {
+		return anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(note))
+	}, sketchesJSON[anthropic.BetaMessageParam], charsFromJSON[anthropic.BetaMessageParam])
 }
 
 type sessionDisk struct {
@@ -343,6 +343,7 @@ type sessionDisk struct {
 	History json.RawMessage `json:"history"`
 	Cuts    []int           `json:"cuts"`
 	Mark    int             `json:"mark"`
+	Note    string          `json:"note,omitempty"`
 }
 
 func packSession(kind string, history any, t cutTracker) json.RawMessage {
@@ -350,7 +351,7 @@ func packSession(kind string, history any, t cutTracker) json.RawMessage {
 	if err != nil {
 		return nil
 	}
-	raw, err := json.Marshal(sessionDisk{Kind: kind, History: h, Cuts: t.cuts, Mark: t.mark})
+	raw, err := json.Marshal(sessionDisk{Kind: kind, History: h, Cuts: t.cuts, Mark: t.mark, Note: t.note})
 	if err != nil {
 		return nil
 	}
@@ -365,7 +366,7 @@ func unpackSession(raw json.RawMessage, kind string, history any) (cutTracker, b
 	if json.Unmarshal(d.History, history) != nil {
 		return cutTracker{}, false
 	}
-	return cutTracker{cuts: d.Cuts, mark: d.Mark}, true
+	return cutTracker{cuts: d.Cuts, mark: d.Mark, note: d.Note}, true
 }
 
 func (s *anthropicSession) Snapshot() json.RawMessage {
@@ -648,10 +649,10 @@ func (s *openAISession) AddToolResults(rs []ToolResult) {
 	}
 }
 
-func (s *openAISession) Trim(limit int) {
-	if p := s.tracker.trimPoint(len(s.history), limit); p > 0 {
-		s.history = append([]oaiMessage(nil), s.history[p:]...)
-	}
+func (s *openAISession) Trim(maxMessages, maxChars int) {
+	applyTrim(&s.history, &s.tracker, maxMessages, maxChars, func(note string) oaiMessage {
+		return oaiMessage{Role: "user", Content: oaiText(note)}
+	}, sketchesJSON[oaiMessage], charsFromJSON[oaiMessage])
 }
 
 func (s *openAISession) Snapshot() json.RawMessage {
@@ -1127,10 +1128,8 @@ func (s *unsetSession) AddToolResults(rs []ToolResult) {
 		s.history = append(s.history, "tool: "+r.Content)
 	}
 }
-func (s *unsetSession) Trim(limit int) {
-	if p := s.tracker.trimPoint(len(s.history), limit); p > 0 {
-		s.history = append([]string(nil), s.history[p:]...)
-	}
+func (s *unsetSession) Trim(maxMessages, maxChars int) {
+	applyStringTrim(&s.history, &s.tracker, maxMessages, maxChars)
 }
 func (s *unsetSession) Snapshot() json.RawMessage {
 	return packSession("unset", s.history, s.tracker)
@@ -1178,10 +1177,8 @@ func (s *fakeSession) AddToolResults(rs []ToolResult) {
 		s.history = append(s.history, "tool: "+r.Content)
 	}
 }
-func (s *fakeSession) Trim(limit int) {
-	if p := s.tracker.trimPoint(len(s.history), limit); p > 0 {
-		s.history = append([]string(nil), s.history[p:]...)
-	}
+func (s *fakeSession) Trim(maxMessages, maxChars int) {
+	applyStringTrim(&s.history, &s.tracker, maxMessages, maxChars)
 }
 func (s *fakeSession) Snapshot() json.RawMessage {
 	return packSession("fake", s.history, s.tracker)

@@ -31,10 +31,8 @@ func (s *scriptedSession) AddToolResults(rs []ToolResult) {
 	s.toolResults = append(s.toolResults, rs)
 	s.history = append(s.history, "toolresults")
 }
-func (s *scriptedSession) Trim(limit int) {
-	if p := s.tracker.trimPoint(len(s.history), limit); p > 0 {
-		s.history = append([]string(nil), s.history[p:]...)
-	}
+func (s *scriptedSession) Trim(maxMessages, maxChars int) {
+	applyStringTrim(&s.history, &s.tracker, maxMessages, maxChars)
 }
 func (s *scriptedSession) Snapshot() json.RawMessage {
 	return packSession("scripted", s.history, s.tracker)
