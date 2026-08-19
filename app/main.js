@@ -397,14 +397,26 @@ const VIBRANCY = process.platform === "darwin";
 // Both load sites share one set of query params: the window's first load, and the full reload after
 // connecting to an engine. They were written out separately once, and the result was exactly what you
 // would expect — the first load got updated, the reload did not, and the params fell off on connect.
+// Keep in sync with --titlebar / --pane / --text-2 in renderer/style.css.
+const TITLEBAR = 56;
+function overlayOpts(appearance) {
+  const light = appearance === "light";
+  return {
+    color: light ? "#ffffff" : "#141417",
+    symbolColor: light ? "#62626b" : "#9d9da4",
+    height: TITLEBAR,
+  };
+}
+
 const rendererQuery = () => ({
   backend: backendURL,
   token: localToken,
   remote: remoteMode ? "1" : "0",
   locale: app.getLocale(),
   vibrancy: VIBRANCY ? "1" : "0",
-  // macOS keeps traffic lights; Windows/Linux draw HTML window controls (see #winChrome).
-  chrome: process.platform === "darwin" ? "native" : "html",
+  // macOS: native traffic lights. Windows/Linux: native Window Controls Overlay; the renderer
+  // falls back to HTML #winChrome only if the overlay is not actually visible.
+  chrome: process.platform === "darwin" ? "native" : "auto",
 });
 
 function createWindow() {
@@ -422,8 +434,10 @@ function createWindow() {
     backgroundColor: VIBRANCY ? "#00000000" : "#0a0a0b",  // keep in sync with --bg in style.css
 
     // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region.
-    // Native titleBarOverlay is not used: its fill was hardcoded to --bg while the buttons sit on
-    // --pane, so they read as a black slab, and on Linux the glyph colour is ignored entirely.
+    // macOS keeps the traffic lights. Windows and Linux use the platform Window Controls Overlay
+    // (Electron 43+ follows the desktop's button layout on Linux) so min/max/close are real OS
+    // widgets, not HTML. Overlay fill is --pane — the paper the buttons sit on — not --bg, which
+    // used to read as a black slab. Height matches --titlebar so the hit targets are the full strip.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset",
@@ -433,7 +447,11 @@ function createWindow() {
           // sidebars do fade when the window loses focus, and pinning it to active reads as less native.
           ...(VIBRANCY ? { vibrancy: "sidebar" } : {}),
         }
-      : { titleBarStyle: "hidden", autoHideMenuBar: true }),
+      : {
+          titleBarStyle: "hidden",
+          autoHideMenuBar: true,
+          titleBarOverlay: overlayOpts("dark"),
+        }),
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -504,7 +522,10 @@ ipcMain.handle("window-is-maximized", (e) => {
 ipcMain.handle("set-appearance", (e, appearance) => {
   const win = windowFromEvent(e);
   if (!win || win.isDestroyed() || VIBRANCY) return;
-  try { win.setBackgroundColor(canvasColor(appearance === "light" ? "light" : "dark")); } catch { /* some Linux WMs reject this */ }
+  const look = appearance === "light" ? "light" : "dark";
+  try { win.setBackgroundColor(canvasColor(look)); } catch { /* some Linux WMs reject this */ }
+  if (process.platform === "darwin" || typeof win.setTitleBarOverlay !== "function") return;
+  try { win.setTitleBarOverlay(overlayOpts(look)); } catch { /* overlay not available on this shell */ }
 });
 
 function reloadAllWindows() {

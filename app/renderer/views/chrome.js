@@ -1,12 +1,19 @@
 "use strict";
 
-// HTML window controls for Windows and Linux. macOS keeps the native traffic lights.
-// Loaded in the order declared by renderer/index.html.
+// Window chrome: macOS keeps native traffic lights. Windows/Linux prefer the platform Window
+// Controls Overlay (see titleBarOverlay in main.js). HTML #winChrome is only the fallback when
+// that overlay is missing. Loaded in the order declared by renderer/index.html.
+
+function overlayVisible() {
+  const wco = typeof navigator !== "undefined" && navigator.windowControlsOverlay;
+  return !!(wco && wco.visible);
+}
 
 function htmlWindowChrome() {
   const v = new URLSearchParams(location.search).get("chrome");
   if (v === "html") return true;
   if (v === "native") return false;
+  if (overlayVisible()) return false;
   return typeof navigator !== "undefined" && !/Mac/i.test(navigator.userAgent || "");
 }
 
@@ -38,7 +45,20 @@ function setChromeMaximized(on) {
   btn.setAttribute("data-i18n-title", on ? "Restore" : "Maximize");
 }
 
+let overlayWatched = false;
+function watchOverlay() {
+  const wco = typeof navigator !== "undefined" ? navigator.windowControlsOverlay : null;
+  if (!wco || overlayWatched || typeof wco.addEventListener !== "function") return;
+  overlayWatched = true;
+  wco.addEventListener("geometrychange", () => wireWindowChrome());
+}
+
 function wireWindowChrome() {
+  watchOverlay();
+  const overlay = overlayVisible();
+  if (typeof document !== "undefined") {
+    document.documentElement.classList.toggle("wco", overlay);
+  }
   const box = document.getElementById("winChrome");
   if (!box) return;
   if (!htmlWindowChrome()) {
@@ -63,7 +83,7 @@ function wireWindowChrome() {
 
 if (typeof window !== "undefined") {
   window.__botBureauChrome = {
-    htmlWindowChrome, resolvedAppearance, syncWindowAppearance,
+    htmlWindowChrome, overlayVisible, resolvedAppearance, syncWindowAppearance,
     setChromeMaximized, wireWindowChrome,
   };
 }

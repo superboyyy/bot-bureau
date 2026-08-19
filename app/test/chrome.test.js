@@ -21,6 +21,7 @@ beforeEach(() => {
   document.documentElement.className = "";
   delete window.botBureauNative;
   delete window.themePref;
+  try { delete window.navigator.windowControlsOverlay; } catch { /* non-configurable in some hosts */ }
   setSearch("");
   mountChrome();
 });
@@ -98,6 +99,29 @@ describe("html window chrome", () => {
     expect(chrome.htmlWindowChrome()).toBe(true);
     Object.defineProperty(window.navigator, "userAgent", { configurable: true, value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" });
     expect(chrome.htmlWindowChrome()).toBe(false);
+  });
+
+  it("hides HTML chrome when the native overlay is visible", () => {
+    setSearch("");
+    Object.defineProperty(window.navigator, "userAgent", { configurable: true, value: "Mozilla/5.0 (X11; Linux x86_64)" });
+    Object.defineProperty(window.navigator, "windowControlsOverlay", {
+      configurable: true,
+      value: { visible: true, addEventListener() {} },
+    });
+    expect(chrome.overlayVisible()).toBe(true);
+    expect(chrome.htmlWindowChrome()).toBe(false);
+    chrome.wireWindowChrome();
+    expect(document.documentElement.classList.contains("wco")).toBe(true);
+    expect(document.getElementById("winChrome").hidden).toBe(true);
+  });
+
+  it("keeps HTML chrome when chrome=html even if an overlay exists", () => {
+    setSearch("chrome=html");
+    Object.defineProperty(window.navigator, "windowControlsOverlay", {
+      configurable: true,
+      value: { visible: true, addEventListener() {} },
+    });
+    expect(chrome.htmlWindowChrome()).toBe(true);
   });
 
   it("is a no-op without the chrome markup", () => {

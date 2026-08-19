@@ -16,13 +16,21 @@ test("Electron launches the real client and reaches the renderer", { skip: e2e, 
     if (process.platform === "darwin") {
       assert.ok(await window.locator("#winChrome").getAttribute("hidden") !== null);
     } else {
-      assert.equal(await window.locator("#winChrome").getAttribute("hidden"), null);
-      assert.equal(await window.locator("#winMin").count(), 1);
-      assert.equal(await window.locator("#winMax").count(), 1);
-      assert.equal(await window.locator("#winClose").count(), 1);
-      const color = await window.locator("#winMin").evaluate((el) => getComputedStyle(el).color);
-      assert.notEqual(color, "rgb(0, 0, 0)");
-      assert.notEqual(color, "rgba(0, 0, 0, 0)");
+      const overlay = await window.evaluate(() => !!(navigator.windowControlsOverlay && navigator.windowControlsOverlay.visible));
+      const htmlHidden = await window.locator("#winChrome").getAttribute("hidden");
+      if (overlay) {
+        assert.ok(htmlHidden !== null);
+        const wco = await window.evaluate(() => document.documentElement.classList.contains("wco"));
+        assert.equal(wco, true);
+      } else {
+        assert.equal(htmlHidden, null);
+        assert.equal(await window.locator("#winMin").count(), 1);
+        assert.equal(await window.locator("#winMax").count(), 1);
+        assert.equal(await window.locator("#winClose").count(), 1);
+        const color = await window.locator("#winMin").evaluate((el) => getComputedStyle(el).color);
+        assert.notEqual(color, "rgb(0, 0, 0)");
+        assert.notEqual(color, "rgba(0, 0, 0, 0)");
+      }
     }
   } finally {
     await closeDesktop(session);

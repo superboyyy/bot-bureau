@@ -16,21 +16,21 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- Windows/Linux window controls. Hidden on macOS, which keeps the traffic lights.
-     Native titleBarOverlay used to paint a black slab here (see main.js). -->
+<!-- Windows/Linux fallback window controls. Hidden when the native overlay (or macOS traffic
+     lights) is in use. Glyphs are larger than the previous 10px set so the HTML path stays usable. -->
 <div id="winChrome" hidden>
   <button type="button" id="winMin" title="Minimize" data-i18n-title="Minimize" aria-label="Minimize">
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 5h7"/></svg>
+    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M1.5 6h9"/></svg>
   </button>
   <button type="button" id="winMax" title="Maximize" data-i18n-title="Maximize" aria-label="Maximize">
-    <svg class="maximize" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1.75" y="1.75" width="6.5" height="6.5" rx="0.4"/></svg>
-    <svg class="restore" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2">
-      <path d="M3.2 3.2h5.1v5.1"/>
-      <rect x="1.7" y="1.7" width="5.1" height="5.1" rx="0.3"/>
+    <svg class="maximize" width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="8" height="8" rx="0.5"/></svg>
+    <svg class="restore" width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4">
+      <path d="M4 3.5h5v5"/>
+      <rect x="2.5" y="4.5" width="5.5" height="5.5" rx="0.4"/>
     </svg>
   </button>
   <button type="button" id="winClose" title="Close" data-i18n-title="Close" aria-label="Close">
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2.2 2.2l5.6 5.6M7.8 2.2l-5.6 5.6"/></svg>
+    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
   </button>
 </div>
 <div id="app">
