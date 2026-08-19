@@ -279,6 +279,28 @@ function renderPermLevels() {
     };
     return row;
   }));
+  renderFetchHosts();
+}
+
+function renderFetchHosts() {
+  const ta = $("fetchHosts");
+  if (!ta) return;
+  const list = (state.settings || {}).fetch_hosts || [];
+  if (document.activeElement !== ta) ta.value = list.join("\n");
+}
+
+async function saveFetchHosts() {
+  const ta = $("fetchHosts");
+  const err = $("fetchHostsErr");
+  if (!ta) return;
+  if (err) err.textContent = "";
+  const hosts = ta.value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  try {
+    state.settings = await api("/api/settings", { fetch_hosts: hosts });
+    renderFetchHosts();
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  }
 }
 
 // The per-bot tier adds a "follow the global setting" option and spells out what the global one currently is

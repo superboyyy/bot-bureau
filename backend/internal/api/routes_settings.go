@@ -57,10 +57,11 @@ func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 
 			// Pointer fields: omitted entries stay as they are, so changing the language cannot wipe the group name
 			var body struct {
-				Locale      *string `json:"locale"`
-				GroupTitle  *string `json:"group_title"`
-				GroupAvatar *string `json:"group_avatar"`
-				Permission  *string `json:"permission"`
+				Locale      *string   `json:"locale"`
+				GroupTitle  *string   `json:"group_title"`
+				GroupAvatar *string   `json:"group_avatar"`
+				Permission  *string   `json:"permission"`
+				FetchHosts  *[]string `json:"fetch_hosts"`
 			}
 			if err := httpx.ReadJSON(r, &body); err != nil {
 				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
@@ -80,6 +81,9 @@ func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 			if body.Permission != nil && !a.settings.SetPermission(strings.TrimSpace(*body.Permission)) {
 				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("The permission tier must be ask / edit / auto / full")})
 				return
+			}
+			if body.FetchHosts != nil {
+				a.settings.SetFetchHosts(*body.FetchHosts)
 			}
 			a.bus.Emit("refresh", "", "system", "settings", nil)
 			httpx.WriteJSON(rw, 200, a.settings.Status())

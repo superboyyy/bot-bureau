@@ -238,6 +238,11 @@
         <p class="hint" data-i18n="Which actions require approval while a member works. This is the team-wide default; each member can override it in their own settings.">Which actions require approval while a member works. This is the team-wide default; each member can override it in their own settings.</p>
         <div id="permLevels" class="perm-list"></div>
         <p class="err" id="permErr"></p>
+        <label><span data-i18n="Fetch host allowlist">Fetch host allowlist</span>
+          <textarea id="fetchHosts" rows="4" placeholder="github.com" data-i18n-ph="github.com"></textarea>
+        </label>
+        <p class="hint" data-i18n="Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.">Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.</p>
+        <p class="err" id="fetchHostsErr"></p>
       </section>
       <section data-pane="connect" hidden>
         <p class="hint" id="pairInfo"></p>

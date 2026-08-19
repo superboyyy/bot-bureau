@@ -32,6 +32,10 @@ type Settings struct {
 	// The order here does not drive sorting — pinned rows are still ordered by their last activity,
 	// the same rule as the rest of the list — so this is a set that happens to be stored as an array.
 	Pinned []string `json:"pinned"`
+
+	// Hostnames fetch_url and web_search may open. Empty means today's public-internet policy
+	// (still no loopback or private addresses). Non-empty means only these hosts, exact match.
+	fetchHosts []string
 }
 
 func NewSettings(dataDir string) *Settings {
@@ -43,6 +47,7 @@ func NewSettings(dataDir string) *Settings {
 			GroupAvatar string   `json:"group_avatar"`
 			Permission  string   `json:"permission"`
 			Pinned      []string `json:"pinned"`
+			FetchHosts  []string `json:"fetch_hosts"`
 		}
 		if json.Unmarshal(raw, &f) == nil {
 			if f.Locale == "zh" || f.Locale == "en" || f.Locale == "auto" {
@@ -53,6 +58,7 @@ func NewSettings(dataDir string) *Settings {
 				s.Permission = f.Permission
 			}
 			s.Pinned = dedupePins(f.Pinned)
+			s.fetchHosts = NormalizeFetchHosts(f.FetchHosts)
 		}
 	}
 	s.apply()
@@ -114,6 +120,26 @@ func (s *Settings) Perm() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Permission
+}
+
+// FetchHosts is a copy of the fetch/search hostname allowlist. Empty means any public host.
+func (s *Settings) FetchHosts() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]string, len(s.fetchHosts))
+	copy(out, s.fetchHosts)
+	return out
+}
+
+// SetFetchHosts replaces the allowlist (normalized) and persists it.
+func (s *Settings) SetFetchHosts(hosts []string) {
+	s.mu.Lock()
+	s.fetchHosts = NormalizeFetchHosts(hosts)
+	s.saveLocked()
+	s.mu.Unlock()
 }
 
 // Pins returns the pinned conversation ids (a copy the caller may keep).
@@ -178,9 +204,13 @@ func (s *Settings) saveLocked() {
 	if pinned == nil {
 		pinned = []string{}
 	}
+	hosts := s.fetchHosts
+	if hosts == nil {
+		hosts = []string{}
+	}
 	out, _ := json.MarshalIndent(map[string]any{
 		"locale": s.LocalePref, "group_title": s.GroupTitle, "group_avatar": s.GroupAvatar,
-		"permission": s.Permission, "pinned": pinned,
+		"permission": s.Permission, "pinned": pinned, "fetch_hosts": hosts,
 	}, "", "  ")
 	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
 	_ = os.WriteFile(s.path, out, 0o644)
@@ -189,9 +219,11 @@ func (s *Settings) saveLocked() {
 func (s *Settings) Status() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	hosts := append([]string{}, s.fetchHosts...)
 	return map[string]any{
 		"locale_pref": s.LocalePref, "locale": i18n.Locale(),
 		"group_title": s.GroupTitle, "group_avatar": s.GroupAvatar,
-		"permission": s.Permission,
+		"permission":  s.Permission,
+		"fetch_hosts": hosts,
 	}
 }

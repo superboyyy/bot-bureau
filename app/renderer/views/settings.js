@@ -158,6 +158,8 @@ $("chatgptLogoutBtn").onclick = async () => {
   }
 };
 $("settingsBtn").onclick = () => openSettings("general");
+$("fetchHosts").addEventListener("change", saveFetchHosts);
+$("fetchHosts").addEventListener("blur", saveFetchHosts);
 $("keysForm").addEventListener("submit", (e) => {
   if (e.submitter && e.submitter.value === "cancel") return;
   e.preventDefault();

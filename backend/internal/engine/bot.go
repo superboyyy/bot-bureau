@@ -47,6 +47,9 @@ type TeamDeps struct {
 
 	// Files the user attached in the composer (see attach.go)
 	Uploads *Uploads
+
+	// Append-only audit log (data/audit.jsonl). Never compacted.
+	Audit *AuditLog
 }
 
 func NewTeamDeps(dataDir string, ks *secret.KeyStore, mcpPath string) *TeamDeps {
@@ -64,6 +67,7 @@ func NewTeamDeps(dataDir string, ks *secret.KeyStore, mcpPath string) *TeamDeps 
 		ChatGPT: secret.NewChatGPTOAuth(filepath.Join(dataDir, "chatgpt_oauth.json")),
 		MCPAuth: secret.NewMCPOAuth(filepath.Join(dataDir, "mcp_oauth.json")),
 		Uploads: NewUploads(dataDir),
+		Audit:   NewAuditLog(filepath.Join(dataDir, "audit.jsonl")),
 	}
 	mcp.SetTokenSource(deps.MCPAuth)
 	deps.SyncSkillRoots()

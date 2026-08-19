@@ -228,22 +228,37 @@ function foldNode(key, evs) {
 
 function approvalNode(ap) {
   const box = el("div", "approval");
+  let cmdInput = null;
   if (ap.kind === "plan") {
     box.append(el("div", "head", t("%s submitted a plan", titleOf(ap.bot))));
     box.append(el("div", "code", ap.title || ap.action || ""));
     if (ap.body) box.append(el("pre", "diff", ap.body));
   } else {
     box.append(el("div", "head", t("%s requests permission to run", titleOf(ap.bot))));
-    box.append(el("div", "code", ap.action));
+    if (ap.command) {
+      cmdInput = document.createElement("textarea");
+      cmdInput.className = "cmd";
+      cmdInput.value = ap.command;
+      cmdInput.rows = 3;
+      cmdInput.setAttribute("aria-label", t("Command"));
+      box.append(cmdInput);
+    } else {
+      box.append(el("div", "code", ap.action));
+    }
     if (ap.diff) {
       const pre = el("pre", "diff", ap.diff);
       box.append(pre);
     }
   }
+  const payload = (extra) => {
+    const body = { id: ap.id, approved: true, ...extra };
+    if (cmdInput) body.command = cmdInput.value;
+    return body;
+  };
   const acts = el("div", "acts");
   const yes = el("button", "yes", ap.kind === "plan" ? t("Accept plan") : t("Approve"));
   yes.type = "button";
-  yes.onclick = () => api("/api/approve", { id: ap.id, approved: true }).catch((e) => toast(e.message));
+  yes.onclick = () => api("/api/approve", payload()).catch((e) => toast(e.message));
   const no = el("button", "no", ap.kind === "plan" ? t("Reject plan") : t("Reject"));
   no.type = "button";
   no.onclick = async () => {
@@ -277,7 +292,7 @@ function approvalNode(ap) {
     grant.append(el("span", "lbl", t("Approve and remember")), el("span", "code", ap.dir));
     grant.onclick = () => {
       grant.disabled = true;
-      api("/api/approve", { id: ap.id, approved: true, grant: true }).catch((e) => {
+      api("/api/approve", payload({ grant: true })).catch((e) => {
         grant.disabled = false;
         toast(e.message);
       });
