@@ -504,5 +504,11 @@
   "personal": "个人",
   "query cannot be empty": "query 不能为空",
   "team": "团队",
-  "there is no note %s": "没有叫 %s 的笔记"
+  "there is no note %s": "没有叫 %s 的笔记",
+  "Search the public web and get up to eight title/url/snippet rows. Then fetch_url a URL you chose. It runs straight away and never needs approval. A Brave or Tavily key in Settings is used when present; otherwise a DuckDuckGo HTML page. It will not open addresses on this machine or this local network.": "在公开网上搜索，最多返回八条标题/网址/摘要。然后对你选中的地址用 fetch_url。立刻执行，不需要批准。Settings 里有 Brave 或 Tavily 密钥时会用它们；否则走 DuckDuckGo 的 HTML 页。不会打开本机或本网络上的地址。",
+  "What to search for": "要搜索的内容",
+  "- Use web_search to find pages, then fetch_url to read one you chose. It does not need approval": "- 用 web_search 找网页，再对你选中的地址用 fetch_url 阅读。不需要批准",
+  "- Use web_search to find pages (the engine tool is always there; you also have the vendor's web_search / web_fetch), then fetch_url for one specific address": "- 用 web_search 找网页（引擎侧工具始终可用；你还有供应商的 web_search / web_fetch），要读某一个具体地址用 fetch_url",
+  "No search results": "没有搜索结果",
+  "The search endpoint returned HTTP %d": "搜索接口返回了 HTTP %d"
 }
