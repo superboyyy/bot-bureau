@@ -181,12 +181,39 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		},
 		{
 			Name:        "remember",
-			Description: i18n.T("Write a piece of information worth keeping across sessions into long-term memory. scope=self stores it in your personal memory; scope=team stores it in the team-wide shared memory (visible to every bot, suitable for user preferences and team conventions). Do not record something that is already remembered."),
+			Description: i18n.T("Write a piece of information worth keeping across sessions into long-term memory. scope=self stores it in your personal memory; scope=team stores it in the team-wide shared memory (visible to every bot, suitable for user preferences and team conventions). Pass id to replace that note. Do not record something that is already remembered."),
 			Properties: map[string]any{
 				"note":  map[string]any{"type": "string", "description": i18n.T("One sentence covering the point and why it matters")},
 				"scope": map[string]any{"type": "string", "enum": []string{"self", "team"}, "description": i18n.T("Defaults to self")},
+				"id":    map[string]any{"type": "string", "description": i18n.T("Existing note id to replace; omit to append")},
 			},
 			Required: []string{"note"},
+		},
+		{
+			Name:        "recall",
+			Description: i18n.T("Load the full text of stored notes. Match by id or by a substring of the body. The system prompt only lists ids and first clauses."),
+			Properties: map[string]any{
+				"query": map[string]any{"type": "string", "description": i18n.T("Note id or a word from the body")},
+				"scope": map[string]any{"type": "string", "enum": []string{"self", "team", "both"}, "description": i18n.T("Defaults to both")},
+			},
+			Required: []string{"query"},
+		},
+		{
+			Name:        "forget",
+			Description: i18n.T("Delete a stored note by id so it no longer appears in the memory roster."),
+			Properties: map[string]any{
+				"id":    map[string]any{"type": "string", "description": i18n.T("The note id from the roster or from recall")},
+				"scope": map[string]any{"type": "string", "enum": []string{"self", "team", "both"}, "description": i18n.T("Defaults to both")},
+			},
+			Required: []string{"id"},
+		},
+		{
+			Name:        "search_history",
+			Description: i18n.T("Search this conversation's saved messages. Use it after context has been compacted to look up an earlier decision or a line the user said."),
+			Properties: map[string]any{
+				"query": map[string]any{"type": "string", "description": i18n.T("Plain text to find in this chat")},
+			},
+			Required: []string{"query"},
 		},
 		{
 			Name:        "todo_write",
@@ -335,7 +362,16 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.Re
 		s, err := t.runGlob(str("pattern"))
 		return text(s, err)
 	case "remember":
-		s, err := t.runRemember(str("note"), str("scope"))
+		s, err := t.runRemember(str("note"), str("scope"), str("id"))
+		return text(s, err)
+	case "recall":
+		s, err := t.runRecall(str("query"), str("scope"))
+		return text(s, err)
+	case "forget":
+		s, err := t.runForget(str("id"), str("scope"))
+		return text(s, err)
+	case "search_history":
+		s, err := t.runSearchHistory(str("query"))
 		return text(s, err)
 	case "todo_write":
 		s, err := t.runTodoWrite(input["items"])
@@ -407,7 +443,7 @@ func boolArg(input map[string]any, key string) bool {
 // Writes, bash, and anything that waits on a human stay in order.
 func (t *Toolbox) parallelizable(name string) bool {
 	switch name {
-	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks":
+	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks", "recall", "search_history":
 		return true
 	}
 	if strings.HasPrefix(name, "mcp_") {
@@ -634,17 +670,127 @@ func (t *Toolbox) runReadSkill(name string) (string, bool) {
 	return s.Render(), false
 }
 
-func (t *Toolbox) runRemember(note, scope string) (string, bool) {
+func (t *Toolbox) runRemember(note, scope, id string) (string, bool) {
+	note = strings.TrimSpace(note)
+	mem := t.mem
+	label := i18n.T("personal")
+	stored := note
 	if scope == "team" {
-		if err := t.teamMem.Append(t.botName + ": " + note); err != nil {
+		mem = t.teamMem
+		label = i18n.T("team")
+		if id == "" {
+			stored = t.botName + ": " + note
+		}
+	}
+	assigned, existed, err := mem.Remember(stored, id)
+	if err != nil {
+		if scope == "team" {
 			return i18n.T("Failed to write to the shared memory: ") + err.Error(), true
 		}
-		return i18n.T("Written to the team shared memory"), false
-	}
-	if err := t.mem.Append(note); err != nil {
 		return i18n.T("Failed to write to memory: ") + err.Error(), true
 	}
-	return i18n.T("Written to your personal long-term memory"), false
+	if existed {
+		return fmt.Sprintf(i18n.T("Already remembered as %s (%s)"), assigned, label), false
+	}
+	if strings.TrimSpace(id) != "" {
+		return fmt.Sprintf(i18n.T("Updated note %s (%s)"), assigned, label), false
+	}
+	return fmt.Sprintf(i18n.T("Remembered as %s (%s)"), assigned, label), false
+}
+
+func (t *Toolbox) runRecall(query, scope string) (string, bool) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return i18n.T("query cannot be empty"), true
+	}
+	self, team := memoryScope(scope)
+	var parts []string
+	if self {
+		parts = append(parts, formatRecall("self", t.mem.Recall(query, maxRecallHits))...)
+	}
+	if team {
+		parts = append(parts, formatRecall("team", t.teamMem.Recall(query, maxRecallHits))...)
+	}
+	if len(parts) == 0 {
+		return i18n.T("No matching notes"), true
+	}
+	return strings.Join(parts, "\n"), false
+}
+
+func (t *Toolbox) runForget(id, scope string) (string, bool) {
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return i18n.T("id cannot be empty"), true
+	}
+	self, team := memoryScope(scope)
+	var forgot []string
+	var last error
+	if self {
+		if err := t.mem.Forget(id); err != nil {
+			last = err
+		} else {
+			forgot = append(forgot, i18n.T("personal"))
+		}
+	}
+	if team {
+		if err := t.teamMem.Forget(id); err != nil {
+			last = err
+		} else {
+			forgot = append(forgot, i18n.T("team"))
+		}
+	}
+	if len(forgot) == 0 {
+		if last != nil {
+			return last.Error(), true
+		}
+		return fmt.Sprintf(i18n.T("there is no note %s"), id), true
+	}
+	return fmt.Sprintf(i18n.T("Forgot %s (%s)"), id, strings.Join(forgot, i18n.T(", "))), false
+}
+
+func (t *Toolbox) runSearchHistory(query string) (string, bool) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return i18n.T("query cannot be empty"), true
+	}
+	hits := t.bus.SearchChat(t.eventChat(), query, maxHistoryHits)
+	if len(hits) == 0 {
+		return i18n.T("No matching messages in this conversation"), true
+	}
+	var b strings.Builder
+	for _, ev := range hits {
+		id, _ := ev["id"].(int)
+		from, _ := ev["source"].(string)
+		text, _ := ev["text"].(string)
+		fmt.Fprintf(&b, "- id=%d from=%s: %s\n", id, from, textutil.Brief(strings.TrimSpace(text), 200))
+	}
+	return strings.TrimSpace(b.String()), false
+}
+
+func memoryScope(scope string) (self, team bool) {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case "self":
+		return true, false
+	case "team":
+		return false, true
+	default:
+		return true, true
+	}
+}
+
+func formatRecall(scope string, hits []MemEntry) []string {
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(hits))
+	for _, e := range hits {
+		date := e.Date
+		if date != "" {
+			date = " [" + date + "]"
+		}
+		out = append(out, fmt.Sprintf("[%s %s]%s\n%s", scope, e.ID, date, e.Text))
+	}
+	return out
 }
 
 func (t *Toolbox) runTodoWrite(raw any) (string, bool) {

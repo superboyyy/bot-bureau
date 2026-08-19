@@ -794,6 +794,14 @@ func describeToolCall(call model.ToolCall) string {
 		return "todo_write"
 	case "submit_plan":
 		return "submit_plan: " + str("title")
+	case "remember":
+		return "remember"
+	case "recall":
+		return "recall: " + str("query")
+	case "forget":
+		return "forget: " + str("id")
+	case "search_history":
+		return "search_history: " + str("query")
 	default:
 		return call.Name
 	}
@@ -820,11 +828,11 @@ func (w *BotWorker) systemPrompt(chat string) string {
 	if roster.Len() == 0 {
 		roster.WriteString(i18n.T("(no other members yet)\n"))
 	}
-	memory := w.MemoryText()
+	memory := w.mem.Roster()
 	if memory == "" {
 		memory = i18n.T("(none yet)")
 	}
-	teamMemory := w.deps.TeamMem.Load()
+	teamMemory := w.deps.TeamMem.Roster()
 	if teamMemory == "" {
 		teamMemory = i18n.T("(none yet)")
 	}
@@ -894,6 +902,7 @@ the procedure yourself.
 		webLine = i18n.T("- Use web_search / web_fetch to research online, or fetch_url for one specific address")
 	}
 	webLine += i18n.T("\n- If the work will touch more than one file, call todo_write with a checklist, then submit_plan with the plan, and wait for the user to accept it before editing")
+	webLine += i18n.T("\n- Memory lists below are id: first-clause only; call recall to load a body, forget to delete by id, and search_history to look up a line from this conversation")
 	if len(w.Cfg.MCP) > 0 {
 		webLine += fmt.Sprintf(i18n.T("\n- Connected plugins (MCP): %s. Plugin tool names start with mcp_; non-read-only plugin actions go through user approval first"),
 			strings.Join(w.Cfg.MCP, i18n.T(", ")))
