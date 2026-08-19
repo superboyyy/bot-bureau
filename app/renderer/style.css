@@ -1214,6 +1214,9 @@ dialog menu button.primary.danger:hover {
 .check-row input[type=checkbox] { width: auto; display: inline; margin: 0; accent-color: var(--accent); }
 .check-row .meta { color: var(--text-3); font-size: 11px; margin-left: auto; }
 
+.perm-sandbox { margin-top: 18px; }
+.perm-sandbox .check-row { padding-left: 0; padding-right: 0; }
+
 /* Empty states outside a card still need padding */
 .side-scroll .empty, .pop .empty { color: var(--text-3); font-size: 12px; padding: 12px 10px; }
 

@@ -3,6 +3,7 @@ package engine
 import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/model"
+	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
 
 	"context"
@@ -88,6 +89,8 @@ func newTestDeps(t *testing.T, dataDir string) *TeamDeps {
 
 	// Pin en: the assertions read the English source, which translated output would never match
 	deps.Settings.SetLocalePref("en")
+	// Existing ask/auto tests assert the heuristic gate, not kernel isolation.
+	deps.Sandbox = sandbox.Passthrough()
 	return deps
 }
 

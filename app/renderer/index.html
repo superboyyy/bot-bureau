@@ -243,6 +243,21 @@
         </label>
         <p class="hint" data-i18n="Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.">Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.</p>
         <p class="err" id="fetchHostsErr"></p>
+        <div class="perm-sandbox">
+          <p class="hint" id="sandboxNote"></p>
+          <div class="check-row">
+            <label><input type="checkbox" id="sandboxEnabled"><span data-i18n="Wrap bash in the OS sandbox">Wrap bash in the OS sandbox</span></label>
+          </div>
+          <div class="check-row">
+            <label><input type="checkbox" id="sandboxAutoAllow"><span data-i18n="Skip approval for sandboxed bash">Skip approval for sandboxed bash</span></label>
+          </div>
+          <p class="hint" data-i18n="When a command will run inside the OS sandbox, skip the bash approval prompt. File tools and plugins still follow the permission tier. Unsandboxed commands still need approval.">When a command will run inside the OS sandbox, skip the bash approval prompt. File tools and plugins still follow the permission tier. Unsandboxed commands still need approval.</p>
+          <div class="check-row">
+            <label><input type="checkbox" id="sandboxAllowUnsandboxed"><span data-i18n="Allow unsandboxed bash">Allow unsandboxed bash</span></label>
+          </div>
+          <p class="hint" data-i18n="Allow bash to retry on the host with unsandboxed=true after a sandbox denial. Those commands always need approval except under No approvals.">Allow bash to retry on the host with unsandboxed=true after a sandbox denial. Those commands always need approval except under No approvals.</p>
+          <p class="err" id="sandboxErr"></p>
+        </div>
       </section>
       <section data-pane="connect" hidden>
         <p class="hint" id="pairInfo"></p>

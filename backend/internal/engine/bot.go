@@ -4,6 +4,7 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/model"
 	"botbureau/backend/internal/plugin"
+	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
 	"botbureau/backend/internal/skill"
 
@@ -50,6 +51,9 @@ type TeamDeps struct {
 
 	// Append-only audit log (data/audit.jsonl). Never compacted.
 	Audit *AuditLog
+
+	// OS sandbox for bash. Nil means Detect() at toolbox construction.
+	Sandbox sandbox.Runner
 }
 
 func NewTeamDeps(dataDir string, ks *secret.KeyStore, mcpPath string) *TeamDeps {

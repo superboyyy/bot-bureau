@@ -4,6 +4,7 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/model"
 	"botbureau/backend/internal/plugin"
+	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
 	"botbureau/backend/internal/skill"
 	"botbureau/backend/internal/textutil"
@@ -50,6 +51,8 @@ type Toolbox struct {
 	settings    *config.Settings // source of the global tier
 	ks          *secret.KeyStore
 	audit       *AuditLog
+	sbx         sandbox.Runner
+	sbxTmp      string
 }
 
 // perm settles the tier in force for this call. It is resolved per call rather than fixed at startup:
@@ -65,18 +68,18 @@ func (t *Toolbox) perm() config.PermLevel {
 // gate is the single approval checkpoint: it suspends for a human when required and returns true to
 // proceed. Every tool goes through it, so a new tool that forgets the gate stands out.
 func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool, bool) {
-	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, "", "", "")
+	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, "", "", "", "")
 	return reason, rejected, ok
 }
 
 func (t *Toolbox) gatePath(act config.ToolAct, action, waitMsg, diff, path string) (string, bool, bool) {
-	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, diff, path, "")
+	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, diff, path, "", "")
 	return reason, rejected, ok
 }
 
 // gateRun is the gate plus the bash line that should actually run. command is the original bash
 // (empty for writes and plugins). After an approve with an edited command, run is that string.
-func (t *Toolbox) gateRun(act config.ToolAct, action, waitMsg, diff, path, command string) (run, reason string, rejected, proceed bool) {
+func (t *Toolbox) gateRun(act config.ToolAct, action, waitMsg, diff, path, command, isolate string) (run, reason string, rejected, proceed bool) {
 	run = command
 	record := func(allowed bool, id int, why, ran string) {
 		if t == nil || !t.shouldAudit(act) {
@@ -85,6 +88,7 @@ func (t *Toolbox) gateRun(act config.ToolAct, action, waitMsg, diff, path, comma
 		rec := auditLine{
 			ID: id, Bot: t.botName, Act: auditKind(act, action),
 			Path: path, Command: ran, Allowed: allowed, Reason: why,
+			Isolate: isolate,
 		}
 		if command != "" && ran != "" && command != ran {
 			rec.Command = ran
@@ -124,10 +128,15 @@ func denied(what, reason string) string {
 }
 
 func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *TeamDeps, mcpServers []string, bus *Bus, sched *Scheduler, botPerm string) *Toolbox {
+	sbx := deps.Sandbox
+	if sbx == nil {
+		sbx = sandbox.Detect()
+	}
 	return &Toolbox{
 		botName: botName, workspace: workspace, roots: roots, mem: mem,
 		teamMem: deps.TeamMem, board: deps.Board, mcp: deps.MCP, mcpServers: mcpServers, skills: deps.Skills,
 		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS, audit: deps.Audit,
+		sbx: sbx,
 	}
 }
 
@@ -151,14 +160,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		}
 	}
 	defs := []model.ToolDef{
-		{
-			Name:        "bash",
-			Description: i18n.T("Run a shell command; it runs in your workspace. Commands that only read run straight away, including pipelines and sequences of them (ls/cat/grep/rg/sort/wc/diff/sed -n/git log, etc.), anywhere inside your working directories or /tmp. Writes, network access, paths outside those directories, and everything else are submitted to the user for approval first — waiting, being rejected, and being cancelled are all normal."),
-			Properties: map[string]any{
-				"command": map[string]any{"type": "string", "description": i18n.T("The shell command to run")},
-			},
-			Required: []string{"command"},
-		},
+		t.bashToolDef(),
 		{
 			Name:        "fetch_url",
 			Description: i18n.T("Read a web page or API response and get it back as text (HTML is stripped down to its readable text). This is how you look something up online — it runs straight away and never needs approval, so reach for it rather than curl. It only fetches; it cannot post, log in, or reach addresses on this machine or this local network."),
@@ -383,7 +385,7 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.Re
 	text := func(s string, err bool) (string, []model.ResultImage, bool) { return s, nil, err }
 	switch name {
 	case "bash":
-		s, err := t.runBash(str("command"))
+		s, err := t.runBash(str("command"), boolArg(input, "unsandboxed"))
 		return text(s, err)
 	case "fetch_url":
 		s, err := t.runFetchURL(str("url"))
@@ -650,10 +652,68 @@ func (t *Toolbox) awaitApproval(req *Approval) (approved bool, reason string) {
 	return approved, reason
 }
 
-func (t *Toolbox) runBash(command string) (string, bool) {
+func (t *Toolbox) sandboxReady() bool {
+	return t.settings != nil && t.settings.SandboxEnabled() && t.sbx != nil && t.sbx.Available()
+}
+
+// useSandbox reports whether this bash call should be wrapped. full never isolates.
+func (t *Toolbox) useSandbox() bool {
+	return t.perm() != config.PermFull && t.sandboxReady()
+}
+
+func (t *Toolbox) bashToolDef() model.ToolDef {
+	desc := i18n.T("Run a shell command; it runs in your workspace. Commands that only read run straight away, including pipelines and sequences of them (ls/cat/grep/rg/sort/wc/diff/sed -n/git log, etc.), anywhere inside your working directories or /tmp. Writes, network access, paths outside those directories, and everything else are submitted to the user for approval first — waiting, being rejected, and being cancelled are all normal.")
+	props := map[string]any{
+		"command": map[string]any{"type": "string", "description": i18n.T("The shell command to run")},
+	}
+	if t.useSandbox() {
+		hatch := t.settings.SandboxAllowUnsandboxed()
+		if hatch {
+			desc = i18n.T("Run a shell command inside the workspace OS sandbox. Network is blocked when the backend can isolate it. Reads may use the rest of this machine; writes stay in working directories and /tmp. A .git directory in a working directory is read-only when the backend can re-bind it. Commands that only read still follow the permission tier unless sandbox auto-allow is on. If a command is denied, retry with unsandboxed=true.")
+			props["unsandboxed"] = map[string]any{"type": "boolean", "description": i18n.T("Run on the host instead of the sandbox. Always needs approval except under No approvals. Use only when the command must write outside working directories or use the network.")}
+		} else {
+			desc = i18n.T("Run a shell command inside the workspace OS sandbox. Network is blocked when the backend can isolate it. Reads may use the rest of this machine; writes stay in working directories and /tmp. A .git directory in a working directory is read-only when the backend can re-bind it. Commands that only read still follow the permission tier unless sandbox auto-allow is on.")
+		}
+	}
+	return model.ToolDef{Name: "bash", Description: desc, Properties: props, Required: []string{"command"}}
+}
+
+func (t *Toolbox) sandboxTmp() (string, error) {
+	if t.sbxTmp != "" {
+		return t.sbxTmp, nil
+	}
+	d, err := os.MkdirTemp("", "botbureau-sbx-*")
+	if err != nil {
+		return "", err
+	}
+	t.sbxTmp = d
+	return d, nil
+}
+
+func sandboxDenied(err error, out string) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(out + " " + err.Error())
+	for _, n := range []string{"permission denied", "operation not permitted", "read-only file system"} {
+		if strings.Contains(s, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func sandboxRetryHint() string {
+	return i18n.T("The sandbox denied this command. Retry with unsandboxed=true if it must leave the workspace or use the network.")
+}
+
+func (t *Toolbox) runBash(command string, unsandboxed bool) (string, bool) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return i18n.T("Command is empty"), true
+	}
+	if unsandboxed && (t.settings == nil || !t.settings.SandboxAllowUnsandboxed()) {
+		return i18n.T("Unsandboxed commands are disabled"), true
 	}
 
 	// The two checks answer different questions:
@@ -665,23 +725,48 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	// can, and so do absolute paths, .. and ~ that point outside.
 	// Conflating them would make the auto tier gate `echo x > note.txt && cat note.txt`, which leaves
 	// that tier unable to do any actual work.
+	//
+	// When an OS backend is wrapping the process, Escapes is not the admission condition: the kernel
+	// holds the write line. The scanner still fills the approval card and still classifies read-only.
+	isolated := t.useSandbox() && !unsandboxed
 	segs, subst, parsed := scanBash(command)
 	escapes := !parsed || subst || t.bashEscapes(segs)
+	readOnly := bashReadOnly(segs, subst, parsed) && !escapes
+	if isolated {
+		readOnly = bashReadOnly(segs, subst, parsed)
+		escapes = false
+	}
+	if unsandboxed {
+		escapes = true
+		readOnly = false
+	}
 	act := config.ToolAct{
 		Kind:     config.ActBash,
-		ReadOnly: bashReadOnly(segs, subst, parsed) && !escapes,
+		ReadOnly: readOnly,
 		Escapes:  escapes,
 	}
 	if escapes {
 		act.Dir = t.escapeDir(segs)
 	}
-	run, reason, rejected, _ := t.gateRun(act, "bash: "+command,
-		i18n.T("Command execution requested, waiting for approval #%d: $ ")+command, "", "", command)
-	if rejected {
-		return denied(i18n.T("The user rejected this command"), reason), true
+	isolate := "host"
+	if isolated {
+		isolate = "workspace"
 	}
-	if strings.TrimSpace(run) != "" {
-		command = run
+
+	autoAllow := isolated && t.settings.SandboxAutoAllowBash()
+	if autoAllow {
+		if t.audit != nil {
+			t.audit.Record(auditLine{Bot: t.botName, Act: "bash", Command: command, Allowed: true, Isolate: isolate})
+		}
+	} else {
+		run, reason, rejected, _ := t.gateRun(act, "bash: "+command,
+			i18n.T("Command execution requested, waiting for approval #%d: $ ")+command, "", "", command, isolate)
+		if rejected {
+			return denied(i18n.T("The user rejected this command"), reason), true
+		}
+		if strings.TrimSpace(run) != "" {
+			command = run
+		}
 	}
 	parent := t.turnCtx
 	if parent == nil {
@@ -691,6 +776,31 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	cmd.Dir = t.workspace
+	if isolated {
+		tmp, err := t.sandboxTmp()
+		if err != nil {
+			return err.Error(), true
+		}
+		writable := []string{t.workspace, scratchDir(), tmp}
+		if t.roots != nil {
+			writable = append(writable, t.roots.List()...)
+		}
+		wrapped, err := t.sbx.Command(ctx, sandbox.Spec{
+			Command:  command,
+			Dir:      t.workspace,
+			Writable: writable,
+			ReadOnly: sandbox.GitDirs(writable),
+			TmpDir:   tmp,
+		})
+		if err != nil {
+			msg := err.Error()
+			if t.settings.SandboxAllowUnsandboxed() {
+				msg += "\n" + sandboxRetryHint()
+			}
+			return msg, true
+		}
+		cmd = wrapped
+	}
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if text == "" {
@@ -701,7 +811,11 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 		return fmt.Sprintf(i18n.T("Command timed out (%s)"), config.BashTimeout), true
 	}
 	if err != nil {
-		return fmt.Sprintf(i18n.T("Command failed (%v)\n%s"), err, text), true
+		msg := fmt.Sprintf(i18n.T("Command failed (%v)\n%s"), err, text)
+		if isolated && t.settings != nil && t.settings.SandboxAllowUnsandboxed() && sandboxDenied(err, text) {
+			msg += "\n" + sandboxRetryHint()
+		}
+		return msg, true
 	}
 	return text, false
 }
