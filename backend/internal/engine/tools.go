@@ -49,6 +49,7 @@ type Toolbox struct {
 	botPerm     string           // this bot's tier; empty follows the global one
 	settings    *config.Settings // source of the global tier
 	ks          *secret.KeyStore
+	audit       *AuditLog
 }
 
 // perm settles the tier in force for this call. It is resolved per call rather than fixed at startup:
@@ -64,20 +65,54 @@ func (t *Toolbox) perm() config.PermLevel {
 // gate is the single approval checkpoint: it suspends for a human when required and returns true to
 // proceed. Every tool goes through it, so a new tool that forgets the gate stands out.
 func (t *Toolbox) gate(act config.ToolAct, action, waitMsg string) (string, bool, bool) {
-	return t.gateDiff(act, action, waitMsg, "")
+	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, "", "", "")
+	return reason, rejected, ok
 }
 
-func (t *Toolbox) gateDiff(act config.ToolAct, action, waitMsg, diff string) (string, bool, bool) {
-	if !t.perm().NeedsApproval(act) {
-		return "", false, true
+func (t *Toolbox) gatePath(act config.ToolAct, action, waitMsg, diff, path string) (string, bool, bool) {
+	_, reason, rejected, ok := t.gateRun(act, action, waitMsg, diff, path, "")
+	return reason, rejected, ok
+}
+
+// gateRun is the gate plus the bash line that should actually run. command is the original bash
+// (empty for writes and plugins). After an approve with an edited command, run is that string.
+func (t *Toolbox) gateRun(act config.ToolAct, action, waitMsg, diff, path, command string) (run, reason string, rejected, proceed bool) {
+	run = command
+	record := func(allowed bool, id int, why, ran string) {
+		if t == nil || !t.shouldAudit(act) {
+			return
+		}
+		rec := auditLine{
+			ID: id, Bot: t.botName, Act: auditKind(act, action),
+			Path: path, Command: ran, Allowed: allowed, Reason: why,
+		}
+		if command != "" && ran != "" && command != ran {
+			rec.Command = ran
+			rec.Original = command
+		} else if command != "" {
+			rec.Command = command
+		}
+		if rec.Act == "plugin" && rec.Command == "" {
+			rec.Command = action
+		}
+		t.audit.Record(rec)
 	}
-	req := t.bus.requestApproval(t.botName, action, t.eventChat(), act.Dir, diff)
+	if !t.perm().NeedsApproval(act) {
+		record(true, 0, "", command)
+		return command, "", false, true
+	}
+	req := t.bus.requestApproval(t.botName, action, t.eventChat(), act.Dir, diff, command)
 	t.bus.Emit("tool", t.eventChat(), t.botName, fmt.Sprintf(waitMsg, req.ID), nil)
 	approved, reason := t.awaitApproval(req)
 	if approved {
-		return "", false, true
+		if c := strings.TrimSpace(req.RunCommand()); c != "" {
+			run = c
+		}
+		record(true, req.ID, "", run)
+		return run, "", false, true
 	}
-	return reason, true, false
+	record(false, req.ID, reason, command)
+	return run, reason, true, false
 }
 
 // denied renders the rejection reason into one sentence for the model.
@@ -92,7 +127,7 @@ func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *Team
 	return &Toolbox{
 		botName: botName, workspace: workspace, roots: roots, mem: mem,
 		teamMem: deps.TeamMem, board: deps.Board, mcp: deps.MCP, mcpServers: mcpServers, skills: deps.Skills,
-		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS,
+		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS, audit: deps.Audit,
 	}
 }
 
@@ -640,9 +675,13 @@ func (t *Toolbox) runBash(command string) (string, bool) {
 	if escapes {
 		act.Dir = t.escapeDir(segs)
 	}
-	if reason, rejected, _ := t.gate(act, "bash: "+command,
-		i18n.T("Command execution requested, waiting for approval #%d: $ ")+command); rejected {
+	run, reason, rejected, _ := t.gateRun(act, "bash: "+command,
+		i18n.T("Command execution requested, waiting for approval #%d: $ ")+command, "", "", command)
+	if rejected {
 		return denied(i18n.T("The user rejected this command"), reason), true
+	}
+	if strings.TrimSpace(run) != "" {
+		command = run
 	}
 	parent := t.turnCtx
 	if parent == nil {

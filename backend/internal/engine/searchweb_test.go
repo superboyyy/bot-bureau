@@ -151,6 +151,15 @@ func TestWebSearchExecuteNeverAsksAndFormatsRows(t *testing.T) {
 	if !isErr || !strings.Contains(out, "query") {
 		t.Fatalf("empty query should fail: %q %v", out, isErr)
 	}
+
+	tb.settings.SetFetchHosts([]string{"go.dev"})
+	out, _, isErr = tb.Execute("web_search", map[string]any{"query": "golang docs"})
+	if isErr || !strings.Contains(out, "go.dev") {
+		t.Fatalf("allowlisted hit should remain: %q %v", out, isErr)
+	}
+	if strings.Contains(out, "pkg.go.dev") {
+		t.Fatalf("hosts off the list must be dropped from search rows: %q", out)
+	}
 }
 
 func TestWebSearchPrefersBraveThenTavily(t *testing.T) {

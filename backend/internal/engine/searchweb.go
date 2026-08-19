@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/i18n"
 	"botbureau/backend/internal/textutil"
 
@@ -84,6 +85,7 @@ func (t *Toolbox) runWebSearch(query string) (string, bool) {
 		return i18n.T("Search failed: ") + err.Error(), true
 	}
 	hits = publicSearchHits(hits, maxSearchHits)
+	hits = filterHitsByHosts(hits, t.fetchHosts())
 	if len(hits) == 0 {
 		return i18n.T("No search results"), true
 	}
@@ -342,6 +344,21 @@ func publicSearchHits(hits []searchHit, max int) []searchHit {
 		if len(out) >= max {
 			break
 		}
+	}
+	return out
+}
+
+func filterHitsByHosts(hits []searchHit, hosts []string) []searchHit {
+	if len(hosts) == 0 {
+		return hits
+	}
+	out := hits[:0]
+	for _, h := range hits {
+		u, err := url.Parse(h.URL)
+		if err != nil || !config.HostAllowed(u.Hostname(), hosts) {
+			continue
+		}
+		out = append(out, h)
 	}
 	return out
 }

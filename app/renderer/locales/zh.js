@@ -409,5 +409,7 @@ window.__i18n.zh = {
   "You": "你",
   "You can explain why — the member will see your explanation.": "你可以说明原因，成员会看到这条说明。",
   "You pointed to this directory": "你指定给它的目录",
-  "You run this Bot Bureau": "你负责 Bot Bureau"
+  "You run this Bot Bureau": "你负责 Bot Bureau",
+  "Fetch host allowlist": "fetch 允许的主机",
+  "Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.": "fetch_url 和 web_search 可以打开的主机名。留空表示任意公网站点；填写后只允许这些主机。"
 };

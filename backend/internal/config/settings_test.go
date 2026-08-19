@@ -49,6 +49,28 @@ func TestSettingsPersistAndDedupe(t *testing.T) {
 	}
 }
 
+func TestSettingsFetchHostsPersist(t *testing.T) {
+	i18n.SetLocale("en")
+	dir := t.TempDir()
+	s := NewSettings(dir)
+	s.SetFetchHosts([]string{"https://GitHub.com/foo", "github.com", "golang.org/pkg", ""})
+	if got, want := s.FetchHosts(), []string{"github.com", "golang.org"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalized = %#v, want %#v", got, want)
+	}
+	st, _ := s.Status()["fetch_hosts"].([]string)
+	if !reflect.DeepEqual(st, []string{"github.com", "golang.org"}) {
+		t.Fatalf("status = %#v", s.Status()["fetch_hosts"])
+	}
+	reloaded := NewSettings(dir)
+	if got, want := reloaded.FetchHosts(), []string{"github.com", "golang.org"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reloaded = %#v, want %#v", got, want)
+	}
+	s.SetFetchHosts(nil)
+	if n := len(NewSettings(dir).FetchHosts()); n != 0 {
+		t.Fatalf("clearing should persist an empty list, got %d", n)
+	}
+}
+
 func TestSettingsIgnoreInvalidPersistedValues(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")

@@ -510,5 +510,6 @@
   "- Use web_search to find pages, then fetch_url to read one you chose. It does not need approval": "- 用 web_search 找网页，再对你选中的地址用 fetch_url 阅读。不需要批准",
   "- Use web_search to find pages (the engine tool is always there; you also have the vendor's web_search / web_fetch), then fetch_url for one specific address": "- 用 web_search 找网页（引擎侧工具始终可用；你还有供应商的 web_search / web_fetch），要读某一个具体地址用 fetch_url",
   "No search results": "没有搜索结果",
-  "The search endpoint returned HTTP %d": "搜索接口返回了 HTTP %d"
+  "The search endpoint returned HTTP %d": "搜索接口返回了 HTTP %d",
+  "%s is not on the fetch allowlist": "%s 不在 fetch 允许名单里"
 }

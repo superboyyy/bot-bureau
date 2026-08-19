@@ -122,3 +122,19 @@ func TestReadableTextRejectsBinary(t *testing.T) {
 		t.Fatalf("plain text should come back trimmed: %q %v", s, ok)
 	}
 }
+
+func TestFetchURLHonorsHostAllowlist(t *testing.T) {
+	tb, _ := fetchToolbox(t)
+	tb.settings.SetFetchHosts([]string{"github.com"})
+
+	out, _, isErr := tb.Execute("fetch_url", map[string]any{"url": "https://golang.org/doc"})
+	if !isErr || !strings.Contains(out, "golang.org") || !strings.Contains(out, "allowlist") {
+		t.Fatalf("a host off the list should be refused by name: %q", out)
+	}
+
+	tb.settings.SetFetchHosts(nil)
+	out, _, isErr = tb.Execute("fetch_url", map[string]any{"url": "http://127.0.0.1/"})
+	if !isErr {
+		t.Fatalf("empty allowlist must not punch through SSRF: %q", out)
+	}
+}

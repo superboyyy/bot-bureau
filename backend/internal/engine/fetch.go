@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/i18n"
 
 	"context"
@@ -29,7 +30,8 @@ import (
 // It genuinely only reads, as far as this machine is concerned — but it is not free, and that should be
 // said plainly: a GET can carry things out in its URL. The trade is deliberate. Without this tool the
 // model reaches for curl anyway, the user approves anyway, and what gets approved is larger. The way to
-// tighten it is a per-bot domain allowlist, not a prompt every time.
+// tighten it further is the hostname allowlist in Settings: empty still means any public host;
+// non-empty means only those hosts. Loopback and private addresses stay refused either way.
 
 const (
 	fetchTimeout  = 20 * time.Second
@@ -68,7 +70,10 @@ var fetchClient = &http.Client{
 		if len(via) >= 5 {
 			return errors.New(i18n.T("too many redirects"))
 		}
-		return httpsOrHTTP(req.URL)
+		if err := httpsOrHTTP(req.URL); err != nil {
+			return err
+		}
+		return config.HostAllowedErr(req.URL.Hostname(), fetchHostsFrom(req.Context()))
 	},
 }
 
@@ -96,6 +101,33 @@ func httpsOrHTTP(u *url.URL) error {
 	return nil
 }
 
+type fetchHostsCtxKey struct{}
+
+func withFetchHosts(ctx context.Context, hosts []string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(hosts) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, fetchHostsCtxKey{}, hosts)
+}
+
+func fetchHostsFrom(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	hosts, _ := ctx.Value(fetchHostsCtxKey{}).([]string)
+	return hosts
+}
+
+func (t *Toolbox) fetchHosts() []string {
+	if t == nil || t.settings == nil {
+		return nil
+	}
+	return t.settings.FetchHosts()
+}
+
 // runFetchURL fetches one address and hands back its body. Read-only; it never reaches the gate.
 func (t *Toolbox) runFetchURL(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
@@ -116,11 +148,16 @@ func (t *Toolbox) runFetchURL(raw string) (string, bool) {
 	if err := httpsOrHTTP(u); err != nil {
 		return err.Error(), true
 	}
+	hosts := t.fetchHosts()
+	if err := config.HostAllowedErr(u.Hostname(), hosts); err != nil {
+		return err.Error(), true
+	}
 
 	ctx := t.turnCtx
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx = withFetchHosts(ctx, hosts)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return i18n.T("Not a valid address: ") + raw, true

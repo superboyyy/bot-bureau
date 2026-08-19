@@ -163,6 +163,9 @@ func (a *App) registerChatRoutes(mux *http.ServeMux) {
 			Approved bool   `json:"approved"`
 			Reason   string `json:"reason"`
 
+			// Optional replacement bash line. Empty keeps the original. Telegram omits this.
+			Command string `json:"command"`
+
 			// "Approve, and make this a working directory" — one click instead of every later question
 			// about the same directory
 			Grant bool `json:"grant"`
@@ -192,7 +195,7 @@ func (a *App) registerChatRoutes(mux *http.ServeMux) {
 				fmt.Sprintf(i18n.T("%s counts as a working directory for %s from now on: it may read, write and run commands there without asking, as far as its permission tier allows. Remove it in this member's settings."),
 					ap.Dir, w.Cfg.Title()), nil)
 		}
-		if !a.bus.Decide(body.ID, body.Approved, body.Reason) {
+		if !a.bus.DecideCmd(body.ID, body.Approved, body.Reason, body.Command) {
 			httpx.WriteJSON(rw, 404, map[string]any{"error": i18n.T("Approval not found (it may already be handled)")})
 			return
 		}

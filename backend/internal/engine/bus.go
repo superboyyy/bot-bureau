@@ -160,6 +160,10 @@ type Approval struct {
 	// ignore it.
 	Diff string `json:"diff,omitempty"`
 
+	// Original bash line when this card is a command approval. Empty for writes, plugins and plans.
+	// The UI can edit it; /api/approve sends the new string back as command.
+	Command string `json:"command,omitempty"`
+
 	Title string `json:"title,omitempty"`
 	Body  string `json:"body,omitempty"`
 
@@ -169,12 +173,25 @@ type Approval struct {
 	decided  chan struct{}
 	approved bool
 	reason   string
+	runCmd   string // set on approve when the user edited Command; empty means run Command
 }
 
 // Wait blocks until the user makes a decision.
 func (a *Approval) Wait() (approved bool, reason string) {
 	<-a.decided
 	return a.approved, a.reason
+}
+
+// RunCommand is the bash line to execute after this card is approved: the edited string when the
+// user sent one, otherwise the original. Empty for non-bash cards.
+func (a *Approval) RunCommand() string {
+	if a == nil {
+		return ""
+	}
+	if strings.TrimSpace(a.runCmd) != "" {
+		return a.runCmd
+	}
+	return a.Command
 }
 
 // WaitCtx is the same, but returns canceled=true if ctx is cancelled (the caller should reject the approval).
@@ -734,18 +751,21 @@ func mentionAt(text, needle string, checkLeft bool) bool {
 // ---- approvals ----
 
 func (b *Bus) RequestApproval(bot, action, chat, dir string) *Approval {
-	return b.requestApproval(bot, action, chat, dir, "")
+	return b.requestApproval(bot, action, chat, dir, "", "")
 }
 
-func (b *Bus) requestApproval(bot, action, chat, dir, diff string) *Approval {
+func (b *Bus) requestApproval(bot, action, chat, dir, diff, command string) *Approval {
 	b.mu.Lock()
-	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, Dir: dir, Diff: diff, decided: make(chan struct{})}
+	a := &Approval{ID: b.nextApproval, Bot: bot, Action: action, Chat: chat, Dir: dir, Diff: diff, Command: command, decided: make(chan struct{})}
 	b.nextApproval++
 	b.approvals[a.ID] = a
 	b.mu.Unlock()
 	extra := map[string]any{"approval_id": a.ID, "approval_dir": dir}
 	if diff != "" {
 		extra["approval_diff"] = diff
+	}
+	if command != "" {
+		extra["approval_command"] = command
 	}
 	b.Emit("approval", chat, bot, action, extra)
 	go func() {
@@ -786,6 +806,12 @@ func (b *Bus) requestPlan(bot, chat, title, body string) *Approval {
 }
 
 func (b *Bus) Decide(id int, approved bool, reason string) bool {
+	return b.DecideCmd(id, approved, reason, "")
+}
+
+// DecideCmd is Decide plus an optional replacement bash line. Empty command keeps the original.
+// A command on a non-bash card is ignored. Telegram keeps calling Decide.
+func (b *Bus) DecideCmd(id int, approved bool, reason, command string) bool {
 	b.mu.Lock()
 	a := b.approvals[id]
 	if a == nil {
@@ -800,6 +826,11 @@ func (b *Bus) Decide(id int, approved bool, reason string) bool {
 	}
 	a.approved = approved
 	a.reason = reason
+	if approved && a.Command != "" {
+		if c := strings.TrimSpace(command); c != "" {
+			a.runCmd = c
+		}
+	}
 	close(a.decided)
 	delete(b.approvals, id)
 	chat, bot, action := a.Chat, a.Bot, a.Action

@@ -68,8 +68,8 @@ func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
 	action := fmt.Sprintf("write_file: %s (%d bytes)", rel, len(content))
 
 	act := config.ToolAct{Kind: config.ActWrite}
-	if reason, rejected, _ := t.gateDiff(act, action,
-		i18n.T("File write requested, waiting for approval #%d: ")+rel, diff); rejected {
+	if reason, rejected, _ := t.gatePath(act, action,
+		i18n.T("File write requested, waiting for approval #%d: ")+rel, diff, rel); rejected {
 		return denied(i18n.T("The user rejected this file write"), reason), true
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -122,8 +122,8 @@ func (t *Toolbox) runEditFile(rel, oldStr, newStr string, replaceAll bool) (stri
 	diff := textutil.Unified(rel, src, next, config.ApprovalDiffLimit)
 	action := fmt.Sprintf("edit_file: %s", rel)
 	act := config.ToolAct{Kind: config.ActWrite}
-	if reason, rejected, _ := t.gateDiff(act, action,
-		i18n.T("File edit requested, waiting for approval #%d: ")+rel, diff); rejected {
+	if reason, rejected, _ := t.gatePath(act, action,
+		i18n.T("File edit requested, waiting for approval #%d: ")+rel, diff, rel); rejected {
 		return denied(i18n.T("The user rejected this file edit"), reason), true
 	}
 	if err := os.WriteFile(p, []byte(next), 0o644); err != nil {

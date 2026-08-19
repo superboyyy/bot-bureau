@@ -172,7 +172,11 @@ func TestFullTierSkipsApprovalAndIsLiveReloadable(t *testing.T) {
 
 	// Drop the global tier back to ask; the same toolbox must start asking again immediately
 	deps.Settings.SetPermission(string(config.PermAsk))
-	go tb.Execute("write_file", map[string]any{"path": "b.txt", "content": "y"})
+	done := make(chan struct{})
+	go func() {
+		tb.Execute("write_file", map[string]any{"path": "b.txt", "content": "y"})
+		close(done)
+	}()
 	deadline := time.After(2 * time.Second)
 	for len(bus.PendingApprovals()) == 0 {
 		select {
@@ -183,6 +187,7 @@ func TestFullTierSkipsApprovalAndIsLiveReloadable(t *testing.T) {
 		}
 	}
 	bus.Decide(bus.PendingApprovals()[0].ID, false, "")
+	<-done
 }
 
 func TestPermOptionsCoverEveryTier(t *testing.T) {

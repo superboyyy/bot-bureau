@@ -248,6 +248,74 @@ func TestHTTPApprovalFlow(t *testing.T) {
 	}
 }
 
+func TestHTTPApproveReplacesBashCommand(t *testing.T) {
+	app, srv := newTestApp(t)
+	w := app.bus.Bot("chief")
+	tb := w.Toolbox()
+
+	done := make(chan string, 1)
+	go func() {
+		out, _, isErr := tb.Execute("bash", map[string]any{"command": "touch original-flag.txt"})
+		if isErr {
+			done <- "err:" + out
+			return
+		}
+		done <- out
+	}()
+	deadline := time.After(2 * time.Second)
+	for len(app.bus.PendingApprovals()) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("bash should wait for approval")
+		case out := <-done:
+			t.Fatalf("bash returned without waiting: %s", out)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	ap := app.bus.PendingApprovals()[0]
+	code, _ := postJSON(t, srv.URL+"/api/approve", map[string]any{
+		"id": ap.ID, "approved": true, "command": "touch edited-flag.txt",
+	})
+	if code != 200 {
+		t.Fatalf("approve with command should succeed, got %d", code)
+	}
+	if res := <-done; strings.HasPrefix(res, "err:") {
+		t.Fatalf("edited command failed: %s", res)
+	}
+	if _, err := os.Stat(filepath.Join(w.Workspace(), "edited-flag.txt")); err != nil {
+		t.Fatalf("the edited command should have run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(w.Workspace(), "original-flag.txt")); !os.IsNotExist(err) {
+		t.Fatal("the original command must not run")
+	}
+}
+
+func TestHTTPSettingsFetchHosts(t *testing.T) {
+	app, srv := newTestApp(t)
+	code, out := postJSON(t, srv.URL+"/api/settings", map[string]any{
+		"fetch_hosts": []string{"https://GitHub.com/foo", "golang.org"},
+	})
+	if code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	hosts, _ := out["fetch_hosts"].([]any)
+	if len(hosts) != 2 || hosts[0] != "github.com" || hosts[1] != "golang.org" {
+		t.Fatalf("normalized hosts: %v", hosts)
+	}
+	if got := app.settings.FetchHosts(); len(got) != 2 || got[0] != "github.com" {
+		t.Fatalf("store: %v", got)
+	}
+	code, out = postJSON(t, srv.URL+"/api/settings", map[string]any{"locale": "en"})
+	if code != 200 {
+		t.Fatal(out)
+	}
+	hosts, _ = out["fetch_hosts"].([]any)
+	if len(hosts) != 2 {
+		t.Fatalf("omitting fetch_hosts must not wipe the list: %v", hosts)
+	}
+}
+
 func TestHTTPCancel(t *testing.T) {
 	app, srv := newTestApp(t)
 	go app.bus.RequestApproval("chief", "bash: touch x", "group", "")
