@@ -8,6 +8,7 @@ function renderAll(forceBottom = true) {
   renderHeader();
   renderMsgs(forceBottom);
   renderTasks();
+  renderTodos();
   renderRoutines();
   renderKeysList();
   renderMCPList();

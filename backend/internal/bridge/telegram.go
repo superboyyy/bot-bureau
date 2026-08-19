@@ -487,8 +487,15 @@ func (b *TGBridge) forwardEvent(ev engine.Event) {
 				{"text": i18n.T("Reject"), "callback_data": fmt.Sprintf("ap:%d:0", id)},
 			}},
 		}
-		b.send(owner, fmt.Sprintf(i18n.T("%s requests approval #%d:\n%s"), source, id, text)+approvalDiffSuffix(ev), markup)
+		b.send(owner, fmt.Sprintf(i18n.T("%s requests approval #%d:\n%s"), source, id, text)+approvalPreviewSuffix(ev), markup)
 	}
+}
+
+func approvalPreviewSuffix(ev engine.Event) string {
+	if d, _ := ev["approval_body"].(string); strings.TrimSpace(d) != "" {
+		return "\n" + textutil.Brief(d, 1500)
+	}
+	return approvalDiffSuffix(ev)
 }
 
 func approvalDiffSuffix(ev engine.Event) string {

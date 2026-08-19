@@ -171,3 +171,20 @@ func TestApprovalDiffSuffix(t *testing.T) {
 		t.Fatalf("diff should be appended: %q", got)
 	}
 }
+
+func TestApprovalPreviewPrefersPlanBody(t *testing.T) {
+	if got := approvalPreviewSuffix(engine.Event{}); got != "" {
+		t.Fatalf("empty extra should add nothing, got %q", got)
+	}
+	got := approvalPreviewSuffix(engine.Event{"approval_body": "1. edit a.go"})
+	if !strings.Contains(got, "edit a.go") || !strings.HasPrefix(got, "\n") {
+		t.Fatalf("plan body should be appended: %q", got)
+	}
+	got = approvalPreviewSuffix(engine.Event{
+		"approval_body": "the plan",
+		"approval_diff": "--- a/x\n+hi",
+	})
+	if !strings.Contains(got, "the plan") || strings.Contains(got, "+hi") {
+		t.Fatalf("body should win over a diff: %q", got)
+	}
+}

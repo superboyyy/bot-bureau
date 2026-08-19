@@ -374,12 +374,14 @@ func (a *App) State() map[string]any {
 
 			// The tier actually in force: the global value when the bot sets none, so the UI can show "follow global (xx)"
 			"permission": string(config.ResolvePerm(w.Cfg.Permission, a.settings.Perm())),
+			"todos":      w.Todos(),
 		})
 	}
 	approvals := []map[string]any{}
 	for _, ap := range a.bus.PendingApprovals() {
 		approvals = append(approvals, map[string]any{
 			"id": ap.ID, "bot": ap.Bot, "action": ap.Action, "chat": ap.Chat, "dir": ap.Dir, "diff": ap.Diff,
+			"kind": ap.Kind, "title": ap.Title, "body": ap.Body,
 		})
 	}
 	routines := []map[string]any{}

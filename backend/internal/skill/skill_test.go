@@ -138,3 +138,55 @@ func TestRenderListsBundledFiles(t *testing.T) {
 		t.Fatalf("render should carry the body, the bundled file and its location: %q", out)
 	}
 }
+
+func TestSeedBundledCopiesIntoEmptyDir(t *testing.T) {
+	dest := t.TempDir()
+	if err := SeedBundled(dest); err != nil {
+		t.Fatal(err)
+	}
+	m := NewManager(dest)
+	got := map[string]bool{}
+	for _, n := range m.Names() {
+		got[n] = true
+	}
+	for _, want := range []string{"edit-code", "verify", "research"} {
+		if !got[want] {
+			t.Errorf("missing starter skill %s in %v", want, m.Names())
+		}
+		s, ok := m.Get(want)
+		if !ok || s.Body == "" || s.Description == "" {
+			t.Errorf("%s should have a description and a body", want)
+		}
+	}
+}
+
+func TestSeedBundledDoesNotOverwriteExistingLibrary(t *testing.T) {
+	dest := t.TempDir()
+	writeSkill(t, dest, "edit-code", "---\nname: edit-code\ndescription: User copy.\n---\nUSER BODY\n")
+	if err := SeedBundled(dest); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dest, "edit-code", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "USER BODY") {
+		t.Fatalf("an existing library must not be overwritten: %s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "verify", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("seeding must not add siblings when the directory already has files")
+	}
+}
+
+func TestSeedBundledSkipsNonEmptyKeepFile(t *testing.T) {
+	dest := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dest, ".keep"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedBundled(dest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "edit-code", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("a .keep file means the library is already claimed")
+	}
+}

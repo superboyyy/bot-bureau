@@ -24,6 +24,12 @@ import (
 func newTestApp(t *testing.T) (*App, *httptest.Server) {
 	t.Helper()
 	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "skills", ".keep"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfgPath := filepath.Join(dir, "bots.yaml")
 	cfgs := []config.BotConfig{
 		{Name: "chief", Role: "Lead", Provider: "fake"},
@@ -951,5 +957,106 @@ func TestApproveCanGrantTheDirectoryOnTheCard(t *testing.T) {
 	}
 	if !w.Roots().Contains(proj) {
 		t.Fatalf("the granted directory should be in bounds now: %v", w.Roots().List())
+	}
+}
+
+func TestStateTodosAreArraysAndPlanApprovalsCarryKind(t *testing.T) {
+	config.SetApprovalTimeout(2 * time.Second)
+	t.Cleanup(func() { config.SetApprovalTimeout(0) })
+	app, srv := newTestApp(t)
+	fetch := func() map[string]any {
+		t.Helper()
+		resp, err := http.Get(srv.URL + "/api/state")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	botNamed := func(state map[string]any, name string) map[string]any {
+		t.Helper()
+		for _, raw := range state["bots"].([]any) {
+			b := raw.(map[string]any)
+			if b["name"] == name {
+				return b
+			}
+		}
+		t.Fatalf("%s missing from state", name)
+		return nil
+	}
+
+	chief := botNamed(fetch(), "chief")
+	todos, ok := chief["todos"].([]any)
+	if !ok {
+		t.Fatalf("todos must be an array, got %T %v", chief["todos"], chief["todos"])
+	}
+	if len(todos) != 0 {
+		t.Fatalf("empty personal list should be [], got %v", todos)
+	}
+
+	w := app.bus.Bot("chief")
+	out, _, isErr := w.Toolbox().Execute("todo_write", map[string]any{
+		"items": []any{map[string]any{"id": "ship", "content": "open the PR", "status": "pending"}},
+	})
+	if isErr {
+		t.Fatalf("todo_write: %q", out)
+	}
+	listed := botNamed(fetch(), "chief")["todos"].([]any)
+	if len(listed) != 1 {
+		t.Fatalf("state should show the personal list, got %v", listed)
+	}
+	item := listed[0].(map[string]any)
+	if item["id"] != "ship" || item["content"] != "open the PR" || item["status"] != "pending" {
+		t.Fatalf("todo row: %v", item)
+	}
+
+	done := make(chan string, 1)
+	go func() {
+		text, _, err := w.Toolbox().Execute("submit_plan", map[string]any{
+			"title": "Split auth",
+			"body":  "edit two files",
+		})
+		if err {
+			done <- "err:" + text
+			return
+		}
+		done <- text
+	}()
+	var ap *engine.Approval
+	for i := 0; i < 400; i++ {
+		aps := app.bus.PendingApprovals()
+		if len(aps) > 0 {
+			ap = aps[0]
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if ap == nil {
+		t.Fatal("submit_plan should raise an approval")
+	}
+	state := fetch()
+	found := false
+	for _, raw := range state["approvals"].([]any) {
+		row := raw.(map[string]any)
+		if row["kind"] == "plan" && row["title"] == "Split auth" && row["body"] == "edit two files" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("state should carry the plan card, got %v", state["approvals"])
+	}
+	app.bus.Decide(ap.ID, true, "")
+	select {
+	case got := <-done:
+		if !strings.Contains(got, "accepted") {
+			t.Fatalf("approve should continue: %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("submit_plan did not return after approve")
 	}
 }
