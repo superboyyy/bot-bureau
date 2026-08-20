@@ -2,6 +2,7 @@
 // Bot Bureau Electron main process: spawn the Go backend child process, create windows, clean up on exit.
 const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme } = require("electron");
 const { spawn } = require("child_process");
+const { isRunning, stopEngine } = require("./lib/stop-engine");
 const net = require("net");
 const https = require("https");
 const crypto = require("crypto");
@@ -109,6 +110,16 @@ let backendURL = null;
 let remoteMode = false;
 let localToken = "";
 let myInstance = ""; // our own engine's id, used to drop ourselves from discovery
+let quitting = false;
+let engineStopped = false;
+let engineStopping = false;
+
+async function stopLocalEngine() {
+  const proc = backendProc;
+  backendProc = null;
+  if (!proc) return;
+  await stopEngine(proc);
+}
 
 // LAN discovery: find a Bot Bureau engine already running on the same network (mDNS _botbureau._tcp)
 function discoverEngines(ms = 1500) {
@@ -279,7 +290,7 @@ async function pickPort(host) {
 }
 
 async function startBackend() {
-  if (backendProc && backendProc.exitCode === null && backendURL && !remoteMode) {
+  if (isRunning(backendProc) && backendURL && !remoteMode) {
     return backendURL; // Local engine is already running
   }
   const listen = process.env.BOTBUREAU_LOCAL_ONLY ? "local" : "lan";
@@ -295,7 +306,7 @@ async function startBackend() {
     // The system language has to travel from here: the engine's "follow the system" has only
     // LANG/LC_ALL to read, and a GUI process started from a double-clicked icon has none of them set,
     // leaving it no choice but English.
-    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, BOTBUREAU_LOCALE: app.getLocale() } }
+    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: { ...process.env, BOTBUREAU_LOCALE: app.getLocale() } }
   );
   backendProc.stdout.on("data", (d) => process.stdout.write("[backend] " + d));
   backendProc.stderr.on("data", (d) => process.stderr.write("[backend] " + d));
@@ -313,7 +324,7 @@ async function startBackend() {
     if (spawnErr) {
       throw new Error(t("Could not start the engine (%s): %s", cmd, spawnErr.code || spawnErr.message));
     }
-    if (backendProc.exitCode !== null) {
+    if (!isRunning(backendProc)) {
       throw new Error(
         t("The backend process exited (possibly a config error, or the data directory is in use by an engine on another device — see the terminal log for details)")
       );
@@ -323,7 +334,7 @@ async function startBackend() {
 
       // A successful ping must also confirm our own child answered it: with the port held by someone
       // else, they answer /api/ping just the same while our engine has already failed to bind and exited.
-      if (res.ok && backendProc.exitCode === null) return url;
+      if (res.ok && isRunning(backendProc)) return url;
     } catch {}
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -497,6 +508,21 @@ function attachWindowControls(win) {
   };
   win.on("maximize", sendMaximized);
   win.on("unmaximize", sendMaximized);
+
+  // Close (traffic lights, overlay X, Alt+F4, HTML chrome, Cmd/Ctrl+W) minimizes on every OS.
+  // Quit is App/File menu → Cmd/Ctrl+Q, which sets `quitting` in before-quit.
+  win.on("close", (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    if (typeof win.isFullScreen === "function" && win.isFullScreen()) {
+      win.once("leave-full-screen", () => {
+        if (!quitting && !win.isDestroyed()) win.minimize();
+      });
+      win.setFullScreen(false);
+      return;
+    }
+    if (!win.isDestroyed()) win.minimize();
+  });
 }
 
 function canvasColor(appearance) {
@@ -603,9 +629,8 @@ ipcMain.handle("connect-to", async (_e, url) => {
     };
   }
   saveRemote(url, url.startsWith("https://") ? r.fp : null);
-  if (backendProc && backendProc.exitCode === null) {
-    backendProc.kill(); // Stop the local engine to avoid two engines
-    backendProc = null;
+  if (isRunning(backendProc)) {
+    await stopLocalEngine(); // Stop the local engine to avoid two engines
   }
   backendURL = url;
   remoteMode = true;
@@ -629,24 +654,24 @@ ipcMain.handle("connect-local", async () => {
 
 app.whenReady().then(async () => {
   seedDataRoot();
-  if (process.platform === "darwin") {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {
-        label: "Bot Bureau",
-        submenu: [
-          { role: "about" },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      { role: "editMenu" },
-      { role: "windowMenu" },
-    ]));
-  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === "darwin"
+      ? [{
+          label: "Bot Bureau",
+          submenu: [
+            { role: "about" },
+            { type: "separator" },
+            { role: "hide" },
+            { role: "hideOthers" },
+            { role: "unhide" },
+            { type: "separator" },
+            { role: "quit" },
+          ],
+        }]
+      : [{ role: "fileMenu" }]),
+    { role: "editMenu" },
+    { role: "windowMenu" },
+  ]));
 
   // nativeTheme is only usable once the app is ready, so the listener goes here, not at module scope
   applyAppearanceIcon();
@@ -668,12 +693,29 @@ app.whenReady().then(async () => {
     return;
   }
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && backendURL) createWindow();
+    const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+    if (existing) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return;
+    }
+    if (backendURL) createWindow();
   });
 });
 
-// Desktop-tool semantics: quit when all windows are closed (backend included)
-app.on("window-all-closed", () => app.quit());
-app.on("quit", () => {
-  if (backendProc && backendProc.exitCode === null) backendProc.kill();
+// Close minimizes; do not quit (or kill the engine) when the last window would have vanished.
+app.on("window-all-closed", () => {});
+
+// Wait for the engine tree to exit so the file lock is released before this process is gone.
+app.on("before-quit", (e) => {
+  quitting = true;
+  if (engineStopped) return;
+  e.preventDefault();
+  if (engineStopping) return;
+  engineStopping = true;
+  stopLocalEngine().finally(() => {
+    engineStopped = true;
+    app.quit();
+  });
 });

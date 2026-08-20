@@ -10,6 +10,9 @@ module.exports = defineConfig({
     },
     setupFiles: ["./test/setup.js"],
     include: ["test/**/*.test.js"],
+    environmentMatchGlobs: [
+      ["test/stop-engine.test.js", "node"]
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
