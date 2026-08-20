@@ -71,6 +71,29 @@ func TestSettingsFetchHostsPersist(t *testing.T) {
 	}
 }
 
+func TestSettingsSandboxPersistAndOmit(t *testing.T) {
+	i18n.SetLocale("en")
+	dir := t.TempDir()
+	s := NewSettings(dir)
+	if !s.SandboxEnabled() || s.SandboxAutoAllowBash() || !s.SandboxAllowUnsandboxed() {
+		t.Fatalf("defaults: enabled=%v auto=%v hatch=%v", s.SandboxEnabled(), s.SandboxAutoAllowBash(), s.SandboxAllowUnsandboxed())
+	}
+	off, on := false, true
+	s.SetSandbox(&off, &on, &off)
+	if s.SandboxEnabled() || !s.SandboxAutoAllowBash() || s.SandboxAllowUnsandboxed() {
+		t.Fatal("SetSandbox did not stick")
+	}
+	reloaded := NewSettings(dir)
+	if reloaded.SandboxEnabled() || !reloaded.SandboxAutoAllowBash() || reloaded.SandboxAllowUnsandboxed() {
+		t.Fatalf("reloaded sandbox = %#v", reloaded.Status()["sandbox"])
+	}
+	// Partial update must not wipe the other knobs.
+	s.SetSandbox(&on, nil, nil)
+	if !s.SandboxEnabled() || !s.SandboxAutoAllowBash() || s.SandboxAllowUnsandboxed() {
+		t.Fatalf("partial update wiped siblings: %#v", s.Status()["sandbox"])
+	}
+}
+
 func TestSettingsIgnoreInvalidPersistedValues(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")

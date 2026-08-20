@@ -4,9 +4,28 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/httpx"
 	"botbureau/backend/internal/i18n"
+	"botbureau/backend/internal/sandbox"
+
 	"net/http"
 	"strings"
 )
+
+func (a *App) settingsStatus() map[string]any {
+	st := a.settings.Status()
+	sb, _ := st["sandbox"].(map[string]any)
+	if sb == nil {
+		sb = map[string]any{}
+		st["sandbox"] = sb
+	}
+	r := sandbox.Detect()
+	if a.deps != nil && a.deps.Sandbox != nil {
+		r = a.deps.Sandbox
+	}
+	sb["available"] = r.Available()
+	sb["backend"] = r.Name()
+	sb["network"] = r.IsolatesNetwork()
+	return st
+}
 
 func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/keys", cors(func(rw http.ResponseWriter, r *http.Request) {
@@ -52,7 +71,7 @@ func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/settings", cors(func(rw http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			httpx.WriteJSON(rw, 200, a.settings.Status())
+			httpx.WriteJSON(rw, 200, a.settingsStatus())
 		case http.MethodPost:
 
 			// Pointer fields: omitted entries stay as they are, so changing the language cannot wipe the group name
@@ -62,6 +81,11 @@ func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 				GroupAvatar *string   `json:"group_avatar"`
 				Permission  *string   `json:"permission"`
 				FetchHosts  *[]string `json:"fetch_hosts"`
+				Sandbox     *struct {
+					Enabled          *bool `json:"enabled"`
+					AutoAllowBash    *bool `json:"auto_allow_bash"`
+					AllowUnsandboxed *bool `json:"allow_unsandboxed"`
+				} `json:"sandbox"`
 			}
 			if err := httpx.ReadJSON(r, &body); err != nil {
 				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
@@ -85,8 +109,11 @@ func (a *App) registerSettingsRoutes(mux *http.ServeMux) {
 			if body.FetchHosts != nil {
 				a.settings.SetFetchHosts(*body.FetchHosts)
 			}
+			if body.Sandbox != nil {
+				a.settings.SetSandbox(body.Sandbox.Enabled, body.Sandbox.AutoAllowBash, body.Sandbox.AllowUnsandboxed)
+			}
 			a.bus.Emit("refresh", "", "system", "settings", nil)
-			httpx.WriteJSON(rw, 200, a.settings.Status())
+			httpx.WriteJSON(rw, 200, a.settingsStatus())
 		default:
 			httpx.WriteJSON(rw, 405, map[string]any{"error": "method not allowed"})
 		}

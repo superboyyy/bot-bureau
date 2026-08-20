@@ -9,6 +9,7 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/engine"
 	"botbureau/backend/internal/netx"
+	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
 
 	"botbureau/backend/internal/i18n"
@@ -70,6 +71,7 @@ func main() {
 	ks := secret.NewKeyStore(filepath.Join(*dataDir, "keys.json"))
 	deps := engine.NewTeamDeps(*dataDir, ks, *mcpPath)
 	deps.Settings = settings // the toolbox reads the global permission tier from it
+	deps.Sandbox = sandbox.Detect()
 	deps.MCP.SetOnChange(func() { bus.Emit("refresh", "", "system", "mcp", nil) })
 	deps.MCP.ConnectAll() // plugins connect asynchronously; won't block startup
 	for _, c := range cfgs {

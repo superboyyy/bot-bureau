@@ -397,12 +397,30 @@ const VIBRANCY = process.platform === "darwin";
 // Both load sites share one set of query params: the window's first load, and the full reload after
 // connecting to an engine. They were written out separately once, and the result was exactly what you
 // would expect — the first load got updated, the reload did not, and the params fell off on connect.
+// Keep in sync with --titlebar / --pane / --text-2 in renderer/style.css.
+const TITLEBAR = 56;
+function overlayOpts(appearance) {
+  const light = appearance === "light";
+  return {
+    // Transparent so the sidebar/paper shows through: Linux may put the overlay on the left
+    // (over --bg) or the right (over --pane). An opaque fill became a slab on whichever side
+    // the desktop did not match. Glyph colour still tracks the app theme (honoured on Windows;
+    // Linux may use the GTK theme instead).
+    color: "rgba(0,0,0,0)",
+    symbolColor: light ? "#62626b" : "#9d9da4",
+    height: TITLEBAR,
+  };
+}
+
 const rendererQuery = () => ({
   backend: backendURL,
   token: localToken,
   remote: remoteMode ? "1" : "0",
   locale: app.getLocale(),
   vibrancy: VIBRANCY ? "1" : "0",
+  // macOS: native traffic lights. Windows/Linux: native Window Controls Overlay; the renderer
+  // falls back to HTML #winChrome only if the overlay is not actually visible.
+  chrome: process.platform === "darwin" ? "native" : "auto",
 });
 
 function createWindow() {
@@ -415,10 +433,15 @@ function createWindow() {
     icon: appearanceIcon() || ICON,
 
     // Fully transparent under vibrancy, or this flat fill buries the system blur; the right half's
-    // solid ground is painted by main itself
+    // solid ground is painted by main itself. Windows/Linux may replace this once the renderer
+    // reports the resolved light/dark appearance (see set-appearance).
     backgroundColor: VIBRANCY ? "#00000000" : "#0a0a0b",  // keep in sync with --bg in style.css
 
-    // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region
+    // Frameless: the title bar merges into the sidebar's top strip, which doubles as the drag region.
+    // macOS keeps the traffic lights. Windows and Linux use the platform Window Controls Overlay
+    // (Electron 43+ follows the desktop's button layout on Linux) so min/max/close are real OS
+    // widgets, not HTML. Overlay fill is transparent so it does not paint a slab over --bg or
+    // --pane — Linux may put the buttons on either side. Height matches --titlebar.
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset",
@@ -428,7 +451,11 @@ function createWindow() {
           // sidebars do fade when the window loses focus, and pinning it to active reads as less native.
           ...(VIBRANCY ? { vibrancy: "sidebar" } : {}),
         }
-      : { titleBarStyle: "hidden", titleBarOverlay: { color: "#0a0a0b", symbolColor: "#9d9da4", height: 56 } }),
+      : {
+          titleBarStyle: "hidden",
+          autoHideMenuBar: true,
+          titleBarOverlay: overlayOpts("dark"),
+        }),
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -457,8 +484,53 @@ function createWindow() {
   win.loadFile(path.join(__dirname, "renderer", "index.html"), {
     query: rendererQuery(),
   });
+  attachWindowControls(win);
   return win;
 }
+
+function attachWindowControls(win) {
+  const sendMaximized = () => {
+    if (win.isDestroyed()) return;
+    win.webContents.send("window-maximized", win.isMaximized());
+  };
+  win.on("maximize", sendMaximized);
+  win.on("unmaximize", sendMaximized);
+}
+
+function canvasColor(appearance) {
+  return appearance === "light" ? "#eceef3" : "#0a0a0b";
+}
+
+function windowFromEvent(e) {
+  return BrowserWindow.fromWebContents(e.sender);
+}
+
+ipcMain.handle("window-minimize", (e) => {
+  const win = windowFromEvent(e);
+  if (win && !win.isDestroyed()) win.minimize();
+});
+ipcMain.handle("window-maximize", (e) => {
+  const win = windowFromEvent(e);
+  if (!win || win.isDestroyed()) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.handle("window-close", (e) => {
+  const win = windowFromEvent(e);
+  if (win && !win.isDestroyed()) win.close();
+});
+ipcMain.handle("window-is-maximized", (e) => {
+  const win = windowFromEvent(e);
+  return !!(win && !win.isDestroyed() && win.isMaximized());
+});
+ipcMain.handle("set-appearance", (e, appearance) => {
+  const win = windowFromEvent(e);
+  if (!win || win.isDestroyed() || VIBRANCY) return;
+  const look = appearance === "light" ? "light" : "dark";
+  try { win.setBackgroundColor(canvasColor(look)); } catch { /* some Linux WMs reject this */ }
+  if (process.platform === "darwin" || typeof win.setTitleBarOverlay !== "function") return;
+  try { win.setTitleBarOverlay(overlayOpts(look)); } catch { /* overlay not available on this shell */ }
+});
 
 function reloadAllWindows() {
   for (const w of BrowserWindow.getAllWindows()) {

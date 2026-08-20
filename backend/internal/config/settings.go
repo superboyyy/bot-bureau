@@ -36,6 +36,11 @@ type Settings struct {
 	// Hostnames fetch_url and web_search may open. Empty means today's public-internet policy
 	// (still no loopback or private addresses). Non-empty means only these hosts, exact match.
 	fetchHosts []string
+
+	// OS sandbox prefs. A nil pointer means the default (see SandboxEnabled etc.).
+	sandboxEnabled          *bool
+	sandboxAutoAllowBash    *bool
+	sandboxAllowUnsandboxed *bool
 }
 
 func NewSettings(dataDir string) *Settings {
@@ -48,6 +53,11 @@ func NewSettings(dataDir string) *Settings {
 			Permission  string   `json:"permission"`
 			Pinned      []string `json:"pinned"`
 			FetchHosts  []string `json:"fetch_hosts"`
+			Sandbox     *struct {
+				Enabled          *bool `json:"enabled"`
+				AutoAllowBash    *bool `json:"auto_allow_bash"`
+				AllowUnsandboxed *bool `json:"allow_unsandboxed"`
+			} `json:"sandbox"`
 		}
 		if json.Unmarshal(raw, &f) == nil {
 			if f.Locale == "zh" || f.Locale == "en" || f.Locale == "auto" {
@@ -59,6 +69,11 @@ func NewSettings(dataDir string) *Settings {
 			}
 			s.Pinned = dedupePins(f.Pinned)
 			s.fetchHosts = NormalizeFetchHosts(f.FetchHosts)
+			if f.Sandbox != nil {
+				s.sandboxEnabled = f.Sandbox.Enabled
+				s.sandboxAutoAllowBash = f.Sandbox.AutoAllowBash
+				s.sandboxAllowUnsandboxed = f.Sandbox.AllowUnsandboxed
+			}
 		}
 	}
 	s.apply()
@@ -142,6 +157,64 @@ func (s *Settings) SetFetchHosts(hosts []string) {
 	s.mu.Unlock()
 }
 
+func derefBool(p *bool, fallback bool) bool {
+	if p == nil {
+		return fallback
+	}
+	return *p
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+// SandboxEnabled is the persisted switch. The engine still no-ops when no OS backend exists.
+func (s *Settings) SandboxEnabled() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return derefBool(s.sandboxEnabled, true)
+}
+
+// SandboxAutoAllowBash skips the bash approval prompt when the command will run inside the sandbox.
+func (s *Settings) SandboxAutoAllowBash() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return derefBool(s.sandboxAutoAllowBash, false)
+}
+
+// SandboxAllowUnsandboxed lets bash retry on the host after a sandbox denial (still gated).
+func (s *Settings) SandboxAllowUnsandboxed() bool {
+	if s == nil {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return derefBool(s.sandboxAllowUnsandboxed, true)
+}
+
+// SetSandbox updates any provided sandbox fields and persists them.
+func (s *Settings) SetSandbox(enabled, autoAllow, allowUnsandboxed *bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if enabled != nil {
+		s.sandboxEnabled = boolPtr(*enabled)
+	}
+	if autoAllow != nil {
+		s.sandboxAutoAllowBash = boolPtr(*autoAllow)
+	}
+	if allowUnsandboxed != nil {
+		s.sandboxAllowUnsandboxed = boolPtr(*allowUnsandboxed)
+	}
+	s.saveLocked()
+	s.mu.Unlock()
+}
+
 // Pins returns the pinned conversation ids (a copy the caller may keep).
 func (s *Settings) Pins() []string {
 	if s == nil {
@@ -208,9 +281,15 @@ func (s *Settings) saveLocked() {
 	if hosts == nil {
 		hosts = []string{}
 	}
+	sb := map[string]any{
+		"enabled":           derefBool(s.sandboxEnabled, true),
+		"auto_allow_bash":   derefBool(s.sandboxAutoAllowBash, false),
+		"allow_unsandboxed": derefBool(s.sandboxAllowUnsandboxed, true),
+	}
 	out, _ := json.MarshalIndent(map[string]any{
 		"locale": s.LocalePref, "group_title": s.GroupTitle, "group_avatar": s.GroupAvatar,
 		"permission": s.Permission, "pinned": pinned, "fetch_hosts": hosts,
+		"sandbox": sb,
 	}, "", "  ")
 	_ = os.MkdirAll(filepath.Dir(s.path), 0o755)
 	_ = os.WriteFile(s.path, out, 0o644)
@@ -225,5 +304,10 @@ func (s *Settings) Status() map[string]any {
 		"group_title": s.GroupTitle, "group_avatar": s.GroupAvatar,
 		"permission":  s.Permission,
 		"fetch_hosts": hosts,
+		"sandbox": map[string]any{
+			"enabled":           derefBool(s.sandboxEnabled, true),
+			"auto_allow_bash":   derefBool(s.sandboxAutoAllowBash, false),
+			"allow_unsandboxed": derefBool(s.sandboxAllowUnsandboxed, true),
+		},
 	}
 }

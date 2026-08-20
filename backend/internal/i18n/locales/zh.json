@@ -511,5 +511,10 @@
   "- Use web_search to find pages (the engine tool is always there; you also have the vendor's web_search / web_fetch), then fetch_url for one specific address": "- 用 web_search 找网页（引擎侧工具始终可用；你还有供应商的 web_search / web_fetch），要读某一个具体地址用 fetch_url",
   "No search results": "没有搜索结果",
   "The search endpoint returned HTTP %d": "搜索接口返回了 HTTP %d",
-  "%s is not on the fetch allowlist": "%s 不在 fetch 允许名单里"
+  "%s is not on the fetch allowlist": "%s 不在 fetch 允许名单里",
+  "Run a shell command inside the workspace OS sandbox. Network is blocked when the backend can isolate it. Reads may use the rest of this machine; writes stay in working directories and /tmp. A .git directory in a working directory is read-only when the backend can re-bind it. Commands that only read still follow the permission tier unless sandbox auto-allow is on. If a command is denied, retry with unsandboxed=true.": "在工作目录的操作系统沙箱里执行 shell 命令。后端能隔离网络时会阻断联网。读取仍可触及本机其他位置；写入只落在工作目录和 /tmp。工作目录下的 .git 在后端能重新挂载时是只读的。纯读命令仍按权限档位走，除非打开了沙箱自动放行。若命令被拒绝，需要越出工作目录或联网时再用 unsandboxed=true 重试。",
+  "Run a shell command inside the workspace OS sandbox. Network is blocked when the backend can isolate it. Reads may use the rest of this machine; writes stay in working directories and /tmp. A .git directory in a working directory is read-only when the backend can re-bind it. Commands that only read still follow the permission tier unless sandbox auto-allow is on.": "在工作目录的操作系统沙箱里执行 shell 命令。后端能隔离网络时会阻断联网。读取仍可触及本机其他位置；写入只落在工作目录和 /tmp。工作目录下的 .git 在后端能重新挂载时是只读的。纯读命令仍按权限档位走，除非打开了沙箱自动放行。",
+  "Run on the host instead of the sandbox. Always needs approval except under No approvals. Use only when the command must write outside working directories or use the network.": "在宿主机上运行，不进沙箱。除「无需审批」外一律要批准。仅当命令必须写到工作目录之外或需要联网时再用。",
+  "Unsandboxed commands are disabled": "已禁止非沙箱命令",
+  "The sandbox denied this command. Retry with unsandboxed=true if it must leave the workspace or use the network.": "沙箱拒绝了这条命令。若必须越出工作目录或联网，请用 unsandboxed=true 重试。"
 }

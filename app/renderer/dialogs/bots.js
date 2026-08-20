@@ -280,6 +280,7 @@ function renderPermLevels() {
     return row;
   }));
   renderFetchHosts();
+  renderSandbox();
 }
 
 function renderFetchHosts() {
@@ -298,6 +299,49 @@ async function saveFetchHosts() {
   try {
     state.settings = await api("/api/settings", { fetch_hosts: hosts });
     renderFetchHosts();
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  }
+}
+
+function renderSandbox() {
+  const s = ((state.settings || {}).sandbox) || {};
+  const setCheck = (id, on) => {
+    const n = $(id);
+    if (!n || document.activeElement === n) return;
+    n.checked = !!on;
+  };
+  setCheck("sandboxEnabled", s.enabled !== false);
+  setCheck("sandboxAutoAllow", !!s.auto_allow_bash);
+  setCheck("sandboxAllowUnsandboxed", s.allow_unsandboxed !== false);
+  const note = $("sandboxNote");
+  if (note) {
+    if (!s.available) {
+      note.textContent = t("Command isolation is unavailable on this system. Bash runs on the host.");
+    } else {
+      let msg = t("Command isolation: %s", s.backend || "");
+      if (!s.network) msg += " " + t("This backend restricts writes; it does not block network access.");
+      note.textContent = msg;
+    }
+  }
+}
+
+async function saveSandbox() {
+  const err = $("sandboxErr");
+  if (err) err.textContent = "";
+  const enabled = $("sandboxEnabled");
+  const autoAllow = $("sandboxAutoAllow");
+  const allowUn = $("sandboxAllowUnsandboxed");
+  if (!enabled || !autoAllow || !allowUn) return;
+  try {
+    state.settings = await api("/api/settings", {
+      sandbox: {
+        enabled: enabled.checked,
+        auto_allow_bash: autoAllow.checked,
+        allow_unsandboxed: allowUn.checked,
+      },
+    });
+    renderSandbox();
   } catch (e) {
     if (err) err.textContent = e.message;
   }

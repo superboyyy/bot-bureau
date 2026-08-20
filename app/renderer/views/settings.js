@@ -160,6 +160,10 @@ $("chatgptLogoutBtn").onclick = async () => {
 $("settingsBtn").onclick = () => openSettings("general");
 $("fetchHosts").addEventListener("change", saveFetchHosts);
 $("fetchHosts").addEventListener("blur", saveFetchHosts);
+["sandboxEnabled", "sandboxAutoAllow", "sandboxAllowUnsandboxed"].forEach((id) => {
+  const n = $(id);
+  if (n) n.addEventListener("change", saveSandbox);
+});
 $("keysForm").addEventListener("submit", (e) => {
   if (e.submitter && e.submitter.value === "cancel") return;
   e.preventDefault();

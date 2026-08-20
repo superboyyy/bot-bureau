@@ -69,6 +69,7 @@ window.__i18n.zh = {
   "Back": "上一步",
   "Backend did not become ready in time": "后端未能及时就绪",
   "Minimal reasoning; fastest and least expensive": "几乎不进行思考；速度最快、成本最低",
+  "Minimize": "最小化",
   "Bearer key name (optional)": "Bearer 密钥名称（可选）",
   "Bot Bureau installs Claude/Codex plugin packages directly. It imports their MCP servers, skills, and member templates; anything unsupported is listed after installation.": "Bot Bureau 会直接安装 Claude/Codex 插件包。包中的 MCP 服务器、技能和成员模板都会导入；不支持的内容会在安装后列出。",
   "Bot Bureau needs a backend": "Bot Bureau 需要后端",
@@ -201,6 +202,7 @@ window.__i18n.zh = {
   "Local engine unreachable, retrying…": "无法连接本机引擎，正在重试…",
   "Manage members": "管理成员",
   "Maximum reasoning; slowest and most expensive": "最高思考深度；速度最慢、成本最高",
+  "Maximize": "最大化",
   "member": "成员",
   "Members": "群成员",
   "These are members you removed but chose to keep. Their memory and work files remain untouched; nobody can use them again, so this is the only place to read or delete them.": "这些是你移除并选择保留的成员。它们的记忆和工作文件会原样保留，其他成员无法再次使用；你只能在这里查看或删除。",
@@ -299,6 +301,7 @@ window.__i18n.zh = {
   "Replying to %s": "回复 %s",
   "Rescan": "重新扫描",
   "Reset": "恢复默认设置",
+  "Restore": "还原",
   "Restart local engine": "重启本机引擎",
   "Retry now": "立即重试",
   "Role": "角色",
@@ -411,5 +414,13 @@ window.__i18n.zh = {
   "You pointed to this directory": "你指定给它的目录",
   "You run this Bot Bureau": "你负责 Bot Bureau",
   "Fetch host allowlist": "fetch 允许的主机",
-  "Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.": "fetch_url 和 web_search 可以打开的主机名。留空表示任意公网站点；填写后只允许这些主机。"
+  "Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.": "fetch_url 和 web_search 可以打开的主机名。留空表示任意公网站点；填写后只允许这些主机。",
+  "Wrap bash in the OS sandbox": "用操作系统沙箱包裹 bash",
+  "Skip approval for sandboxed bash": "沙箱内的 bash 跳过审批",
+  "Allow unsandboxed bash": "允许非沙箱 bash",
+  "When a command will run inside the OS sandbox, skip the bash approval prompt. File tools and plugins still follow the permission tier. Unsandboxed commands still need approval.": "命令会在操作系统沙箱里运行时，跳过 bash 审批提示。文件工具和插件仍按权限档位走。非沙箱命令仍需审批。",
+  "Allow bash to retry on the host with unsandboxed=true after a sandbox denial. Those commands always need approval except under No approvals.": "沙箱拒绝后，允许用 unsandboxed=true 在宿主机上重试。这类命令除「无需审批」外一律要批准。",
+  "Command isolation is unavailable on this system. Bash runs on the host.": "此系统无法做命令隔离。bash 在宿主机上运行。",
+  "Command isolation: %s": "命令隔离：%s",
+  "This backend restricts writes; it does not block network access.": "此后端限制写入，不阻断网络访问。"
 };
