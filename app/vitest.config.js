@@ -11,7 +11,8 @@ module.exports = defineConfig({
     setupFiles: ["./test/setup.js"],
     include: ["test/**/*.test.js"],
     environmentMatchGlobs: [
-      ["test/stop-engine.test.js", "node"]
+      ["test/stop-engine.test.js", "node"],
+      ["test/linux-runtime.test.js", "node"]
     ],
     coverage: {
       provider: "v8",
