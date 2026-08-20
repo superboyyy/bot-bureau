@@ -117,6 +117,10 @@ async function connectSSE() {
     } else {
       scheduleRefetch(); // refresh / approval / approval_done / system
       if (ev.kind === "system" && (ev.chat === current || !ev.chat)) renderMsgs();
+      // Bot enable_connector (OAuth): open the browser Authorize flow without visiting Plugins.
+      if (ev.mcp_oauth && typeof startMCPOAuth === "function") {
+        startMCPOAuth(String(ev.mcp_oauth));
+      }
     }
   };
   es.onerror = () => {

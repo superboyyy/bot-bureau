@@ -10,6 +10,9 @@
 #
 # Credentials are referenced, never written inline. A value starting with $ is resolved from the key
 # store (data/keys.json) or the environment, so this file stays safe to share.
+#
+# From the app, open Plugins to one-click install common connectors (GitHub, Atlassian/Jira,
+# Linear, Notion, Sentry, …). Those writes land in mcp.yaml the same way.
 
 servers:
   # A local process, spoken to over stdio.
@@ -31,10 +34,15 @@ servers:
       - get_file_contents
       - create_issue
 
-  # A remote connector with a static token.
+  # A remote connector with a static token (catalog GitHub uses this shape with a PAT).
   - name: notes
     url: https://example.com/mcp
     bearer_key: NOTES_TOKEN         # A key name, not the token itself
+
+  # Official Atlassian Rovo MCP (Jira + Confluence). Authorize from the plugins panel.
+  - name: atlassian
+    url: https://mcp.atlassian.com/v1/mcp/authv2
+    auth: oauth
 
   # A remote connector whose token is managed by the OAuth flow (dynamic registration, code, PKCE).
   - name: calendar

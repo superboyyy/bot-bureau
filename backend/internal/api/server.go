@@ -37,7 +37,40 @@ type App struct {
 }
 
 func NewApp(bus *engine.Bus, sched *engine.Scheduler, deps *engine.TeamDeps, tg *bridge.TGBridge, settings *config.Settings, cfgs []config.BotConfig, cfgPath, dataDir string) *App {
-	return &App{bus: bus, sched: sched, deps: deps, tg: tg, settings: settings, cfgs: cfgs, cfgPath: cfgPath, dataDir: dataDir}
+	a := &App{bus: bus, sched: sched, deps: deps, tg: tg, settings: settings, cfgs: cfgs, cfgPath: cfgPath, dataDir: dataDir}
+	// Bots enable catalog connectors from chat; persistence of bots.yaml lives here.
+	deps.SubscribeMCP = a.subscribeBotMCP
+	return a
+}
+
+// subscribeBotMCP appends server to the bot's mcp list, updates the live worker, and saves bots.yaml.
+func (a *App) subscribeBotMCP(botName, server string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.cfgs {
+		if a.cfgs[i].Name != botName {
+			continue
+		}
+		for _, s := range a.cfgs[i].MCP {
+			if s == server {
+				if w := a.bus.Bot(botName); w != nil {
+					w.Cfg.MCP = a.cfgs[i].MCP
+					w.Toolbox().SetMCPServers(a.cfgs[i].MCP)
+				}
+				return nil
+			}
+		}
+		a.cfgs[i].MCP = append(append([]string(nil), a.cfgs[i].MCP...), server)
+		if w := a.bus.Bot(botName); w != nil {
+			w.Cfg.MCP = a.cfgs[i].MCP
+			w.Toolbox().SetMCPServers(a.cfgs[i].MCP)
+		}
+		if err := config.SaveBotConfigs(a.cfgPath, a.cfgs); err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf(i18n.T("There is no bot named %s"), botName)
 }
 
 // A random instance id per start, published on /api/ping.

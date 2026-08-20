@@ -392,3 +392,15 @@ func TestReadMCPFrame(t *testing.T) {
 		t.Fatalf("NDJSON framing: %q %v", got, err)
 	}
 }
+
+func TestValidateMCPConfigAuth(t *testing.T) {
+	if err := validateMCPConfig(MCPServerConfig{Name: "ok", URL: "https://example.com/mcp", Auth: "oauth"}); err != nil {
+		t.Fatalf("oauth remote should be valid: %v", err)
+	}
+	if err := validateMCPConfig(MCPServerConfig{Name: "bad", URL: "https://example.com/mcp", Auth: "bearer"}); err == nil {
+		t.Fatal("expected rejection of unknown auth")
+	}
+	if err := validateMCPConfig(MCPServerConfig{Name: "bad", Command: "npx", Auth: "oauth"}); err == nil {
+		t.Fatal("expected rejection of oauth on stdio")
+	}
+}

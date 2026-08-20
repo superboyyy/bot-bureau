@@ -46,84 +46,19 @@ let refetchTimer = null;
 // and model names are fetched live from /api/models. A baked-in table goes stale, and a retired model id
 // only blows up when a message is actually sent.
 
-// Plugin catalog: the ones the panel installs in a single click. Each entry either needs nothing or is
-// short exactly one thing (need), which is asked for on the spot and then installed — rather than
-// sending the user elsewhere to prepare something and come back.
-// Ordered by setup cost: nothing-to-configure first, key/authorization ones last.
+// Plugin catalog: served by the engine (/api/mcp/catalog) so the panel and enable_connector share
+// one list. Populated on first plugins-panel open (and after refresh).
+let MCP_CATALOG = [];
+let mcpCatalogLoaded = false;
 
-// need.kind:
-// null   — install straight away
-// path   — append a directory argument
-// key    — save a key first, then reference it
-const MCP_CATALOG = [
-  {
-    name: "deepwiki", label: "DeepWiki",
-    desc: "Ask questions about any public GitHub repository — its documentation, architecture, and code.",
-    url: "https://mcp.deepwiki.com/mcp",
-  },
-  {
-    name: "context7", label: "Context7",
-    desc: "Up-to-date documentation and code examples for thousands of libraries.",
-    url: "https://mcp.context7.com/mcp",
-  },
-  {
-    name: "memory", label: "Memory",
-    desc: "A knowledge graph where the team can record and search facts later.",
-    command: "npx", args: "-y @modelcontextprotocol/server-memory",
-  },
-  {
-    name: "thinking", label: "Sequential Thinking",
-    desc: "A scratchpad for working through a hard problem one step at a time.",
-    command: "npx", args: "-y @modelcontextprotocol/server-sequential-thinking",
-  },
-  {
-    name: "fs", label: "Filesystem",
-    desc: "Read and write files under one directory you choose.",
-    command: "npx", args: "-y @modelcontextprotocol/server-filesystem",
-    need: { kind: "path", label: "Directory to expose", placeholder: "/Users/you/Documents" },
-  },
-  {
-    name: "playwright", label: "Playwright",
-    desc: "Drive a real browser: open pages, click, fill forms, read what is on screen.",
-    command: "npx", args: "-y @playwright/mcp@latest",
-    slow: true,
-  },
-  {
-    name: "github", label: "GitHub",
-    desc: "Issues, pull requests, code search, and file contents on GitHub.",
-    url: "https://api.githubcopilot.com/mcp/",
-    need: {
-      kind: "key", key: "GITHUB_PAT", as: "bearer", label: "GitHub personal access token",
-      hint: "Create a token at github.com/settings/personal-access-tokens — it is stored on this machine only.",
-    },
-  },
-  {
-    name: "exa", label: "Exa Search",
-    desc: "AI-focused web search that returns full page content, not just links.",
-    command: "npx", args: "-y exa-mcp-server",
-    need: { kind: "key", key: "EXA_API_KEY", as: "env", label: "Exa API key", hint: "Get one from exa.ai." },
-  },
-  {
-    name: "firecrawl", label: "Firecrawl",
-    desc: "Turn entire websites into clean Markdown.",
-    command: "npx", args: "-y firecrawl-mcp",
-    need: { kind: "key", key: "FIRECRAWL_API_KEY", as: "env", label: "Firecrawl API key", hint: "Get one from firecrawl.dev." },
-  },
-
-
-  // These two use OAuth while the engine only speaks static Bearer, so they go through the mcp-remote
-  // bridge: it runs the authorization flow locally (you approve in a browser) and then hands the tools
-  // to the engine over stdio.
-  {
-    name: "linear", label: "Linear",
-    desc: "Issues, projects, and cycles in Linear.",
-    command: "npx", args: "-y mcp-remote https://mcp.linear.app/mcp",
-    oauth: true, slow: true,
-  },
-  {
-    name: "notion", label: "Notion",
-    desc: "Search, read and update pages and databases in Notion.",
-    command: "npx", args: "-y mcp-remote https://mcp.notion.com/mcp",
-    oauth: true, slow: true,
-  },
-];
+async function ensureMCPCatalog() {
+  if (mcpCatalogLoaded && MCP_CATALOG.length) return MCP_CATALOG;
+  try {
+    const res = await api("/api/mcp/catalog");
+    MCP_CATALOG = res.catalog || [];
+    mcpCatalogLoaded = true;
+  } catch (err) {
+    console.warn("mcp catalog", err);
+  }
+  return MCP_CATALOG;
+}

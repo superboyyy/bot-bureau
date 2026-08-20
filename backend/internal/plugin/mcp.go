@@ -1040,6 +1040,12 @@ func validateMCPConfig(cfg MCPServerConfig) error {
 	if hasCmd == hasURL {
 		return errors.New(i18n.T("Specify exactly one of command (local plugin) or url (remote connector)"))
 	}
+	if cfg.Auth != "" && cfg.Auth != "oauth" {
+		return errors.New(i18n.T(`auth must be empty or "oauth"`))
+	}
+	if cfg.usesOAuth() && !hasURL {
+		return errors.New(i18n.T("auth: oauth is only valid for remote connectors (url)"))
+	}
 	return nil
 }
 
