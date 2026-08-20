@@ -16,6 +16,7 @@ package secret
 import (
 	"botbureau/backend/internal/i18n"
 
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -463,7 +464,11 @@ func (m *MCPOAuth) awaitCallback(name string, p *mcpPending, entry *mcpOAuthEntr
 		ch <- result{code: code}
 	})}
 	go srv.Serve(p.listener)
-	defer srv.Close()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	}()
 
 	select {
 	case res := <-ch:
