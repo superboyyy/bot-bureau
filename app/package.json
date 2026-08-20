@@ -2,7 +2,7 @@
   "name": "bot-bureau",
   "productName": "Bot Bureau",
   "version": "0.1.4",
-  "description": "Bot Bureau —— 常驻本机的 AI 成员团队，桌面客户端（Go 引擎 + Electron）",
+  "description": "Bot Bureau — different AI agents, work together for you",
   "author": "Aiden Huang <superboyyy6@gmail.com>",
   "homepage": "https://github.com/superboyyy/bot-bureau",
   "main": "main.js",
