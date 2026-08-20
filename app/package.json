@@ -3,6 +3,8 @@
   "productName": "Bot Bureau",
   "version": "0.1.1",
   "description": "Bot Bureau —— 常驻本机的 AI 成员团队，桌面客户端（Go 引擎 + Electron）",
+  "author": "Aiden Huang <superboyyy6@gmail.com>",
+  "homepage": "https://github.com/superboyyy/bot-bureau",
   "main": "main.js",
   "scripts": {
     "prestart": "node scripts/fix-electron-identity.js",
@@ -41,23 +43,24 @@
         "dmg"
       ],
       "darkModeSupport": true,
-      "artifactName": "${productName}-${version}-macOS-${arch}.${ext}"
+      "artifactName": "Bot.Bureau-${version}-macOS-${arch}.${ext}"
     },
     "win": {
       "icon": "build/icon.ico",
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-${version}-Windows-${arch}.${ext}"
+      "artifactName": "Bot.Bureau-${version}-Windows-${arch}.${ext}"
     },
     "linux": {
       "icon": "build/icon.png",
       "category": "Utility",
+      "maintainer": "Aiden Huang <superboyyy6@gmail.com>",
       "target": [
         "AppImage",
         "deb"
       ],
-      "artifactName": "${productName}-${version}-Linux-${arch}.${ext}"
+      "artifactName": "Bot.Bureau-${version}-Linux-${arch}.${ext}"
     },
     "asarUnpack": [
       "bin/**"
