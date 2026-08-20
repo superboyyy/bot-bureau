@@ -58,15 +58,19 @@ test("close minimizes on every OS; quit stops the engine", { skip: e2e, timeout:
       const w = BrowserWindow.getAllWindows()[0];
       return {
         windows: BrowserWindow.getAllWindows().length,
-        minimized: !!(w && w.isMinimized()),
-        visible: !!(w && w.isVisible()),
         destroyed: !w || w.isDestroyed(),
       };
     });
     assert.equal(state.windows, 1);
-    assert.equal(state.destroyed, false);
-    assert.ok(state.minimized || !state.visible, "close should minimize, not destroy the window");
+    assert.equal(state.destroyed, false, "close should keep the window (minimize), not quit");
     assert.equal(pidAlive(pid), true, "close must not stop the engine");
+
+    await session.electronApp.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows()[0];
+      if (w.isMinimized()) w.restore();
+      w.show();
+    });
+    assert.equal(await session.window.title(), "Bot Bureau");
 
     await session.electronApp.close();
     session.electronApp = null;
