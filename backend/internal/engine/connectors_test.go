@@ -114,4 +114,15 @@ func TestCatalogToConfigPathAndOAuth(t *testing.T) {
 	if err != nil || cfg.Auth != "oauth" || cfg.URL == "" {
 		t.Fatalf("atlassian config: %+v err=%v", cfg, err)
 	}
+	gh, ok := plugin.LookupCatalog("github")
+	if !ok {
+		t.Fatal("github missing")
+	}
+	if !gh.OAuth || gh.Need != nil {
+		t.Fatalf("github should be browser OAuth with no PAT, got %+v", gh)
+	}
+	cfg, err = gh.ToConfig("")
+	if err != nil || cfg.Auth != "oauth" || cfg.URL == "" {
+		t.Fatalf("github config: %+v err=%v", cfg, err)
+	}
 }

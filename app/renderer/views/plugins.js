@@ -90,15 +90,16 @@ async function saveToolPick(all) {
   }
 }
 
-// startMCPOAuth runs the full OAuth flow: the backend discovers the endpoints and registers a client,
-// this opens the authorization page and then polls for the outcome.
+// startMCPOAuth runs the full OAuth flow: the backend discovers the endpoints (and registers a
+// client, except GitHub which uses a baked-in public client id + device code), this opens the
+// authorization page and then polls for the outcome.
 let mcpOAuthTimer = null;
 async function startMCPOAuth(name) {
   $("mcpErr").textContent = t("Preparing authorization for %s…", name);
   try {
     const st = await api("/api/mcp/oauth/start", { name });
     if (st.url) window.open(st.url, "_blank", "noopener");
-    $("mcpErr").textContent = t("Approve in the browser, then come back.");
+    showMCPOAuthProgress(st);
     clearInterval(mcpOAuthTimer);
     mcpOAuthTimer = setInterval(async () => {
       try {
@@ -109,12 +110,29 @@ async function startMCPOAuth(name) {
         } else if (cur.status === "error") {
           clearInterval(mcpOAuthTimer);
           $("mcpErr").textContent = cur.error || t("Authorization failed");
+        } else if (cur.user_code && $("mcpErr").dataset.userCode !== cur.user_code) {
+          showMCPOAuthProgress(cur);
         }
       } catch {}
     }, 1500);
   } catch (err) {
     $("mcpErr").textContent = err.message;
   }
+}
+
+function showMCPOAuthProgress(st) {
+  const box = $("mcpErr");
+  if (st.user_code) {
+    box.dataset.userCode = st.user_code;
+    const code = typeof codeChip === "function" ? codeChip(st.user_code) : el("code", "", st.user_code);
+    box.replaceChildren(
+      document.createTextNode(t("Enter this code in your browser:") + " "),
+      code,
+    );
+    return;
+  }
+  delete box.dataset.userCode;
+  box.textContent = t("Approve in the browser, then come back.");
 }
 
 // Skills ----

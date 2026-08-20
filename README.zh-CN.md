@@ -380,7 +380,7 @@ servers:
 
 成员也可以在聊天里启用目录中的连接器：`list_connectors` 查看可用项，`enable_connector`（经你批准）会按需安装并为当前成员订阅。需要 OAuth 的连接器随后会打开浏览器授权。
 
-工具名会以 `mcp_<plugin>_<tool>` 的形式提供给订阅该插件的成员。MCP 放在引擎层而不是某个服务商 API 内，因此 Grok、DeepSeek、Ollama 等所有成员都能使用同一套插件。远程连接器可以使用静态 bearer token 或 OAuth（`auth: oauth`，在插件面板点「授权」，或从目录安装后自动打开浏览器）；OAuth 流程包含资源元数据发现、授权服务器发现、动态客户端注册、PKCE 和自动刷新。Atlassian、Linear、Notion、Sentry 这类不发静态令牌的连接器只能走 OAuth。
+工具名会以 `mcp_<plugin>_<tool>` 的形式提供给订阅该插件的成员。MCP 放在引擎层而不是某个服务商 API 内，因此 Grok、DeepSeek、Ollama 等所有成员都能使用同一套插件。远程连接器可以使用静态 bearer token 或 OAuth（`auth: oauth`，在插件面板点「授权」，或从目录安装后自动打开浏览器）。多数 OAuth 连接器会走资源元数据发现、授权服务器发现、动态客户端注册、PKCE 和自动刷新。GitHub 的授权服务器没有注册端点，因此内置了公开 client id，走 GitHub 的 device-code（打开浏览器页面，和 ChatGPT / SuperGrok 登录同一思路）——不必自己建 OAuth App，也不必粘贴 PAT。Atlassian、Linear、Notion、Sentry 以及 GitHub 这类不发静态令牌的连接器只能走 OAuth。
 
 工具很多时，可以在插件面板选择子集，选择结果会写入 `mcp.yaml`；留空表示全部工具，后续新增工具也会自动加入。本地插件只继承受限环境变量白名单；如果需要其他变量，要在 `env:` 中显式声明，避免插件继承 `SSH_AUTH_SOCK` 或 shell 中导出的密钥。插件进程崩溃后引擎会退避重连，服务端发送 `tools/list_changed` 时也会刷新工具列表。
 

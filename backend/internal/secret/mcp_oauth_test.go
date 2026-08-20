@@ -245,3 +245,163 @@ func TestOAuthWithoutRegistrationEndpoint(t *testing.T) {
 		t.Fatalf("the error should point at the token alternative, got %v", err)
 	}
 }
+
+func TestIsGitHubOAuth(t *testing.T) {
+	if !isGitHubOAuth("https://api.githubcopilot.com/mcp/", "") {
+		t.Fatal("copilot MCP host should use the baked-in GitHub client")
+	}
+	if !isGitHubOAuth("https://example.com/mcp", "https://github.com/login/oauth") {
+		t.Fatal("GitHub's authorization issuer should use the baked-in client")
+	}
+	if isGitHubOAuth("https://mcp.linear.app/mcp", "https://mcp.linear.app") {
+		t.Fatal("a normal MCP host must keep dynamic registration")
+	}
+}
+
+func TestGitHubDeviceEndpointsRewriteGitHubTokenPath(t *testing.T) {
+	device, token := githubDeviceEndpoints(asMetadata{})
+	if device != githubDeviceDefault || token != githubTokenDefault {
+		t.Fatalf("empty metadata: device=%q token=%q", device, token)
+	}
+	device, token = githubDeviceEndpoints(asMetadata{
+		DeviceEndpoint: "https://github.com/login/device/code",
+		TokenEndpoint:  "https://github.com/login/oauth/token",
+	})
+	if token != githubTokenDefault {
+		t.Fatalf("github.com /token fallback should become access_token, got %q", token)
+	}
+	if device != "https://github.com/login/device/code" {
+		t.Fatalf("device URL: %q", device)
+	}
+	const localToken = "http://127.0.0.1:9/token"
+	_, token = githubDeviceEndpoints(asMetadata{TokenEndpoint: localToken})
+	if token != localToken {
+		t.Fatalf("httptest token URLs must be left alone, got %q", token)
+	}
+}
+
+// GitHub has no RFC 7591 registration. Start must skip DCR, send the baked-in public client id,
+// open a device-code page (not a loopback callback), and poll until a token arrives.
+func TestGitHubDeviceOAuthUsesBakedClientID(t *testing.T) {
+	var gotDeviceForm, gotTokenForm url.Values
+	pollN := 0
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mcpAuth := func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("WWW-Authenticate",
+			fmt.Sprintf(`Bearer realm="mcp", resource_metadata="%s/.well-known/oauth-protected-resource"`, srv.URL))
+		rw.WriteHeader(401)
+	}
+	mux.HandleFunc("/mcp", mcpAuth)
+	mux.HandleFunc("/mcp/", mcpAuth)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", func(rw http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(rw).Encode(map[string]any{
+			"resource":              srv.URL + "/mcp",
+			"authorization_servers": []string{srv.URL},
+			"scopes_supported":      []string{"repo", "read:org"},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(rw http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(rw).Encode(map[string]any{
+			"issuer":                        srv.URL,
+			"authorization_endpoint":        srv.URL + "/authorize",
+			"token_endpoint":                srv.URL + "/login/oauth/access_token",
+			"device_authorization_endpoint": srv.URL + "/login/device/code",
+		})
+	})
+	mux.HandleFunc("/login/device/code", func(rw http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotDeviceForm = r.PostForm
+		_ = json.NewEncoder(rw).Encode(map[string]any{
+			"device_code": "DC-1", "user_code": "ABCD-1234",
+			"verification_uri":          srv.URL + "/login/device",
+			"verification_uri_complete": srv.URL + "/login/device?user_code=ABCD-1234",
+			"expires_in":                60, "interval": 1,
+		})
+	})
+	mux.HandleFunc("/login/oauth/access_token", func(rw http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		gotTokenForm = r.PostForm
+		pollN++
+		if pollN < 2 {
+			rw.WriteHeader(400)
+			_ = json.NewEncoder(rw).Encode(map[string]any{"error": "authorization_pending"})
+			return
+		}
+		_ = json.NewEncoder(rw).Encode(map[string]any{
+			"access_token": "gho-test", "refresh_token": "refresh-gh",
+			"token_type": "bearer", "expires_in": 3600,
+		})
+	})
+	mux.HandleFunc("/register", func(rw http.ResponseWriter, r *http.Request) {
+		t.Error("GitHub must not attempt dynamic client registration")
+		http.Error(rw, "no registration", 404)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	m := NewMCPOAuth(filepath.Join(t.TempDir(), "mcp_oauth.json"))
+	m.httpc = &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: rewriteHostTransport(map[string]string{
+			"api.githubcopilot.com": srv.URL,
+		}),
+	}
+
+	st, err := m.Start("github", "https://api.githubcopilot.com/mcp/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDeviceForm.Get("client_id") != githubOAuthClientID {
+		t.Fatalf("device request client_id=%q, want baked-in %q", gotDeviceForm.Get("client_id"), githubOAuthClientID)
+	}
+	if gotDeviceForm.Get("client_secret") != "" {
+		t.Fatal("device flow must not send a client secret")
+	}
+	if st["user_code"] != "ABCD-1234" {
+		t.Fatalf("user_code: %v", st["user_code"])
+	}
+	authURL, _ := st["url"].(string)
+	if !strings.Contains(authURL, "user_code=ABCD-1234") {
+		t.Fatalf("authorization URL should carry the user code, got %q", authURL)
+	}
+	if strings.Contains(authURL, "127.0.0.1") && strings.Contains(authURL, "/callback") {
+		t.Fatalf("device flow must not use a loopback callback, got %q", authURL)
+	}
+
+	got := waitDone(t, m, "github")
+	if got["status"] != "done" {
+		t.Fatalf("authorization failed: %+v", got)
+	}
+	if gotTokenForm.Get("client_id") != githubOAuthClientID {
+		t.Fatalf("token poll client_id=%q", gotTokenForm.Get("client_id"))
+	}
+	if gotTokenForm.Get("grant_type") != githubDeviceGrant {
+		t.Fatalf("grant_type=%q", gotTokenForm.Get("grant_type"))
+	}
+	if gotTokenForm.Get("client_secret") != "" {
+		t.Fatal("token poll must not send a client secret")
+	}
+	tok, err := m.Bearer("github")
+	if err != nil || tok != "gho-test" {
+		t.Fatalf("Bearer: %q %v", tok, err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func rewriteHostTransport(hosts map[string]string) http.RoundTripper {
+	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		nr := req.Clone(req.Context())
+		if dest, ok := hosts[strings.ToLower(nr.URL.Hostname())]; ok {
+			u, err := url.Parse(dest)
+			if err != nil {
+				return nil, err
+			}
+			nr.URL.Scheme, nr.URL.Host, nr.Host = u.Scheme, u.Host, u.Host
+		}
+		return http.DefaultTransport.RoundTrip(nr)
+	})
+}
