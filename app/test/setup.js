@@ -1,5 +1,8 @@
 // The browser page normally loads locales/zh.js first. Unit tests provide the smallest deterministic
 // table they need before importing i18n.js.
+if (typeof window === "undefined") {
+  // Node tests (stop-engine) share this setup file but have no DOM.
+} else {
 window.__i18n = {
   en: {},
   zh: {
@@ -27,3 +30,4 @@ Object.defineProperty(window.navigator, "language", {
   configurable: true,
   value: "en-US"
 });
+}

@@ -1,7 +1,8 @@
 
 // Bot Bureau Electron main process: spawn the Go backend child process, create windows, clean up on exit.
-const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme, Tray } = require("electron");
 const { spawn } = require("child_process");
+const { isRunning, stopEngine } = require("./lib/stop-engine");
 const net = require("net");
 const https = require("https");
 const crypto = require("crypto");
@@ -32,10 +33,12 @@ function t(en, ...args) {
 // App name and icon: in dev mode (npm start) the Dock/menu bar would otherwise read "Electron"
 app.setName("Bot Bureau");
 app.setAboutPanelOptions({ applicationName: "Bot Bureau", applicationVersion: app.getVersion() });
+if (process.platform === "win32") app.setAppUserModelId("app.botbureau.desktop");
 // Windows / Linux use the full-bleed squircle (same size as the old square). macOS keeps the
 // padded tile so the Dock icon matches neighbouring apps; those files are icon-mac*.png.
 const ICON = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac.png" : "icon.png");
 const ICON_LIGHT = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac-light.png" : "icon-light.png");
+let tray = null;
 
 // See scripts/mac-liquid-icon.js for the appearance-aware package icon.
 
@@ -63,6 +66,9 @@ function applyAppearanceIcon() {
   // construction, so this only has to catch the ones already open.
   for (const w of BrowserWindow.getAllWindows()) {
     try { w.setIcon(icon); } catch { /* unsupported on some Linux desktops */ }
+  }
+  if (tray && !tray.isDestroyed()) {
+    try { tray.setImage(icon); } catch { /* tray may reject a swap on some desktops */ }
   }
 }
 
@@ -109,6 +115,86 @@ let backendURL = null;
 let remoteMode = false;
 let localToken = "";
 let myInstance = ""; // our own engine's id, used to drop ourselves from discovery
+let quitting = false;
+let engineStopped = false;
+let engineStopping = false;
+
+// One desktop process per user-data dir. A second launch should restore the existing window
+// (especially after close-to-tray) rather than spawn another engine against the same lock.
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) app.quit();
+
+function trayImage() {
+  if (process.platform === "win32") {
+    const ico = path.join(__dirname, "build", "icon.ico");
+    if (fs.existsSync(ico)) return ico;
+  }
+  return appearanceIcon() || ICON;
+}
+
+function destroyTray() {
+  if (!tray) return;
+  try { tray.destroy(); } catch { /* already gone */ }
+  tray = null;
+}
+
+function rebuildTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: t("Open Bot Bureau"), click: () => restoreMainWindow() },
+    { type: "separator" },
+    { label: t("Quit"), click: () => app.quit() },
+  ]));
+}
+
+function ensureTray() {
+  if (process.platform === "darwin") return false;
+  if (tray && !tray.isDestroyed()) return true;
+  const image = trayImage();
+  if (!image) return false;
+  try {
+    tray = new Tray(image);
+  } catch (err) {
+    console.error("[bot-bureau] tray unavailable:", err);
+    tray = null;
+    return false;
+  }
+  tray.setToolTip("Bot Bureau");
+  tray.setIgnoreDoubleClickEvents(true);
+  rebuildTrayMenu();
+  tray.on("click", () => restoreMainWindow());
+  return true;
+}
+
+function restoreMainWindow() {
+  let win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!win) {
+    if (backendURL) win = createWindow();
+    else return;
+  }
+  try { win.setSkipTaskbar(false); } catch { /* some Linux WMs reject this */ }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  destroyTray();
+}
+
+function hideToTray(win) {
+  if (!ensureTray()) {
+    if (win && !win.isDestroyed()) win.minimize();
+    return;
+  }
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  try { win.setSkipTaskbar(true); } catch { /* some Linux WMs reject this */ }
+}
+
+async function stopLocalEngine() {
+  const proc = backendProc;
+  backendProc = null;
+  if (!proc) return;
+  await stopEngine(proc);
+}
 
 // LAN discovery: find a Bot Bureau engine already running on the same network (mDNS _botbureau._tcp)
 function discoverEngines(ms = 1500) {
@@ -279,7 +365,7 @@ async function pickPort(host) {
 }
 
 async function startBackend() {
-  if (backendProc && backendProc.exitCode === null && backendURL && !remoteMode) {
+  if (isRunning(backendProc) && backendURL && !remoteMode) {
     return backendURL; // Local engine is already running
   }
   const listen = process.env.BOTBUREAU_LOCAL_ONLY ? "local" : "lan";
@@ -295,7 +381,7 @@ async function startBackend() {
     // The system language has to travel from here: the engine's "follow the system" has only
     // LANG/LC_ALL to read, and a GUI process started from a double-clicked icon has none of them set,
     // leaving it no choice but English.
-    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, BOTBUREAU_LOCALE: app.getLocale() } }
+    { cwd: DATA_ROOT, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: { ...process.env, BOTBUREAU_LOCALE: app.getLocale() } }
   );
   backendProc.stdout.on("data", (d) => process.stdout.write("[backend] " + d));
   backendProc.stderr.on("data", (d) => process.stderr.write("[backend] " + d));
@@ -313,7 +399,7 @@ async function startBackend() {
     if (spawnErr) {
       throw new Error(t("Could not start the engine (%s): %s", cmd, spawnErr.code || spawnErr.message));
     }
-    if (backendProc.exitCode !== null) {
+    if (!isRunning(backendProc)) {
       throw new Error(
         t("The backend process exited (possibly a config error, or the data directory is in use by an engine on another device — see the terminal log for details)")
       );
@@ -323,7 +409,7 @@ async function startBackend() {
 
       // A successful ping must also confirm our own child answered it: with the port held by someone
       // else, they answer /api/ping just the same while our engine has already failed to bind and exited.
-      if (res.ok && backendProc.exitCode === null) return url;
+      if (res.ok && isRunning(backendProc)) return url;
     } catch {}
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -497,6 +583,25 @@ function attachWindowControls(win) {
   };
   win.on("maximize", sendMaximized);
   win.on("unmaximize", sendMaximized);
+
+  // Close is not Quit. macOS: same as the yellow button (Dock). Windows/Linux: hide to the
+  // tray, leaving the taskbar slot for the real minimize button. Quit is tray right-click,
+  // Cmd/Ctrl+Q, or File/App menu — that sets `quitting` in before-quit.
+  win.on("close", (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    const dismiss = () => {
+      if (quitting || win.isDestroyed()) return;
+      if (process.platform === "darwin") win.minimize();
+      else hideToTray(win);
+    };
+    if (typeof win.isFullScreen === "function" && win.isFullScreen()) {
+      win.once("leave-full-screen", dismiss);
+      win.setFullScreen(false);
+      return;
+    }
+    dismiss();
+  });
 }
 
 function canvasColor(appearance) {
@@ -603,9 +708,8 @@ ipcMain.handle("connect-to", async (_e, url) => {
     };
   }
   saveRemote(url, url.startsWith("https://") ? r.fp : null);
-  if (backendProc && backendProc.exitCode === null) {
-    backendProc.kill(); // Stop the local engine to avoid two engines
-    backendProc = null;
+  if (isRunning(backendProc)) {
+    await stopLocalEngine(); // Stop the local engine to avoid two engines
   }
   backendURL = url;
   remoteMode = true;
@@ -628,25 +732,26 @@ ipcMain.handle("connect-local", async () => {
 });
 
 app.whenReady().then(async () => {
+  if (!isPrimary) return;
   seedDataRoot();
-  if (process.platform === "darwin") {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {
-        label: "Bot Bureau",
-        submenu: [
-          { role: "about" },
-          { type: "separator" },
-          { role: "hide" },
-          { role: "hideOthers" },
-          { role: "unhide" },
-          { type: "separator" },
-          { role: "quit" },
-        ],
-      },
-      { role: "editMenu" },
-      { role: "windowMenu" },
-    ]));
-  }
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...(process.platform === "darwin"
+      ? [{
+          label: "Bot Bureau",
+          submenu: [
+            { role: "about" },
+            { type: "separator" },
+            { role: "hide" },
+            { role: "hideOthers" },
+            { role: "unhide" },
+            { type: "separator" },
+            { role: "quit" },
+          ],
+        }]
+      : [{ role: "fileMenu" }]),
+    { role: "editMenu" },
+    { role: "windowMenu" },
+  ]));
 
   // nativeTheme is only usable once the app is ready, so the listener goes here, not at module scope
   applyAppearanceIcon();
@@ -667,13 +772,25 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0 && backendURL) createWindow();
-  });
+  app.on("activate", () => restoreMainWindow());
 });
 
-// Desktop-tool semantics: quit when all windows are closed (backend included)
-app.on("window-all-closed", () => app.quit());
-app.on("quit", () => {
-  if (backendProc && backendProc.exitCode === null) backendProc.kill();
+app.on("second-instance", () => restoreMainWindow());
+
+// Close hides the window (tray / Dock); do not quit when the last window is dismissed.
+app.on("window-all-closed", () => {});
+
+// Wait for the engine tree to exit so the file lock is released before this process is gone.
+app.on("before-quit", (e) => {
+  if (!isPrimary) return;
+  quitting = true;
+  destroyTray();
+  if (engineStopped) return;
+  e.preventDefault();
+  if (engineStopping) return;
+  engineStopping = true;
+  stopLocalEngine().finally(() => {
+    engineStopped = true;
+    app.quit();
+  });
 });

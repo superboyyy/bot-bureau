@@ -30,6 +30,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**",
       "renderer/**",
       "bin/**",
       "build/icon.*",
