@@ -414,5 +414,13 @@ window.__i18n.zh = {
   "You pointed to this directory": "你指定给它的目录",
   "You run this Bot Bureau": "你负责 Bot Bureau",
   "Fetch host allowlist": "fetch 允许的主机",
-  "Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.": "fetch_url 和 web_search 可以打开的主机名。留空表示任意公网站点；填写后只允许这些主机。"
+  "Hostnames fetch_url and web_search may open. Empty means any public site; when set, only these hosts.": "fetch_url 和 web_search 可以打开的主机名。留空表示任意公网站点；填写后只允许这些主机。",
+  "Wrap bash in the OS sandbox": "用操作系统沙箱包裹 bash",
+  "Skip approval for sandboxed bash": "沙箱内的 bash 跳过审批",
+  "Allow unsandboxed bash": "允许非沙箱 bash",
+  "When a command will run inside the OS sandbox, skip the bash approval prompt. File tools and plugins still follow the permission tier. Unsandboxed commands still need approval.": "命令会在操作系统沙箱里运行时，跳过 bash 审批提示。文件工具和插件仍按权限档位走。非沙箱命令仍需审批。",
+  "Allow bash to retry on the host with unsandboxed=true after a sandbox denial. Those commands always need approval except under No approvals.": "沙箱拒绝后，允许用 unsandboxed=true 在宿主机上重试。这类命令除「无需审批」外一律要批准。",
+  "Command isolation is unavailable on this system. Bash runs on the host.": "此系统无法做命令隔离。bash 在宿主机上运行。",
+  "Command isolation: %s": "命令隔离：%s",
+  "This backend restricts writes; it does not block network access.": "此后端限制写入，不阻断网络访问。"
 };

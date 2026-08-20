@@ -165,7 +165,7 @@ BOTBUREAU_DATA_DIR=/tmp/bb-dev npm start
 | 自动工作 | 以上 + 工作目录内的普通命令 | 越出工作目录的动作、插件 |
 | 无需审批 | 全部操作 | 无 |
 
-工作目录是成员自己的目录，加上你在消息中明确指定的、确实存在的目录。路径访问会逐一检查这些根目录；bash 判断是启发式审批门，不是真正的操作系统沙箱。
+工作目录是成员自己的目录，加上你在消息中明确指定的、确实存在的目录。路径访问会逐一检查这些根目录。bash 的审批仍是启发式扫描；在有操作系统后端时，进程会被沙箱包裹，写入出不去工作目录和 `/tmp`。详见 [`docs/sandbox.md`](docs/sandbox.md)。
 
 引擎会直接执行明确的只读命令，包括管道、命令序列和不带副作用的 find。写入真实文件的重定向、命令替换、网络访问、越出工作目录的路径，以及 find 的 -delete / -exec 等动作会进入审批。只有“无需审批”会放行所有边界外动作和非只读插件调用。
 
@@ -425,7 +425,7 @@ Bot Bureau 不另造插件格式，直接安装 Claude / Codex 的 `.claude-plug
 - Claude 使用官方 `anthropic-sdk-go`（beta endpoint），支持 `claude-opus-5`、adaptive thinking、服务商侧 fallback、拒答时整回合回滚，以及 `max_tokens` 截断后的成对 tool_result 修复；OpenAI 兼容服务使用原生 `net/http`，支持历史和工具双向转换。
 - 只读 shell 命令和管道可直接执行；写入重定向、命令替换、联网和带副作用的 find 进入审批。
 - 消息历史追加写入 `data/events.jsonl`；内存只缓存最近尾部。群聊和私聊上下文分别保存在各成员的 `data/workspaces/<bot>/sessions.json`，过长上下文会在完整回合边界裁剪。
-- bash 权限控制是工作目录检查加审批门，不是完整的操作系统隔离；审批前请仔细看命令。
+- 有操作系统后端时（macOS Seatbelt、Linux bubblewrap 或 Landlock），bash 跑在沙箱里；设置里可以跳过已包裹命令的审批，并用 `unsandboxed=true` 在宿主机上重试。没有后端时仍只是工作目录检查加审批门。详见 [`docs/sandbox.md`](docs/sandbox.md)。
 - 分发使用 electron-builder；npm start 是开发入口。
 
 ## 未来计划

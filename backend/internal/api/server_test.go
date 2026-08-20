@@ -5,6 +5,7 @@ import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/engine"
 	"botbureau/backend/internal/netx"
+	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
 
 	"botbureau/backend/internal/i18n"
@@ -48,6 +49,7 @@ func newTestApp(t *testing.T) (*App, *httptest.Server) {
 	settings := config.NewSettings(dir)
 	settings.SetLocalePref("en")
 	deps.Settings = settings // must be attached before bots are built; the toolbox captures it then
+	deps.Sandbox = sandbox.Passthrough()
 	for _, c := range cfgs {
 		w, err := engine.NewBotWorker(c, bus, sched, dir, deps)
 		if err != nil {
@@ -313,6 +315,44 @@ func TestHTTPSettingsFetchHosts(t *testing.T) {
 	hosts, _ = out["fetch_hosts"].([]any)
 	if len(hosts) != 2 {
 		t.Fatalf("omitting fetch_hosts must not wipe the list: %v", hosts)
+	}
+}
+
+func TestHTTPSettingsSandbox(t *testing.T) {
+	app, srv := newTestApp(t)
+	code, out := postJSON(t, srv.URL+"/api/settings", map[string]any{
+		"sandbox": map[string]any{"enabled": false, "auto_allow_bash": true, "allow_unsandboxed": false},
+	})
+	if code != 200 {
+		t.Fatalf("settings: %d %v", code, out)
+	}
+	sb, _ := out["sandbox"].(map[string]any)
+	if sb["enabled"] != false || sb["auto_allow_bash"] != true || sb["allow_unsandboxed"] != false {
+		t.Fatalf("sandbox: %v", sb)
+	}
+	if sb["available"] != false || sb["backend"] != "none" {
+		t.Fatalf("test runner must stay passthrough: %v", sb)
+	}
+	if app.settings.SandboxEnabled() || !app.settings.SandboxAutoAllowBash() || app.settings.SandboxAllowUnsandboxed() {
+		t.Fatal("store did not keep sandbox prefs")
+	}
+	code, out = postJSON(t, srv.URL+"/api/settings", map[string]any{"locale": "en"})
+	if code != 200 {
+		t.Fatal(out)
+	}
+	sb, _ = out["sandbox"].(map[string]any)
+	if sb["enabled"] != false || sb["auto_allow_bash"] != true {
+		t.Fatalf("omitting sandbox must not wipe prefs: %v", sb)
+	}
+	code, out = postJSON(t, srv.URL+"/api/settings", map[string]any{
+		"sandbox": map[string]any{"enabled": true},
+	})
+	if code != 200 {
+		t.Fatal(out)
+	}
+	sb, _ = out["sandbox"].(map[string]any)
+	if sb["enabled"] != true || sb["auto_allow_bash"] != true || sb["allow_unsandboxed"] != false {
+		t.Fatalf("partial sandbox update wiped siblings: %v", sb)
 	}
 }
 

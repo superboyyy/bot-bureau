@@ -412,7 +412,7 @@ func (a *App) State() map[string]any {
 		"skills":    a.deps.Skills.List(),
 		"plugins":   a.deps.Bundles.List(),
 		"telegram":  a.tg.Status(),
-		"settings":  a.settings.Status(),
+		"settings":  a.settingsStatus(),
 		"xai":       a.deps.XAI.Status(),
 		"chatgpt":   a.deps.ChatGPT.Status(),
 		"approvals": approvals, "routines": routines, "events": events, "conversations": conversations,

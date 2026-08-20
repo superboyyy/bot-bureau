@@ -323,6 +323,8 @@ Do this after the tools exist, or the log will only record `write_file` blasts a
 - After a rejected write, `audit.jsonl` contains the deny and the path.
 - Approving a bash card with a changed command runs the changed command.
 
+OS sandbox (Seatbelt, bubblewrap, Landlock) is not part of this numbered plan. Approval and isolation are independent knobs; see [`docs/sandbox.md`](sandbox.md).
+
 ---
 
 ## Compatibility

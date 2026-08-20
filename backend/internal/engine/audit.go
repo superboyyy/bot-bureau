@@ -27,6 +27,7 @@ type auditLine struct {
 	Path     string `json:"path,omitempty"`
 	Command  string `json:"command,omitempty"`
 	Original string `json:"original,omitempty"`
+	Isolate  string `json:"isolate,omitempty"`
 	Allowed  bool   `json:"allowed"`
 	Reason   string `json:"reason,omitempty"`
 }
