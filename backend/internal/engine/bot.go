@@ -43,6 +43,10 @@ type TeamDeps struct {
 	// OAuth for remote connectors (dynamic registration, authorization code, PKCE)
 	MCPAuth *secret.MCPOAuth
 
+	// SubscribeMCP persists a bot's opt-in to a team plugin (bots.yaml + live toolbox). Wired by the
+	// API layer so the engine need not own bots.yaml itself. Nil in unit tests that skip persistence.
+	SubscribeMCP func(botName, server string) error
+
 	// Global settings; the toolbox reads the current permission tier from it so changes take effect at once
 	Settings *config.Settings
 
@@ -912,6 +916,7 @@ the procedure yourself.
 	}
 	webLine += i18n.T("\n- If the work will touch more than one file, call todo_write with a checklist, then submit_plan with the plan, and wait for the user to accept it before editing")
 	webLine += i18n.T("\n- Memory lists below are id: first-clause only; call recall to load a body, forget to delete by id, and search_history to look up a line from this conversation")
+	webLine += i18n.T("\n- Built-in connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …) stay off until enabled. When the user needs one you do not have, call list_connectors then enable_connector (needs approval); afterward use the mcp_* tools it adds")
 	if len(w.Cfg.MCP) > 0 {
 		webLine += fmt.Sprintf(i18n.T("\n- Connected plugins (MCP): %s. Plugin tool names start with mcp_; non-read-only plugin actions go through user approval first"),
 			strings.Join(w.Cfg.MCP, i18n.T(", ")))

@@ -42,6 +42,7 @@ type Toolbox struct {
 	board       *TaskBoard         // the team task board
 	mcp         *plugin.MCPManager // plugin (MCP server) manager
 	mcpServers  []string           // plugins this bot subscribes to
+	deps        *TeamDeps          // live team deps (SubscribeMCP / MCPAuth may be wired after construction)
 	skills      *skill.Manager     // the skill library, shared by the whole team
 	bus         *Bus
 	sched       *Scheduler
@@ -135,7 +136,8 @@ func NewToolbox(botName, workspace string, roots *Roots, mem *Memory, deps *Team
 	return &Toolbox{
 		botName: botName, workspace: workspace, roots: roots, mem: mem,
 		teamMem: deps.TeamMem, board: deps.Board, mcp: deps.MCP, mcpServers: mcpServers, skills: deps.Skills,
-		bus: bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS, audit: deps.Audit,
+		deps: deps,
+		bus:  bus, sched: sched, botPerm: botPerm, settings: deps.Settings, ks: deps.KS, audit: deps.Audit,
 		sbx: sbx,
 	}
 }
@@ -347,6 +349,31 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			Properties:  map[string]any{},
 			Required:    []string{},
 		},
+		model.ToolDef{
+			Name:        "list_connectors",
+			Description: i18n.T("List built-in connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …): which are installed, which you already have, and what setup they need. Call this when the user mentions a service you do not yet have tools for."),
+			Properties:  map[string]any{},
+			Required:    []string{},
+		},
+		model.ToolDef{
+			Name:        "enable_connector",
+			Description: i18n.T("Install a built-in connector from the catalog (if needed) and enable it for you so its mcp_* tools appear. Requires user approval. Only catalog names are allowed — never invent a command or URL. For Jira use name=atlassian (or jira). After enabling, call the new mcp_* tools on your next step."),
+			Properties: map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": i18n.T("Catalog id (github, atlassian, linear, notion, sentry, fs, …) or alias (jira, gh)"),
+				},
+				"path": map[string]any{
+					"type":        "string",
+					"description": i18n.T("Directory to expose (required for filesystem/fs)"),
+				},
+				"api_key": map[string]any{
+					"type":        "string",
+					"description": i18n.T("API key / token when the connector needs one and none is saved yet (e.g. GitHub PAT)"),
+				},
+			},
+			Required: []string{"name"},
+		},
 	)
 
 	// Tools from subscribed MCP plugins (names get an mcp_<plugin>_ prefix to avoid cross-plugin name collisions).
@@ -450,6 +477,12 @@ func (t *Toolbox) Execute(name string, input map[string]any) (string, []model.Re
 			return text(i18n.T("The task board is for group chat collaboration and is not available in a DM"), true)
 		}
 		return text(t.board.Render(), false)
+	case "list_connectors":
+		s, err := t.runListConnectors()
+		return text(s, err)
+	case "enable_connector":
+		s, err := t.runEnableConnector(str("name"), str("path"), str("api_key"))
+		return text(s, err)
 	case "save_routine":
 		every := 0
 		if n, ok := intArg(input, "every_minutes"); ok {
@@ -493,7 +526,7 @@ func boolArg(input map[string]any, key string) bool {
 // Writes, bash, and anything that waits on a human stay in order.
 func (t *Toolbox) parallelizable(name string) bool {
 	switch name {
-	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks", "recall", "search_history", "web_search":
+	case "read_file", "grep", "glob", "fetch_url", "read_skill", "list_tasks", "list_connectors", "recall", "search_history", "web_search":
 		return true
 	}
 	if strings.HasPrefix(name, "mcp_") {

@@ -452,6 +452,8 @@ servers:
 
 The plugins panel ships a one-click catalog for common connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …). Install still only registers the team plugin; each bot must subscribe under its settings (`mcp: [fs, atlassian]`).
 
+Bots can also enable a catalog connector from chat: `list_connectors` shows what is available, and `enable_connector` (with your approval) installs it if needed and subscribes the current bot. OAuth connectors open a browser Authorize flow afterward.
+
 Tools are exposed as `mcp_<plugin>_<tool>` to bots that subscribe to the plugin. Engine-level MCP (rather than the Anthropic API's server-side MCP connector) was chosen so that bots on every provider — Grok / DeepSeek / Ollama and the rest — share the same plugins; stdio local plugins are only possible at the engine level anyway.
 
 A remote connector authenticates one of two ways: a **static token** (`bearer_key`, pointing at an entry in the key store) or **OAuth** (`auth: oauth`, started by hitting "Authorize" in the plugins panel — or automatically after a catalog install). The OAuth path runs the whole chain: protected-resource metadata discovery, authorization-server discovery, dynamic client registration (RFC 7591), authorization code with PKCE, and automatic refresh. Connectors that issue no static token — Atlassian, Linear, Notion, Sentry — can only be reached this way.

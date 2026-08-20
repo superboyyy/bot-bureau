@@ -1184,8 +1184,6 @@ func TestMCPAddOAuthNeedsAuth(t *testing.T) {
 	if out["ok"] != true || out["needs_auth"] != true {
 		t.Fatalf("expected needs_auth success, got %v", out)
 	}
-	code, out = postJSON(t, srv.URL+"/api/mcp", nil)
-	// GET /api/mcp ignores body; use http.Get
 	resp, err := http.Get(srv.URL + "/api/mcp")
 	if err != nil {
 		t.Fatal(err)
@@ -1205,6 +1203,68 @@ func TestMCPAddOAuthNeedsAuth(t *testing.T) {
 	if !found {
 		t.Fatalf("atlassian should be listed after oauth add: %v", status)
 	}
-	_ = code
-	_ = out
+}
+
+func TestMCPCatalogEndpoint(t *testing.T) {
+	_, srv := newTestApp(t)
+	resp, err := http.Get(srv.URL + "/api/mcp/catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	list, _ := out["catalog"].([]any)
+	if len(list) < 5 {
+		t.Fatalf("catalog too small: %v", out)
+	}
+	names := map[string]bool{}
+	for _, raw := range list {
+		row := raw.(map[string]any)
+		names[row["name"].(string)] = true
+	}
+	for _, want := range []string{"github", "atlassian", "sentry", "linear"} {
+		if !names[want] {
+			t.Fatalf("catalog missing %s: %v", want, names)
+		}
+	}
+}
+
+func TestSubscribeBotMCP(t *testing.T) {
+	app, _ := newTestApp(t)
+	if err := app.subscribeBotMCP("chief", "memory"); err != nil {
+		t.Fatal(err)
+	}
+	w := app.bus.Bot("chief")
+	if w == nil {
+		t.Fatal("no chief")
+	}
+	found := false
+	for _, s := range w.Cfg.MCP {
+		if s == "memory" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("chief mcp: %v", w.Cfg.MCP)
+	}
+	// Persist
+	cfgs, err := config.LoadBotConfigs(app.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, c := range cfgs {
+		if c.Name != "chief" {
+			continue
+		}
+		for _, s := range c.MCP {
+			if s == "memory" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("bots.yaml mcp not updated: %+v", cfgs)
+	}
 }

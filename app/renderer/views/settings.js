@@ -199,9 +199,10 @@ function catalogNote(entry) {
 // "Install".
 const mcpInstalling = new Set();
 
-function renderMCPCatalog() {
+async function renderMCPCatalog() {
   const wrap = $("mcpCatalog");
   wrap.replaceChildren();
+  await ensureMCPCatalog();
   const installed = new Set((state.mcp || []).map((s) => s.name));
   for (const entry of MCP_CATALOG) {
     const title = el("div", "title", entry.label);

@@ -16,6 +16,10 @@ func (a *App) registerPluginRoutes(mux *http.ServeMux) {
 		httpx.WriteJSON(rw, 200, map[string]any{"mcp": a.deps.MCP.Status()})
 	}))
 
+	mux.HandleFunc("/api/mcp/catalog", cors(func(rw http.ResponseWriter, r *http.Request) {
+		httpx.WriteJSON(rw, 200, map[string]any{"catalog": plugin.Catalog()})
+	}))
+
 	mux.HandleFunc("/api/mcp/add", cors(func(rw http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name      string            `json:"name"`
