@@ -14,9 +14,11 @@ speculars derived from the mark's own mask — lit top edge, shaded bottom edge,
 Icon Composer wants flat layers with no baked effects, so a clean set is also written to
 assets/icon-layers/; drop those in when you want a real .icon and the system supplies the material.
 
-The macOS build keeps its 80.5% padding and superellipse mask: .icns is the legacy format and the
-system will not shape it for you, so a full-bleed square lands in the Dock a size larger than its
-neighbours. Windows and Linux want the opposite, so both forms are emitted.
+The macOS .icns keeps Apple's 80.5% grid padding: the Dock will not inset a full-bleed tile, so
+without that margin it sits a size larger than its neighbours. Windows and Linux taskbars already
+inset the file, so the same padding made the rounded icon look smaller than the old square. Those
+platforms get a full-bleed superellipse — same outer size as the square, corners cut to a squircle.
+Full-bleed squares still go to assets/icon-square-*.png for Icon Composer.
 """
 
 import math
@@ -248,8 +250,14 @@ def mac_icon(theme):
     return canvas.resize((S, S), Image.LANCZOS)
 
 def square_icon(theme):
-    """fills the canvas; those systems shape it."""
+    """full-bleed square for Icon Composer."""
     return build(theme, C, 0.54).resize((S, S), Image.LANCZOS)
+
+def rounded_icon(theme):
+    """full-bleed superellipse: same outer size as the square, rounded corners."""
+    img = build(theme, C, 0.54)
+    img.putalpha(squircle_mask(C))
+    return img.resize((S, S), Image.LANCZOS)
 
 def flat_layers(theme):
     """    Flat layers for Icon Composer: one ground, one mark, no effects, full bleed."""
@@ -357,11 +365,15 @@ def main() -> None:
     # build/ as well — the main process swaps the Dock icon by system appearance while the app runs,
     # which needs both images inside the package.
     mac = mac_icon(THEMES["dark"])
-    square = square_icon(THEMES["dark"])
+    rounded = rounded_icon(THEMES["dark"])
     mac.save(ASSETS / "icon.png")
-    mac.resize((512, 512), Image.LANCZOS).save(BUILD / "icon.png")
-    mac_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-light.png")
-    square.save(BUILD / "icon.ico", sizes=[(s, s) for s in (16, 32, 48, 64, 128, 256)])
+    # Windows / Linux: full-bleed squircle so the tile matches the old square's size.
+    rounded.resize((512, 512), Image.LANCZOS).save(BUILD / "icon.png")
+    rounded_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-light.png")
+    rounded.save(BUILD / "icon.ico", sizes=[(s, s) for s in (16, 32, 48, 64, 128, 256)])
+    # macOS Dock still needs the padded tile; the running app swaps these by appearance.
+    mac.resize((512, 512), Image.LANCZOS).save(BUILD / "icon-mac.png")
+    mac_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-mac-light.png")
 
     if shutil.which("iconutil"):
         iconset = BUILD / "icon.iconset"
