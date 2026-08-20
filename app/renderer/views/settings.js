@@ -260,13 +260,12 @@ async function installFromCatalog(entry, btn) {
   if (entry.url) {
     body.url = entry.url;
     if (need?.as === "bearer") body.bearer_key = need.key;
+    if (entry.oauth) body.auth = "oauth";
   } else {
     body.command = entry.command;
     body.args = path ? entry.args + " " + path : entry.args;
     if (need?.as === "env") body.env = { [need.key]: "$" + need.key };
   }
-
-
 
   // Installing can take tens of seconds (downloading an npm package, waiting on a browser
   // authorization), so the button turns into a progress note in place rather than looking unresponsive
@@ -281,7 +280,12 @@ async function installFromCatalog(entry, btn) {
     : t("Installing %s — the first install may take a minute while the package downloads.", entry.label);
   try {
     await api("/api/mcp/add", body);
-    $("mcpErr").textContent = t("%s installed. Check it for a bot under that bot's settings.", entry.label);
+    if (entry.oauth && entry.url) {
+      // Native remote OAuth: start the browser flow immediately after the entry is saved.
+      await startMCPOAuth(entry.name);
+    } else {
+      $("mcpErr").textContent = t("%s installed. Check it for a bot under that bot's settings.", entry.label);
+    }
   } catch (err) {
     $("mcpErr").textContent = err.message;
   } finally {

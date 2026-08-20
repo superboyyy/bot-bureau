@@ -1168,3 +1168,43 @@ func TestStateTodosAreArraysAndPlanApprovalsCarryKind(t *testing.T) {
 		t.Fatal("submit_plan did not return after approve")
 	}
 }
+
+// Catalog OAuth installs persist the connector before a token exists; /api/mcp/add must still return
+// ok so the client can open the browser Authorize flow.
+func TestMCPAddOAuthNeedsAuth(t *testing.T) {
+	_, srv := newTestApp(t)
+	code, out := postJSON(t, srv.URL+"/api/mcp/add", map[string]any{
+		"name": "atlassian",
+		"url":  "https://mcp.atlassian.com/v1/mcp/authv2",
+		"auth": "oauth",
+	})
+	if code != 200 {
+		t.Fatalf("status %d body %v", code, out)
+	}
+	if out["ok"] != true || out["needs_auth"] != true {
+		t.Fatalf("expected needs_auth success, got %v", out)
+	}
+	code, out = postJSON(t, srv.URL+"/api/mcp", nil)
+	// GET /api/mcp ignores body; use http.Get
+	resp, err := http.Get(srv.URL + "/api/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var status map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&status)
+	list, _ := status["mcp"].([]any)
+	found := false
+	for _, raw := range list {
+		row := raw.(map[string]any)
+		if row["name"] == "atlassian" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("atlassian should be listed after oauth add: %v", status)
+	}
+	_ = code
+	_ = out
+}

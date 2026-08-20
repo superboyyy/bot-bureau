@@ -24,6 +24,7 @@ func (a *App) registerPluginRoutes(mux *http.ServeMux) {
 			URL       string            `json:"url"`
 			BearerKey string            `json:"bearer_key"`
 			Env       map[string]string `json:"env"`
+			Auth      string            `json:"auth"` // "oauth" for remote connectors
 		}
 		if err := httpx.ReadJSON(r, &body); err != nil {
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
@@ -33,8 +34,16 @@ func (a *App) registerPluginRoutes(mux *http.ServeMux) {
 			Name: strings.TrimSpace(body.Name), Command: strings.TrimSpace(body.Command),
 			Args: strings.Fields(body.Args), URL: strings.TrimSpace(body.URL),
 			BearerKey: strings.TrimSpace(body.BearerKey), Env: body.Env,
+			Auth: strings.TrimSpace(body.Auth),
 		}
 		if err := a.deps.MCP.Add(cfg); err != nil {
+			// OAuth remotes are persisted before a token exists. Treat that as success so the client
+			// can open the browser Authorize flow next, instead of looking like a failed install.
+			if cfg.Auth == "oauth" && a.deps.MCP.Has(cfg.Name) {
+				a.bus.Emit("refresh", "", "system", i18n.T("Plugin ")+cfg.Name+i18n.T(" added"), nil)
+				httpx.WriteJSON(rw, 200, map[string]any{"ok": true, "needs_auth": true})
+				return
+			}
 			httpx.WriteJSON(rw, 400, map[string]any{"error": err.Error()})
 			return
 		}

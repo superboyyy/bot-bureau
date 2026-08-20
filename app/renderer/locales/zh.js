@@ -66,6 +66,8 @@ window.__i18n.zh = {
   "Authorize": "授权",
   "Authorizing…": "授权中…",
   "Available to install": "可安装",
+  "Jira issues and Confluence pages — search, summarize, create, and update.": "Jira issue 与 Confluence 页面：搜索、摘要、创建与更新。",
+  "Search errors, inspect issues, and dig into performance in Sentry.": "在 Sentry 中搜索错误、查看 issue 并深入性能数据。",
   "Back": "上一步",
   "Backend did not become ready in time": "后端未能及时就绪",
   "Minimal reasoning; fastest and least expensive": "几乎不进行思考；速度最快、成本最低",

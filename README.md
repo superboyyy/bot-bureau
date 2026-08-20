@@ -445,15 +445,16 @@ servers:
   - name: fs                # local plugin: the official filesystem server
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/Documents"]
-  - name: linear            # remote connector
-    url: https://mcp.linear.app/mcp
-    bearer_key: LINEAR_TOKEN   # resolved from the key store / environment variables
+  - name: atlassian         # remote OAuth connector (Jira / Confluence)
+    url: https://mcp.atlassian.com/v1/mcp/authv2
+    auth: oauth
 ```
 
-Tools are exposed as `mcp_<plugin>_<tool>` to bots that subscribe to the plugin (`mcp: [fs, linear]` in bots.yaml).
-Engine-level MCP (rather than the Anthropic API's server-side MCP connector) was chosen so that bots on every provider — Grok / DeepSeek / Ollama and the rest — share the same plugins; stdio local plugins are only possible at the engine level anyway.
+The plugins panel ships a one-click catalog for common connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …). Install still only registers the team plugin; each bot must subscribe under its settings (`mcp: [fs, atlassian]`).
 
-A remote connector authenticates one of two ways: a **static token** (`bearer_key`, pointing at an entry in the key store) or **OAuth** (`auth: oauth`, started by hitting "Authorize" in the plugins panel). The OAuth path runs the whole chain: protected-resource metadata discovery, authorization-server discovery, dynamic client registration (RFC 7591), authorization code with PKCE, and automatic refresh. Connectors that issue no static token — Linear, Notion, Sentry — can only be reached this way.
+Tools are exposed as `mcp_<plugin>_<tool>` to bots that subscribe to the plugin. Engine-level MCP (rather than the Anthropic API's server-side MCP connector) was chosen so that bots on every provider — Grok / DeepSeek / Ollama and the rest — share the same plugins; stdio local plugins are only possible at the engine level anyway.
+
+A remote connector authenticates one of two ways: a **static token** (`bearer_key`, pointing at an entry in the key store) or **OAuth** (`auth: oauth`, started by hitting "Authorize" in the plugins panel — or automatically after a catalog install). The OAuth path runs the whole chain: protected-resource metadata discovery, authorization-server discovery, dynamic client registration (RFC 7591), authorization code with PKCE, and automatic refresh. Connectors that issue no static token — Atlassian, Linear, Notion, Sentry — can only be reached this way.
 
 When a plugin carries a lot of tools (the official GitHub MCP server has ninety-odd), click "Choose tools" in the panel to pick a subset; it becomes the `tools:` list in `mcp.yaml`. Leaving it empty means all of them, so tools added by later updates are picked up automatically.
 

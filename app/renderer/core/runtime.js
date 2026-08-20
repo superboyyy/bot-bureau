@@ -110,20 +110,30 @@ const MCP_CATALOG = [
     need: { kind: "key", key: "FIRECRAWL_API_KEY", as: "env", label: "Firecrawl API key", hint: "Get one from firecrawl.dev." },
   },
 
-
-  // These two use OAuth while the engine only speaks static Bearer, so they go through the mcp-remote
-  // bridge: it runs the authorization flow locally (you approve in a browser) and then hands the tools
-  // to the engine over stdio.
+  // Remote OAuth connectors: the engine discovers endpoints, registers a client, and runs PKCE.
+  // Install opens a browser for approval; afterward tools appear without a pasted token.
+  {
+    name: "atlassian", label: "Atlassian",
+    desc: "Jira issues and Confluence pages — search, summarize, create, and update.",
+    url: "https://mcp.atlassian.com/v1/mcp/authv2",
+    oauth: true,
+  },
   {
     name: "linear", label: "Linear",
     desc: "Issues, projects, and cycles in Linear.",
-    command: "npx", args: "-y mcp-remote https://mcp.linear.app/mcp",
-    oauth: true, slow: true,
+    url: "https://mcp.linear.app/mcp",
+    oauth: true,
   },
   {
     name: "notion", label: "Notion",
     desc: "Search, read and update pages and databases in Notion.",
-    command: "npx", args: "-y mcp-remote https://mcp.notion.com/mcp",
-    oauth: true, slow: true,
+    url: "https://mcp.notion.com/mcp",
+    oauth: true,
+  },
+  {
+    name: "sentry", label: "Sentry",
+    desc: "Search errors, inspect issues, and dig into performance in Sentry.",
+    url: "https://mcp.sentry.dev/mcp",
+    oauth: true,
   },
 ];
