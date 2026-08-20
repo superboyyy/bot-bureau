@@ -356,7 +356,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 			Required:    []string{},
 		},
 		model.ToolDef{
-			Name: "enable_connector",
+			Name:        "enable_connector",
 			Description: i18n.T("Install a built-in connector from the catalog (if needed) and enable it for you so its mcp_* tools appear. Requires user approval. Only catalog names are allowed — never invent a command or URL. For Jira use name=atlassian (or jira); for Drive use google-drive (or gdrive). After enabling, call the new mcp_* tools on your next step."),
 			Properties: map[string]any{
 				"name": map[string]any{
@@ -369,7 +369,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 				},
 				"api_key": map[string]any{
 					"type":        "string",
-					"description": i18n.T("API key / token when the connector needs one and none is saved yet (e.g. GitHub PAT)"),
+					"description": i18n.T("API key / token when the connector needs one and none is saved yet"),
 				},
 			},
 			Required: []string{"name"},

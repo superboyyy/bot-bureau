@@ -20,12 +20,11 @@ servers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/a/directory"]
 
-  # A local process that needs a credential.
+  # Official GitHub MCP (browser OAuth, same idea as ChatGPT/SuperGrok sign-in — a baked-in
+  # public client id, no PAT and no OAuth App for you to register).
   - name: github
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
-    env:
-      GITHUB_TOKEN: $GITHUB_TOKEN   # $ = resolved from the key store or env
+    url: https://api.githubcopilot.com/mcp/
+    auth: oauth
     #
     # Expose only the tools actually needed. The official GitHub server has ninety-odd; pushing all of
     # them in both eats context and measurably lowers the odds of the model picking the right one.
@@ -34,7 +33,14 @@ servers:
       - get_file_contents
       - create_issue
 
-  # A remote connector with a static token (catalog GitHub uses this shape with a PAT).
+  # Alternative: a local GitHub MCP process with a PAT, if you would rather not use browser login.
+  # - name: github-local
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_TOKEN: $GITHUB_TOKEN   # $ = resolved from the key store or env
+
+  # A remote connector with a static token.
   - name: notes
     url: https://example.com/mcp
     bearer_key: NOTES_TOKEN         # A key name, not the token itself

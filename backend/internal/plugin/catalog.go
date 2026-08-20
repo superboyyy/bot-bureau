@@ -91,13 +91,9 @@ func Catalog() []CatalogEntry {
 		},
 		{
 			Name: "github", Label: "GitHub",
-			Desc: "Issues, pull requests, code search, and file contents on GitHub.",
-			URL:  "https://api.githubcopilot.com/mcp/",
-			Need: &CatalogNeed{
-				Kind: "key", Key: "GITHUB_PAT", As: "bearer",
-				Label: "GitHub personal access token",
-				Hint:  "Create a token at github.com/settings/personal-access-tokens — it is stored on this machine only.",
-			},
+			Desc:  "Issues, pull requests, code search, and file contents on GitHub.",
+			URL:   "https://api.githubcopilot.com/mcp/",
+			OAuth: true,
 		},
 		{
 			Name: "exa", Label: "Exa Search",

@@ -3,9 +3,11 @@ package secret
 // OAuth for remote MCP connectors.
 
 // Why this is unavoidable: the remote connectors from Linear, Notion, Sentry and GitHub all speak OAuth,
-// and a static Bearer connects to none of them. There is no pre-registered client_id to lean on either —
-// every machine is a new client — so dynamic client registration (RFC 7591) is required: discover the
-// authorization server, register a client on the spot, then authorization code + PKCE for the token.
+// and a static Bearer connects to none of them. Linear / Notion / Sentry support dynamic client
+// registration (RFC 7591): discover the authorization server, register a client on the spot, then
+// authorization code + PKCE. GitHub's authorization server does not — there is no registration
+// endpoint — so GitHub uses a baked-in public client id the same way ChatGPT and SuperGrok sign-in
+// do, and GitHub's device-code flow (a browser page, no loopback callback).
 
 // How this differs from the xai/chatgpt flows: those target one hardcoded vendor with known endpoints and
 // use a device code. Here the vendor is whatever URL the user typed, so every endpoint must be discovered
@@ -25,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +35,17 @@ import (
 
 const (
 	mcpOAuthClientName = "Bot Bureau"
+
+	// Public client id of the GitHub MCP OAuth app that official github-mcp-server builds ship —
+	// the same pattern as chatgptClientID / xaiClientID: a vendor-published public client, not a
+	// secret Bot Bureau registered. GitHub's device-code flow only needs this; no client secret
+	// is stored.
+	githubOAuthClientID = "Ov23ctZDe8AJr0QMDiIq"
+	githubDeviceGrant   = "urn:ietf:params:oauth:grant-type:device_code"
+	githubDeviceDefault = "https://github.com/login/device/code"
+	githubTokenDefault  = "https://github.com/login/oauth/access_token"
+	// Default scopes match the set github-mcp-server requests when none are discovered.
+	githubOAuthScope = "repo read:org read:user user:email"
 
 	// The user has to go and approve in a browser, so allow real time; the listener must be reclaimed
 	// afterwards rather than holding a port forever.
@@ -59,10 +73,12 @@ type mcpPending struct {
 	status   string // pending | done | error
 	msg      string
 	authURL  string
+	userCode string
 	verifier string
 	state    string
 	redirect string
 	listener net.Listener
+	cancel   chan struct{}
 }
 
 type MCPOAuth struct {
@@ -116,6 +132,9 @@ func (m *MCPOAuth) Status(name string) map[string]any {
 		out["pending"] = p.status == "pending"
 		out["status"] = p.status
 		out["url"] = p.authURL
+		if p.userCode != "" {
+			out["user_code"] = p.userCode
+		}
 		if p.msg != "" {
 			out["error"] = p.msg
 		}
@@ -134,8 +153,17 @@ func (m *MCPOAuth) ClearPending(name string) {
 func (m *MCPOAuth) Logout(name string) {
 	m.mu.Lock()
 	delete(m.entries, name)
-	if p := m.pending[name]; p != nil && p.listener != nil {
-		_ = p.listener.Close()
+	if p := m.pending[name]; p != nil {
+		if p.cancel != nil {
+			select {
+			case <-p.cancel:
+			default:
+				close(p.cancel)
+			}
+		}
+		if p.listener != nil {
+			_ = p.listener.Close()
+		}
 	}
 	delete(m.pending, name)
 	_ = m.save()
@@ -152,6 +180,12 @@ func (m *MCPOAuth) Start(name, serverURL string) (map[string]any, error) {
 	meta, err := m.discover(serverURL)
 	if err != nil {
 		return nil, err
+	}
+
+	// GitHub has no dynamic client registration. Use the baked-in public client id and the
+	// device-code flow (a browser page, same shape as ChatGPT / SuperGrok sign-in).
+	if isGitHubOAuth(serverURL, meta.Issuer) {
+		return m.startGitHubDevice(name, serverURL, meta)
 	}
 
 	// Reuse a previously registered client: there is no reason to register a fresh one with the same
@@ -211,8 +245,17 @@ func (m *MCPOAuth) Start(name, serverURL string) (map[string]any, error) {
 		state: state, redirect: redirect, listener: ln,
 	}
 	m.mu.Lock()
-	if old := m.pending[name]; old != nil && old.listener != nil {
-		_ = old.listener.Close()
+	if old := m.pending[name]; old != nil {
+		if old.cancel != nil {
+			select {
+			case <-old.cancel:
+			default:
+				close(old.cancel)
+			}
+		}
+		if old.listener != nil {
+			_ = old.listener.Close()
+		}
 	}
 	m.pending[name] = p
 	m.entries[name] = entry
@@ -220,6 +263,169 @@ func (m *MCPOAuth) Start(name, serverURL string) (map[string]any, error) {
 
 	go m.awaitCallback(name, p, entry, canonicalResource(serverURL))
 	return m.Status(name), nil
+}
+
+func isGitHubOAuth(serverURL, issuer string) bool {
+	if u, err := url.Parse(serverURL); err == nil {
+		if strings.EqualFold(u.Host, "api.githubcopilot.com") {
+			return true
+		}
+	}
+	iss := strings.TrimRight(strings.ToLower(issuer), "/")
+	return iss == "https://github.com/login/oauth"
+}
+
+type githubDeviceCode struct {
+	DeviceCode              string `json:"device_code"`
+	UserCode                string `json:"user_code"`
+	VerificationURI         string `json:"verification_uri"`
+	VerificationURIComplete string `json:"verification_uri_complete"`
+	ExpiresIn               int    `json:"expires_in"`
+	Interval                int    `json:"interval"`
+	Error                   string `json:"error"`
+	ErrorDescription        string `json:"error_description"`
+}
+
+// githubDeviceEndpoints prefers discovered URLs (so tests can point at httptest) and only rewrites
+// GitHub's RFC-8414 fallback `/token` to the real `/login/oauth/access_token`.
+func githubDeviceEndpoints(meta asMetadata) (deviceURL, tokenURL string) {
+	deviceURL = strings.TrimSpace(meta.DeviceEndpoint)
+	if deviceURL == "" {
+		deviceURL = githubDeviceDefault
+	}
+	tokenURL = strings.TrimSpace(meta.TokenEndpoint)
+	if tokenURL == "" {
+		return deviceURL, githubTokenDefault
+	}
+	if u, err := url.Parse(tokenURL); err == nil && strings.EqualFold(u.Host, "github.com") && !strings.Contains(u.Path, "access_token") {
+		return deviceURL, githubTokenDefault
+	}
+	return deviceURL, tokenURL
+}
+
+// startGitHubDevice is the ChatGPT-style path: baked-in public client id, device code, browser page.
+func (m *MCPOAuth) startGitHubDevice(name, serverURL string, meta asMetadata) (map[string]any, error) {
+	deviceURL, tokenURL := githubDeviceEndpoints(meta)
+	scope := meta.Scope
+	if scope == "" {
+		scope = githubOAuthScope
+	}
+
+	form := url.Values{"client_id": {githubOAuthClientID}, "scope": {scope}}
+	var device githubDeviceCode
+	if err := m.postFormJSON(deviceURL, form, &device); err != nil {
+		return nil, fmt.Errorf(i18n.T("Failed to request a GitHub login code: %w"), err)
+	}
+	if device.Error != "" {
+		msg := device.Error
+		if device.ErrorDescription != "" {
+			msg = device.ErrorDescription
+		}
+		return nil, fmt.Errorf(i18n.T("Failed to request a GitHub login code: %s"), msg)
+	}
+	if device.DeviceCode == "" || device.UserCode == "" || device.VerificationURI == "" {
+		return nil, errors.New(i18n.T("GitHub returned an incomplete login code"))
+	}
+	authURL := device.VerificationURIComplete
+	if authURL == "" {
+		authURL = device.VerificationURI + "?user_code=" + url.QueryEscape(device.UserCode)
+	}
+
+	entry := &mcpOAuthEntry{
+		ServerURL: serverURL, Issuer: firstNonEmpty(meta.Issuer, "https://github.com/login/oauth"),
+		AuthEndpoint: meta.AuthEndpoint, TokenEndpoint: tokenURL,
+		ClientID: githubOAuthClientID, Scope: scope,
+	}
+	cancel := make(chan struct{})
+	p := &mcpPending{
+		status: "pending", authURL: authURL, userCode: device.UserCode, cancel: cancel,
+	}
+	m.mu.Lock()
+	if old := m.pending[name]; old != nil {
+		if old.cancel != nil {
+			select {
+			case <-old.cancel:
+			default:
+				close(old.cancel)
+			}
+		}
+		if old.listener != nil {
+			_ = old.listener.Close()
+		}
+	}
+	m.pending[name] = p
+	m.entries[name] = entry
+	m.mu.Unlock()
+	go m.pollGitHubDevice(name, p, entry, device)
+	return m.Status(name), nil
+}
+
+func (m *MCPOAuth) pollGitHubDevice(name string, p *mcpPending, entry *mcpOAuthEntry, device githubDeviceCode) {
+	interval := time.Duration(device.Interval) * time.Second
+	if interval < time.Second {
+		interval = 5 * time.Second
+	}
+	deadline := time.Now().Add(mcpAuthWindow)
+	if device.ExpiresIn > 0 {
+		deadline = time.Now().Add(time.Duration(device.ExpiresIn) * time.Second)
+	}
+	form := url.Values{
+		"grant_type":  {githubDeviceGrant},
+		"client_id":   {githubOAuthClientID},
+		"device_code": {device.DeviceCode},
+	}
+	for time.Now().Before(deadline) {
+		select {
+		case <-p.cancel:
+			return
+		default:
+		}
+		var tok oauthToken
+		err := m.postFormJSON(entry.TokenEndpoint, form, &tok)
+		if err == nil && tok.AccessToken != "" {
+			m.mu.Lock()
+			if m.pending[name] == p {
+				applyToken(entry, tok)
+				m.entries[name] = entry
+				p.status, p.msg = "done", ""
+				_ = m.save()
+			}
+			m.mu.Unlock()
+			return
+		}
+		code := ""
+		if tok.Error != "" {
+			code = tok.Error
+		}
+		switch code {
+		case "authorization_pending", "":
+			if err != nil && code == "" {
+				m.finish(name, p, err.Error())
+				return
+			}
+		case "slow_down":
+			interval += 5 * time.Second
+		case "access_denied", "authorization_denied":
+			m.finish(name, p, i18n.T("Login was denied"))
+			return
+		case "expired_token":
+			m.finish(name, p, i18n.T("The login code expired — try again"))
+			return
+		default:
+			msg := tok.ErrorDescription
+			if msg == "" {
+				msg = code
+			}
+			m.finish(name, p, msg)
+			return
+		}
+		select {
+		case <-p.cancel:
+			return
+		case <-time.After(interval):
+		}
+	}
+	m.finish(name, p, i18n.T("Login timed out — try again"))
 }
 
 // awaitCallback receives the authorization code, redeems it, and closes the listener either way.
@@ -283,6 +489,13 @@ func (m *MCPOAuth) awaitCallback(name string, p *mcpPending, entry *mcpOAuthEntr
 
 func (m *MCPOAuth) finish(name string, p *mcpPending, msg string) {
 	m.mu.Lock()
+	if p.cancel != nil {
+		select {
+		case <-p.cancel:
+		default:
+			close(p.cancel)
+		}
+	}
 	p.status, p.msg = "error", msg
 
 	// Do not leave a half-finished entry behind, or the UI reads it as connected
@@ -326,11 +539,13 @@ func (m *MCPOAuth) Bearer(name string) (string, error) {
 }
 
 type oauthToken struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int64  `json:"expires_in"`
-	TokenType    string `json:"token_type"`
-	Scope        string `json:"scope"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	TokenType        string `json:"token_type"`
+	Scope            string `json:"scope"`
+	Error            string `json:"error"`
+	ErrorDescription string `json:"error_description"`
 }
 
 func applyToken(e *mcpOAuthEntry, tok oauthToken) {
@@ -411,6 +626,7 @@ type asMetadata struct {
 	AuthEndpoint         string
 	TokenEndpoint        string
 	RegistrationEndpoint string
+	DeviceEndpoint       string
 	Scope                string
 }
 
@@ -439,11 +655,12 @@ func (m *MCPOAuth) discover(serverURL string) (asMetadata, error) {
 
 	for _, candidate := range wellKnownURLs(issuer, u.Path) {
 		var doc struct {
-			Issuer                string   `json:"issuer"`
-			AuthorizationEndpoint string   `json:"authorization_endpoint"`
-			TokenEndpoint         string   `json:"token_endpoint"`
-			RegistrationEndpoint  string   `json:"registration_endpoint"`
-			ScopesSupported       []string `json:"scopes_supported"`
+			Issuer                      string   `json:"issuer"`
+			AuthorizationEndpoint       string   `json:"authorization_endpoint"`
+			TokenEndpoint               string   `json:"token_endpoint"`
+			RegistrationEndpoint        string   `json:"registration_endpoint"`
+			DeviceAuthorizationEndpoint string   `json:"device_authorization_endpoint"`
+			ScopesSupported             []string `json:"scopes_supported"`
 		}
 		if err := m.getJSON(candidate, &doc); err != nil || doc.AuthorizationEndpoint == "" || doc.TokenEndpoint == "" {
 			continue
@@ -453,6 +670,7 @@ func (m *MCPOAuth) discover(serverURL string) (asMetadata, error) {
 			AuthEndpoint:         doc.AuthorizationEndpoint,
 			TokenEndpoint:        doc.TokenEndpoint,
 			RegistrationEndpoint: doc.RegistrationEndpoint,
+			DeviceEndpoint:       doc.DeviceAuthorizationEndpoint,
 			Scope:                firstNonEmpty(scope, strings.Join(doc.ScopesSupported, " ")),
 		}
 		return meta, nil
@@ -579,6 +797,86 @@ func (m *MCPOAuth) register(meta asMetadata, redirect string) (clientID, clientS
 		return "", "", errors.New(i18n.T("Client registration returned no client_id"))
 	}
 	return reg.ClientID, reg.ClientSecret, nil
+}
+
+// postFormJSON POSTs application/x-www-form-urlencoded and decodes JSON (or form-urlencoded, which
+// GitHub still returns if Accept is ignored). A 4xx body with an OAuth `error` field is decoded
+// rather than treated as a transport failure — device-code polling uses HTTP 400 for
+// authorization_pending.
+func (m *MCPOAuth) postFormJSON(endpoint string, form url.Values, dest any) error {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "botbureau/0.1.0")
+	resp, err := m.httpc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	if dest != nil && len(strings.TrimSpace(string(body))) > 0 {
+		if err := decodeOAuthJSONOrForm(body, dest); err != nil {
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			}
+			return err
+		}
+	}
+	if oauthReplyHasError(dest) {
+		return nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+func oauthReplyHasError(dest any) bool {
+	switch v := dest.(type) {
+	case *oauthToken:
+		return v != nil && v.Error != ""
+	case *githubDeviceCode:
+		return v != nil && v.Error != ""
+	default:
+		return false
+	}
+}
+
+// decodeOAuthJSONOrForm accepts JSON or form-urlencoded (GitHub's default when Accept is missing).
+func decodeOAuthJSONOrForm(body []byte, dest any) error {
+	trim := strings.TrimSpace(string(body))
+	if trim == "" {
+		return io.ErrUnexpectedEOF
+	}
+	if trim[0] == '{' {
+		return json.Unmarshal([]byte(trim), dest)
+	}
+	vals, err := url.ParseQuery(trim)
+	if err != nil {
+		return json.Unmarshal([]byte(trim), dest)
+	}
+	obj := map[string]any{}
+	for k, vs := range vals {
+		if len(vs) == 0 {
+			continue
+		}
+		if n, convErr := strconv.ParseInt(vs[0], 10, 64); convErr == nil && vs[0] != "" {
+			obj[k] = n
+			continue
+		}
+		obj[k] = vs[0]
+	}
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, dest)
 }
 
 func (m *MCPOAuth) getJSON(endpoint string, into any) error {
