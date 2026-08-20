@@ -1223,7 +1223,7 @@ func TestMCPCatalogEndpoint(t *testing.T) {
 		row := raw.(map[string]any)
 		names[row["name"].(string)] = true
 	}
-	for _, want := range []string{"github", "atlassian", "sentry", "linear"} {
+	for _, want := range []string{"github", "atlassian", "sentry", "linear", "slack", "figma", "stripe", "google-drive", "hubspot"} {
 		if !names[want] {
 			t.Fatalf("catalog missing %s: %v", want, names)
 		}

@@ -35,15 +35,26 @@ type CatalogEntry struct {
 
 // catalogAliases maps everyday names (jira, gh, …) onto a catalog id.
 var catalogAliases = map[string]string{
-	"jira":       "atlassian",
-	"confluence": "atlassian",
-	"gh":         "github",
-	"filesystem": "fs",
+	"jira":            "atlassian",
+	"confluence":      "atlassian",
+	"gh":              "github",
+	"filesystem":      "fs",
+	"drive":           "google-drive",
+	"gdrive":          "google-drive",
+	"google_drive":    "google-drive",
+	"calendar":        "google-calendar",
+	"gcal":            "google-calendar",
+	"google_calendar": "google-calendar",
+	"crm":             "hubspot",
+	"payments":        "stripe",
 }
 
 // Catalog returns the built-in connectors, ordered by setup cost (nothing to configure first).
 // Desc / Need text stay in English source form so the renderer can translate via t(), and so
 // list_connectors can i18n.T them for the model.
+//
+// Remote OAuth entries mirror the connectors Claude Code / Codex document most often
+// (Slack, Figma, Asana, Stripe, Google Workspace, HubSpot, …).
 func Catalog() []CatalogEntry {
 	return []CatalogEntry{
 		{
@@ -106,10 +117,30 @@ func Catalog() []CatalogEntry {
 				Label: "Firecrawl API key", Hint: "Get one from firecrawl.dev.",
 			},
 		},
+
+		// Remote OAuth — same hosts Claude Code / Codex list for everyday team tools.
 		{
-			Name: "atlassian", Label: "Atlassian",
-			Desc:  "Jira issues and Confluence pages — search, summarize, create, and update.",
-			URL:   "https://mcp.atlassian.com/v1/mcp/authv2",
+			Name: "slack", Label: "Slack",
+			Desc:  "Search channels, read threads, and post messages in Slack.",
+			URL:   "https://mcp.slack.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "figma", Label: "Figma",
+			Desc:  "Read Figma files, components, and design context for implementation.",
+			URL:   "https://mcp.figma.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "asana", Label: "Asana",
+			Desc:  "Tasks, projects, and timelines in Asana.",
+			URL:   "https://mcp.asana.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "monday", Label: "monday.com",
+			Desc:  "Boards, items, and workflows in monday.com.",
+			URL:   "https://mcp.monday.com/mcp",
 			OAuth: true,
 		},
 		{
@@ -119,9 +150,87 @@ func Catalog() []CatalogEntry {
 			OAuth: true,
 		},
 		{
+			Name: "atlassian", Label: "Atlassian",
+			Desc:  "Jira issues and Confluence pages — search, summarize, create, and update.",
+			URL:   "https://mcp.atlassian.com/v1/mcp/authv2",
+			OAuth: true,
+		},
+		{
 			Name: "notion", Label: "Notion",
 			Desc:  "Search, read and update pages and databases in Notion.",
 			URL:   "https://mcp.notion.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "google-drive", Label: "Google Drive",
+			Desc:  "Search and read files in Google Drive.",
+			URL:   "https://drivemcp.googleapis.com/mcp/v1",
+			OAuth: true,
+		},
+		{
+			Name: "gmail", Label: "Gmail",
+			Desc:  "Search, read, and draft email in Gmail.",
+			URL:   "https://gmailmcp.googleapis.com/mcp/v1",
+			OAuth: true,
+		},
+		{
+			Name: "google-calendar", Label: "Google Calendar",
+			Desc:  "List and manage events in Google Calendar.",
+			URL:   "https://calendarmcp.googleapis.com/mcp/v1",
+			OAuth: true,
+		},
+		{
+			Name: "box", Label: "Box",
+			Desc:  "Search and work with files in Box.",
+			URL:   "https://mcp.box.com",
+			OAuth: true,
+		},
+		{
+			Name: "dropbox", Label: "Dropbox",
+			Desc:  "Search and work with files in Dropbox.",
+			URL:   "https://mcp.dropbox.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "canva", Label: "Canva",
+			Desc:  "Create and edit designs in Canva.",
+			URL:   "https://mcp.canva.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "stripe", Label: "Stripe",
+			Desc:  "Customers, payments, invoices, and Stripe account data.",
+			URL:   "https://mcp.stripe.com",
+			OAuth: true,
+		},
+		{
+			Name: "hubspot", Label: "HubSpot",
+			Desc:  "CRM contacts, deals, tickets, and marketing data in HubSpot.",
+			URL:   "https://mcp.hubspot.com",
+			OAuth: true,
+		},
+		{
+			Name: "intercom", Label: "Intercom",
+			Desc:  "Customer conversations and support data in Intercom.",
+			URL:   "https://mcp.intercom.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "supabase", Label: "Supabase",
+			Desc:  "Tables, auth, and storage in a Supabase project.",
+			URL:   "https://mcp.supabase.com/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "neon", Label: "Neon",
+			Desc:  "Serverless Postgres databases on Neon.",
+			URL:   "https://mcp.neon.tech/mcp",
+			OAuth: true,
+		},
+		{
+			Name: "vercel", Label: "Vercel",
+			Desc:  "Projects, deployments, and logs on Vercel.",
+			URL:   "https://mcp.vercel.com",
 			OAuth: true,
 		},
 		{

@@ -46,7 +46,7 @@ func (t *Toolbox) runListConnectors() (string, bool) {
 		}
 		fmt.Fprintf(&b, "- %s (%s): %s [%s%s]\n", e.Name, e.Label, i18n.T(e.Desc), status, need)
 	}
-	b.WriteString(i18n.T("Aliases: jira/confluence→atlassian, gh→github, filesystem→fs."))
+	b.WriteString(i18n.T("Aliases: jira/confluence→atlassian, gh→github, drive/gdrive→google-drive, gcal→google-calendar, filesystem→fs."))
 	return b.String(), false
 }
 

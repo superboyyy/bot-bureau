@@ -13,7 +13,7 @@ func TestListConnectorsMentionsGitHubAndJira(t *testing.T) {
 	if isErr {
 		t.Fatal(out)
 	}
-	for _, want := range []string{"github", "atlassian", "jira", "sentry"} {
+	for _, want := range []string{"github", "atlassian", "jira", "sentry", "slack", "figma", "stripe", "google-drive"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("list should mention %s:\n%s", want, out)
 		}
@@ -82,6 +82,15 @@ func TestEnableConnectorAliasJira(t *testing.T) {
 	e, ok := plugin.LookupCatalog("jira")
 	if !ok || e.Name != "atlassian" {
 		t.Fatalf("lookup jira: %+v ok=%v", e, ok)
+	}
+	if got := plugin.ResolveCatalogName("gdrive"); got != "google-drive" {
+		t.Fatalf("gdrive alias: %s", got)
+	}
+	if _, ok := plugin.LookupCatalog("slack"); !ok {
+		t.Fatal("slack missing from catalog")
+	}
+	if _, ok := plugin.LookupCatalog("figma"); !ok {
+		t.Fatal("figma missing from catalog")
 	}
 }
 

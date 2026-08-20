@@ -376,7 +376,7 @@ servers:
     auth: oauth
 ~~~
 
-插件面板内置一键安装目录（GitHub、Atlassian/Jira、Linear、Notion、Sentry 等）。安装只是把连接器登记到团队；还需要在成员设置里订阅（例如 `mcp: [fs, atlassian]`）。
+插件面板内置一键安装目录（GitHub、Slack、Figma、Jira、Notion、Google Drive、Stripe、Sentry 等）。安装只是把连接器登记到团队；还需要在成员设置里订阅（例如 `mcp: [fs, atlassian]`）。
 
 成员也可以在聊天里启用目录中的连接器：`list_connectors` 查看可用项，`enable_connector`（经你批准）会按需安装并为当前成员订阅。需要 OAuth 的连接器随后会打开浏览器授权。
 

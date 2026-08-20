@@ -351,17 +351,17 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		},
 		model.ToolDef{
 			Name:        "list_connectors",
-			Description: i18n.T("List built-in connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …): which are installed, which you already have, and what setup they need. Call this when the user mentions a service you do not yet have tools for."),
+			Description: i18n.T("List built-in connectors (GitHub, Slack, Figma, Jira, Notion, Google Drive/Gmail, Stripe, …): which are installed, which you already have, and what setup they need. Call this when the user mentions a service you do not yet have tools for."),
 			Properties:  map[string]any{},
 			Required:    []string{},
 		},
 		model.ToolDef{
-			Name:        "enable_connector",
-			Description: i18n.T("Install a built-in connector from the catalog (if needed) and enable it for you so its mcp_* tools appear. Requires user approval. Only catalog names are allowed — never invent a command or URL. For Jira use name=atlassian (or jira). After enabling, call the new mcp_* tools on your next step."),
+			Name: "enable_connector",
+			Description: i18n.T("Install a built-in connector from the catalog (if needed) and enable it for you so its mcp_* tools appear. Requires user approval. Only catalog names are allowed — never invent a command or URL. For Jira use name=atlassian (or jira); for Drive use google-drive (or gdrive). After enabling, call the new mcp_* tools on your next step."),
 			Properties: map[string]any{
 				"name": map[string]any{
 					"type":        "string",
-					"description": i18n.T("Catalog id (github, atlassian, linear, notion, sentry, fs, …) or alias (jira, gh)"),
+					"description": i18n.T("Catalog id (slack, figma, github, atlassian, google-drive, stripe, …) or alias (jira, gdrive, gh)"),
 				},
 				"path": map[string]any{
 					"type":        "string",

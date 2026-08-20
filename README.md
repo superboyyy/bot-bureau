@@ -450,7 +450,7 @@ servers:
     auth: oauth
 ```
 
-The plugins panel ships a one-click catalog for common connectors (GitHub, Atlassian/Jira, Linear, Notion, Sentry, …). Install still only registers the team plugin; each bot must subscribe under its settings (`mcp: [fs, atlassian]`).
+The plugins panel ships a one-click catalog for common connectors (GitHub, Slack, Figma, Jira, Notion, Google Drive, Stripe, Sentry, …). Install still only registers the team plugin; each bot must subscribe under its settings (`mcp: [fs, atlassian]`).
 
 Bots can also enable a catalog connector from chat: `list_connectors` shows what is available, and `enable_connector` (with your approval) installs it if needed and subscribes the current bot. OAuth connectors open a browser Authorize flow afterward.
 
