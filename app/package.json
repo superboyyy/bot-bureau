@@ -35,7 +35,9 @@
       "build/icon.*",
       "build/icon-light.png",
       "build/icon-mac.png",
-      "build/icon-mac-light.png"
+      "build/icon-mac-light.png",
+      "build/icon-win.png",
+      "build/icon-win-light.png"
     ],
     "afterPack": "scripts/after-pack.js",
     "mac": {

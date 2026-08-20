@@ -15,15 +15,18 @@ Icon Composer wants flat layers with no baked effects, so a clean set is also wr
 assets/icon-layers/; drop those in when you want a real .icon and the system supplies the material.
 
 The macOS .icns keeps Apple's 80.5% grid padding: the Dock will not inset a full-bleed tile, so
-without that margin it sits a size larger than its neighbours. Windows and Linux taskbars already
-inset the file, so the same padding made the rounded icon look smaller than the old square. Those
-platforms get a full-bleed superellipse — same outer size as the square, corners cut to a squircle.
+without that margin it sits a size larger than its neighbours. Windows 11 already rounds every
+Start-menu and taskbar slot; a pre-rounded squircle with transparent corners is treated as a
+"shaped" icon in All apps (drawn small, extra margin) while Recommended paints it as a square
+plate — the two surfaces then disagree. Windows therefore gets an opaque full-bleed square and
+lets the OS round it. Linux has no such dual treatment, so it keeps the full-bleed squircle.
 Full-bleed squares still go to assets/icon-square-*.png for Icon Composer.
 """
 
 import math
 import pathlib
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -250,7 +253,7 @@ def mac_icon(theme):
     return canvas.resize((S, S), Image.LANCZOS)
 
 def square_icon(theme):
-    """full-bleed square for Icon Composer."""
+    """full-bleed square for Icon Composer and the Windows .ico."""
     return build(theme, C, 0.54).resize((S, S), Image.LANCZOS)
 
 def rounded_icon(theme):
@@ -258,6 +261,57 @@ def rounded_icon(theme):
     img = build(theme, C, 0.54)
     img.putalpha(squircle_mask(C))
     return img.resize((S, S), Image.LANCZOS)
+
+def to_opaque_rgb(img):
+    """Flatten onto black so Windows never sees per-pixel transparency."""
+    if img.mode != "RGBA":
+        return img.convert("RGB")
+    out = Image.new("RGB", img.size, (0, 0, 0))
+    out.paste(img, mask=img.split()[-1])
+    return out
+
+# Windows 11 Start (All apps / Recommended / taskbar) picks among these; missing sizes get
+# scaled from 256 and look soft. 256 is the ICO maximum.
+WIN_ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+
+def write_windows_ico(img, path):
+    """Write an opaque multi-resolution .ico. Pillow only keeps a size that already exists
+    on the image list, so each mip is resized explicitly rather than relying on `sizes=`."""
+    rgb = to_opaque_rgb(img)
+    mips = [rgb.resize((s, s), Image.LANCZOS) for s in WIN_ICO_SIZES]
+    mips[-1].save(
+        path,
+        format="ICO",
+        append_images=mips[:-1],
+        sizes=[(s, s) for s in WIN_ICO_SIZES],
+    )
+
+def ico_entries(path):
+    """ICO directory: (width, height, bpp) per image. Pillow's n_frames is not this list."""
+    raw = pathlib.Path(path).read_bytes()
+    count = struct.unpack_from("<H", raw, 4)[0]
+    out = []
+    off = 6
+    for _ in range(count):
+        w, h, _colors, _res, _planes, bpp, _size, _offset = struct.unpack_from("<BBBBHHII", raw, off)
+        out.append((w or 256, h or 256, bpp))
+        off += 16
+    return out
+
+def assert_windows_ico(path):
+    """Recommended vs All apps only agree when every mip is an opaque square."""
+    entries = ico_entries(path)
+    got = {(w, h) for w, h, _bpp in entries}
+    want = {(s, s) for s in WIN_ICO_SIZES}
+    if got != want:
+        raise SystemExit(f"{path} sizes {sorted(got)} != {sorted(want)}")
+    im = Image.open(path)
+    for w, h in sorted(got):
+        im.size = (w, h)
+        im.load()
+        pix = im.convert("RGBA").getpixel((0, 0))
+        if pix[3] != 255:
+            raise SystemExit(f"{path} {w}x{h} corner alpha is {pix[3]}, want opaque")
 
 def flat_layers(theme):
     """    Flat layers for Icon Composer: one ground, one mark, no effects, full bleed."""
@@ -366,11 +420,18 @@ def main() -> None:
     # which needs both images inside the package.
     mac = mac_icon(THEMES["dark"])
     rounded = rounded_icon(THEMES["dark"])
+    square = square_icon(THEMES["dark"])
     mac.save(ASSETS / "icon.png")
-    # Windows / Linux: full-bleed squircle so the tile matches the old square's size.
+    # Linux: full-bleed squircle so the tile matches the old square's size.
     rounded.resize((512, 512), Image.LANCZOS).save(BUILD / "icon.png")
     rounded_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-light.png")
-    rounded.save(BUILD / "icon.ico", sizes=[(s, s) for s in (16, 32, 48, 64, 128, 256)])
+    # Windows: opaque square. Win11 All apps treats transparent squircles as shaped icons and
+    # draws them small; Recommended paints the same file as a square plate. An opaque square lets
+    # the OS round every surface the same way.
+    square.resize((512, 512), Image.LANCZOS).save(BUILD / "icon-win.png")
+    square_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-win-light.png")
+    write_windows_ico(square, BUILD / "icon.ico")
+    assert_windows_ico(BUILD / "icon.ico")
     # macOS Dock still needs the padded tile; the running app swaps these by appearance.
     mac.resize((512, 512), Image.LANCZOS).save(BUILD / "icon-mac.png")
     mac_icon(THEMES["light"]).resize((512, 512), Image.LANCZOS).save(BUILD / "icon-mac-light.png")
