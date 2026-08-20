@@ -1,7 +1,7 @@
 {
   "name": "bot-bureau",
   "productName": "Bot Bureau",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Bot Bureau — different AI agents, work together for you",
   "author": "Aiden Huang <superboyyy6@gmail.com>",
   "homepage": "https://github.com/superboyyy/bot-bureau",
@@ -64,6 +64,10 @@
         "deb"
       ],
       "artifactName": "Bot.Bureau-${version}-Linux-${arch}.${ext}"
+    },
+    "deb": {
+      "afterInstall": "build/linux/after-install.tpl",
+      "afterRemove": "build/linux/after-remove.tpl"
     },
     "asarUnpack": [
       "bin/**"

@@ -3,6 +3,7 @@
 const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme, Tray } = require("electron");
 const { spawn } = require("child_process");
 const { isRunning, stopEngine } = require("./lib/stop-engine");
+const { linuxNeedsNoSandbox } = require("./lib/linux-runtime");
 const net = require("net");
 const https = require("https");
 const crypto = require("crypto");
@@ -34,6 +35,18 @@ function t(en, ...args) {
 app.setName("Bot Bureau");
 app.setAboutPanelOptions({ applicationName: "Bot Bureau", applicationVersion: app.getVersion() });
 if (process.platform === "win32") app.setAppUserModelId("app.botbureau.desktop");
+
+// Ubuntu 24.04+ AppArmor blocks Chromium's sandbox userns unless a profile is loaded
+// (the .deb installs one). Without it the process aborts with SIGTRAP before a window.
+if (linuxNeedsNoSandbox()) {
+  app.commandLine.appendSwitch("no-sandbox");
+  console.warn("[bot-bureau] Chromium sandbox disabled (no AppArmor userns profile)");
+}
+// Electron 43 + native Wayland can crash while creating the window (ClientFrameViewLinux).
+// Packaged Linux uses XWayland; unpackaged `npm start` keeps the session default.
+if (process.platform === "linux" && app.isPackaged) {
+  app.commandLine.appendSwitch("ozone-platform-hint", "x11");
+}
 // Windows / Linux use the full-bleed squircle (same size as the old square). macOS keeps the
 // padded tile so the Dock icon matches neighbouring apps; those files are icon-mac*.png.
 const ICON = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac.png" : "icon.png");
