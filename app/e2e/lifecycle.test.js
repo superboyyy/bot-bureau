@@ -43,7 +43,7 @@ async function waitUntilDead(pid, timeoutMs) {
   return !pidAlive(pid);
 }
 
-test("close minimizes on every OS; quit stops the engine", { skip: e2e, timeout: 60000 }, async () => {
+test("close hides to tray on Windows/Linux; quit stops the engine", { skip: e2e, timeout: 60000 }, async () => {
   const session = await launchDesktop();
   try {
     const pid = await waitForEnginePid(session.dataDir);
@@ -59,14 +59,21 @@ test("close minimizes on every OS; quit stops the engine", { skip: e2e, timeout:
       return {
         windows: BrowserWindow.getAllWindows().length,
         destroyed: !w || w.isDestroyed(),
+        visible: !!(w && w.isVisible()),
+        minimized: !!(w && w.isMinimized()),
       };
     });
     assert.equal(state.windows, 1);
-    assert.equal(state.destroyed, false, "close should keep the window (minimize), not quit");
+    assert.equal(state.destroyed, false, "close should keep the window, not quit");
     assert.equal(pidAlive(pid), true, "close must not stop the engine");
+    if (process.platform !== "darwin") {
+      assert.equal(state.visible, false, "close should hide to the tray, not stay on the taskbar");
+      assert.equal(state.minimized, false, "close is not the minimize button");
+    }
 
     await session.electronApp.evaluate(({ BrowserWindow }) => {
       const w = BrowserWindow.getAllWindows()[0];
+      try { w.setSkipTaskbar(false); } catch { /* some Linux WMs reject this */ }
       if (w.isMinimized()) w.restore();
       w.show();
     });

@@ -1,6 +1,6 @@
 
 // Bot Bureau Electron main process: spawn the Go backend child process, create windows, clean up on exit.
-const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, Menu, nativeTheme, Tray } = require("electron");
 const { spawn } = require("child_process");
 const { isRunning, stopEngine } = require("./lib/stop-engine");
 const net = require("net");
@@ -33,10 +33,12 @@ function t(en, ...args) {
 // App name and icon: in dev mode (npm start) the Dock/menu bar would otherwise read "Electron"
 app.setName("Bot Bureau");
 app.setAboutPanelOptions({ applicationName: "Bot Bureau", applicationVersion: app.getVersion() });
+if (process.platform === "win32") app.setAppUserModelId("app.botbureau.desktop");
 // Windows / Linux use the full-bleed squircle (same size as the old square). macOS keeps the
 // padded tile so the Dock icon matches neighbouring apps; those files are icon-mac*.png.
 const ICON = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac.png" : "icon.png");
 const ICON_LIGHT = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac-light.png" : "icon-light.png");
+let tray = null;
 
 // See scripts/mac-liquid-icon.js for the appearance-aware package icon.
 
@@ -64,6 +66,9 @@ function applyAppearanceIcon() {
   // construction, so this only has to catch the ones already open.
   for (const w of BrowserWindow.getAllWindows()) {
     try { w.setIcon(icon); } catch { /* unsupported on some Linux desktops */ }
+  }
+  if (tray && !tray.isDestroyed()) {
+    try { tray.setImage(icon); } catch { /* tray may reject a swap on some desktops */ }
   }
 }
 
@@ -113,6 +118,76 @@ let myInstance = ""; // our own engine's id, used to drop ourselves from discove
 let quitting = false;
 let engineStopped = false;
 let engineStopping = false;
+
+// One desktop process per user-data dir. A second launch should restore the existing window
+// (especially after close-to-tray) rather than spawn another engine against the same lock.
+const isPrimary = app.requestSingleInstanceLock();
+if (!isPrimary) app.quit();
+
+function trayImage() {
+  if (process.platform === "win32") {
+    const ico = path.join(__dirname, "build", "icon.ico");
+    if (fs.existsSync(ico)) return ico;
+  }
+  return appearanceIcon() || ICON;
+}
+
+function destroyTray() {
+  if (!tray) return;
+  try { tray.destroy(); } catch { /* already gone */ }
+  tray = null;
+}
+
+function rebuildTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: t("Open Bot Bureau"), click: () => restoreMainWindow() },
+    { type: "separator" },
+    { label: t("Quit"), click: () => app.quit() },
+  ]));
+}
+
+function ensureTray() {
+  if (process.platform === "darwin") return false;
+  if (tray && !tray.isDestroyed()) return true;
+  const image = trayImage();
+  if (!image) return false;
+  try {
+    tray = new Tray(image);
+  } catch (err) {
+    console.error("[bot-bureau] tray unavailable:", err);
+    tray = null;
+    return false;
+  }
+  tray.setToolTip("Bot Bureau");
+  tray.setIgnoreDoubleClickEvents(true);
+  rebuildTrayMenu();
+  tray.on("click", () => restoreMainWindow());
+  return true;
+}
+
+function restoreMainWindow() {
+  let win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
+  if (!win) {
+    if (backendURL) win = createWindow();
+    else return;
+  }
+  try { win.setSkipTaskbar(false); } catch { /* some Linux WMs reject this */ }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  destroyTray();
+}
+
+function hideToTray(win) {
+  if (!ensureTray()) {
+    if (win && !win.isDestroyed()) win.minimize();
+    return;
+  }
+  if (!win || win.isDestroyed()) return;
+  win.hide();
+  try { win.setSkipTaskbar(true); } catch { /* some Linux WMs reject this */ }
+}
 
 async function stopLocalEngine() {
   const proc = backendProc;
@@ -509,19 +584,23 @@ function attachWindowControls(win) {
   win.on("maximize", sendMaximized);
   win.on("unmaximize", sendMaximized);
 
-  // Close (traffic lights, overlay X, Alt+F4, HTML chrome, Cmd/Ctrl+W) minimizes on every OS.
-  // Quit is App/File menu → Cmd/Ctrl+Q, which sets `quitting` in before-quit.
+  // Close is not Quit. macOS: same as the yellow button (Dock). Windows/Linux: hide to the
+  // tray, leaving the taskbar slot for the real minimize button. Quit is tray right-click,
+  // Cmd/Ctrl+Q, or File/App menu — that sets `quitting` in before-quit.
   win.on("close", (e) => {
     if (quitting) return;
     e.preventDefault();
+    const dismiss = () => {
+      if (quitting || win.isDestroyed()) return;
+      if (process.platform === "darwin") win.minimize();
+      else hideToTray(win);
+    };
     if (typeof win.isFullScreen === "function" && win.isFullScreen()) {
-      win.once("leave-full-screen", () => {
-        if (!quitting && !win.isDestroyed()) win.minimize();
-      });
+      win.once("leave-full-screen", dismiss);
       win.setFullScreen(false);
       return;
     }
-    if (!win.isDestroyed()) win.minimize();
+    dismiss();
   });
 }
 
@@ -653,6 +732,7 @@ ipcMain.handle("connect-local", async () => {
 });
 
 app.whenReady().then(async () => {
+  if (!isPrimary) return;
   seedDataRoot();
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === "darwin"
@@ -692,24 +772,19 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
-  app.on("activate", () => {
-    const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
-    if (existing) {
-      if (existing.isMinimized()) existing.restore();
-      existing.show();
-      existing.focus();
-      return;
-    }
-    if (backendURL) createWindow();
-  });
+  app.on("activate", () => restoreMainWindow());
 });
 
-// Close minimizes; do not quit (or kill the engine) when the last window would have vanished.
+app.on("second-instance", () => restoreMainWindow());
+
+// Close hides the window (tray / Dock); do not quit when the last window is dismissed.
 app.on("window-all-closed", () => {});
 
 // Wait for the engine tree to exit so the file lock is released before this process is gone.
 app.on("before-quit", (e) => {
+  if (!isPrimary) return;
   quitting = true;
+  destroyTray();
   if (engineStopped) return;
   e.preventDefault();
   if (engineStopping) return;
