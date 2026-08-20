@@ -99,12 +99,16 @@ describe("stopEngine", () => {
     const proc = spawn("sh", ["-ec", `sleep 120 & echo $! > "${marker}"; wait`], {
       stdio: "ignore",
     });
+    let childPid = 0;
     try {
       const deadline = Date.now() + 3000;
-      while (!fs.existsSync(marker) && Date.now() < deadline) {
+      while (Date.now() < deadline) {
+        try {
+          childPid = Number(fs.readFileSync(marker, "utf8").trim());
+        } catch { childPid = 0; }
+        if (childPid > 0) break;
         await new Promise((r) => setTimeout(r, 20));
       }
-      const childPid = Number(fs.readFileSync(marker, "utf8").trim());
       expect(childPid).toBeGreaterThan(0);
       process.kill(childPid, 0);
       process.kill(proc.pid, 0);
@@ -116,6 +120,7 @@ describe("stopEngine", () => {
       expect(() => process.kill(childPid, 0)).toThrow();
     } finally {
       try { process.kill(proc.pid, "SIGKILL"); } catch { /* already dead */ }
+      try { if (childPid) process.kill(childPid, "SIGKILL"); } catch { /* already dead */ }
       fs.rmSync(dir, { recursive: true, force: true });
     }
   }, 10000);
