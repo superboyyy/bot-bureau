@@ -269,7 +269,7 @@ bots.example.yaml        成员配置模板
 
 界面支持跟随系统、浅色和深色。外观选择保存在客户端本地，不随远程引擎共享，因此同一个引擎连接多台设备时，每台设备可以有自己的外观。
 
-图标由 `assets/logo.svg` 和 `assets/icon-layers/` 生成浅色、深色两套资源。macOS 仍使用带 Apple 图标网格边距的超椭圆；Windows / Linux 使用铺满画布的圆角超椭圆，外沿尺寸与原来的方图一致。应用运行时，主进程监听系统外观变化并切换 Dock / 任务栏图标；应用未运行时，macOS 使用打包时写入的固定图标。可选的 `assets/AppIcon.icon` 会在 `afterPack` 阶段由 `actool` 编译并写入包内，缺少完整 Xcode 时会跳过这一步而不影响构建。
+图标由 `assets/logo.svg` 和 `assets/icon-layers/` 生成浅色、深色两套资源。macOS 仍使用带 Apple 图标网格边距的超椭圆；Linux 使用铺满画布的圆角超椭圆，外沿尺寸与原来的方图一致。Windows 11 开始菜单自己会给格子加圆角：带透明圆角的超椭圆在「全部」里会被当成异形图标画小，在「推荐」里又按方块铺满，所以 Windows 的 `.ico` 改为不透明方图，圆角交给系统。应用运行时，主进程监听系统外观变化并切换 Dock / 任务栏图标；应用未运行时，macOS 使用打包时写入的固定图标。可选的 `assets/AppIcon.icon` 会在 `afterPack` 阶段由 `actool` 编译并写入包内，缺少完整 Xcode 时会跳过这一步而不影响构建。
 
 桌面端使用 electron-builder 打包：
 

@@ -32,10 +32,14 @@ function t(en, ...args) {
 // App name and icon: in dev mode (npm start) the Dock/menu bar would otherwise read "Electron"
 app.setName("Bot Bureau");
 app.setAboutPanelOptions({ applicationName: "Bot Bureau", applicationVersion: app.getVersion() });
-// Windows / Linux use the full-bleed squircle (same size as the old square). macOS keeps the
+// Linux uses the full-bleed squircle (same size as the old square). Windows uses an opaque
+// square — Win11 Start already rounds the slot, and a pre-rounded squircle with transparent
+// corners is drawn small in All apps while Recommended shows a square plate. macOS keeps the
 // padded tile so the Dock icon matches neighbouring apps; those files are icon-mac*.png.
-const ICON = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac.png" : "icon.png");
-const ICON_LIGHT = path.join(__dirname, "build", process.platform === "darwin" ? "icon-mac-light.png" : "icon-light.png");
+const ICON = path.join(__dirname, "build",
+  process.platform === "darwin" ? "icon-mac.png" : process.platform === "win32" ? "icon-win.png" : "icon.png");
+const ICON_LIGHT = path.join(__dirname, "build",
+  process.platform === "darwin" ? "icon-mac-light.png" : process.platform === "win32" ? "icon-win-light.png" : "icon-light.png");
 
 // See scripts/mac-liquid-icon.js for the appearance-aware package icon.
 
