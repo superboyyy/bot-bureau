@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -35,5 +36,32 @@ func TestReadJSON(t *testing.T) {
 	bad := httptest.NewRequest("POST", "/", strings.NewReader("not-json"))
 	if err := ReadJSON(bad, &got); err == nil {
 		t.Fatal("invalid JSON should fail")
+	}
+}
+
+func TestReadJSONRejectsOversize(t *testing.T) {
+	// One extra byte past the cap used to be truncated and then fail as invalid JSON. The caller
+	// needs to tell those two cases apart — a screenshot is oversize, a truncated object is garbage.
+	body := `{"name":"` + strings.Repeat("a", defaultJSONMax) + `"}`
+	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	var got struct {
+		Name string `json:"name"`
+	}
+	if err := ReadJSON(req, &got); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversize body: %v", err)
+	}
+}
+
+func TestReadJSONMaxAcceptsBodyTheDefaultCapWouldRefuse(t *testing.T) {
+	body := `{"name":"` + strings.Repeat("a", defaultJSONMax) + `"}`
+	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	var got struct {
+		Name string `json:"name"`
+	}
+	if err := ReadJSONMax(req, &got, int64(len(body))); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != strings.Repeat("a", defaultJSONMax) {
+		t.Fatalf("decoded name length = %d", len(got.Name))
 	}
 }

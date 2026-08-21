@@ -39,7 +39,13 @@ const (
 	MaxAttachments      = 8
 	MaxAttachmentBytes  = 10 << 20
 	MaxAttachmentsBytes = 25 << 20
-	inboxDir            = "inbox"
+
+	// SendJSONMax is the largest /api/send body. Files travel as base64 inside JSON, so the encoding
+	// adds a third on top of MaxAttachmentsBytes; a little extra covers names, mime types, and the
+	// rest of the message. The default 1MiB JSON cap is far too small for a screenshot.
+	SendJSONMax = MaxAttachmentsBytes*4/3 + 1<<20
+
+	inboxDir = "inbox"
 )
 
 // Attachment is one attachment's metadata. The bytes are not in it; they lie under data/uploads, keyed by ID.
