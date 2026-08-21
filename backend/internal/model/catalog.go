@@ -72,6 +72,13 @@ func ProviderCatalog() []ProviderOption {
 			ID: "moonshot", Label: i18n.T("Kimi (Moonshot)"),
 			Provider: "openai", BaseURL: "https://api.moonshot.cn/v1", KeyEnv: "MOONSHOT_API_KEY",
 			Auth: []string{AuthKey},
+			Note: i18n.T("Pay-as-you-go Open Platform key. A Kimi membership uses Kimi Code instead."),
+		},
+		{
+			ID: "kimi-code", Label: i18n.T("Kimi Code (subscription)"),
+			Provider: "openai", BaseURL: "https://api.kimi.com/coding/v1", KeyEnv: "KIMI_CODE_API_KEY",
+			Auth: []string{AuthKey},
+			Note: i18n.T("Paste a key from the Kimi Code console. This uses membership quota, not the Moonshot Open Platform pay-as-you-go key."),
 		},
 		{
 			ID: "opencode", Label: "OpenCode Zen",
@@ -224,7 +231,7 @@ func ListModels(ctx context.Context, cred CredentialFunc, providerID, baseURL, k
 	if base == "" {
 		return nil, errors.New(i18n.T("Enter a base URL first"))
 	}
-	headers := map[string]string{}
+	headers := map[string]string{"User-Agent": "botbureau/0.1.0"}
 	if key != "" {
 		headers["Authorization"] = "Bearer " + key
 	}

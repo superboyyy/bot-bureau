@@ -42,7 +42,7 @@ Bot Bureau combines a **Go engine with a cross-platform Electron desktop client*
 | — | **Messages render as Markdown**: headings, lists, quotes, fenced code and links; built as DOM only, with links restricted to http/https and handed to the system browser |
 | — | **Interrupt anytime**: a bot that has run away can have its current turn aborted instead of being waited out |
 | — | **Nothing is lost on restart**: message history and per-bot conversation context are persisted (`data/events.jsonl`, `data/workspaces/<bot>/sessions.json`) |
-| — | **Multi-model**: native Anthropic + OpenAI-compatible endpoints (OpenAI / xAI Grok / DeepSeek / Kimi / local Ollama / custom…), from a catalog served by the engine |
+| — | **Multi-model**: native Anthropic + OpenAI-compatible endpoints (OpenAI / xAI Grok / DeepSeek / Kimi Open Platform / Kimi Code / local Ollama / custom…), from a catalog served by the engine |
 | — | **API key management**: paste a key right in the New Bot dialog (or manage them all in Settings). Stored in `data/keys.json`, 0600; the UI shows masked values only; takes precedence over env vars |
 | — | **Group membership**: add/remove bots in a group's settings; non-members receive none of that group's messages, can't be @mentioned or assigned; DMs unaffected |
 | — | **Task board + division-of-labor protocol**: when decomposing work, bots use `assign_task` to give each subtask exactly one owner and `update_task` to claim/deliver publicly; the board is visible in the sidebar — duplicate work is prevented by mechanism |
@@ -187,10 +187,10 @@ Settings → Permissions sets the **team-wide default**; each bot can pick its o
 
 Three steps in the UI — no base URL to know, no model name to type:
 
-1. **Pick a vendor** — Anthropic Claude / OpenAI · ChatGPT / xAI Grok / DeepSeek / Kimi / Ollama / custom / Fake (offline trial). The catalog is served by the engine (`GET /api/providers`); the client carries none of it.
+1. **Pick a vendor** — Anthropic Claude / OpenAI · ChatGPT / xAI Grok / DeepSeek / Kimi (Open Platform) / Kimi Code (membership) / Ollama / custom / Fake (offline trial). The catalog is served by the engine (`GET /api/providers`); the client carries none of it.
 2. **Pick how to connect** — OpenAI and xAI support two ways:
    - **Sign in with a subscription**: click "Sign in" and enter the pairing code the dialog shows. This is the OAuth device-code flow (plus PKCE for ChatGPT) and **opens no callback port on your machine**; tokens are stored 0600 under `data/` and refreshed automatically. Uses your ChatGPT Plus/Pro or SuperGrok allowance instead of purchased API credit.
-   - **API key**: paste it right there and it is saved to the key store — no detour through Settings.
+   - **API key**: paste it right there and it is saved to the key store — no detour through Settings. Kimi Code takes a key from the Kimi Code console (membership quota), not a Moonshot Open Platform key.
 
    Whichever you choose is what gets used. The old rule only fell back to a subscription when no key was stored, so an unrelated saved `OPENAI_API_KEY` silently shadowed the subscription you had just signed into.
 3. **Pick a model** — the engine uses your credential to ask the vendor which models exist right now (`POST /api/models`) and you choose from a dropdown. **If the list cannot be fetched it reports the error and lets you type the name**; it never substitutes an invented list, which is exactly how one ends up on a retired model that only fails when a message is sent.
