@@ -66,7 +66,12 @@ func newTestApp(t *testing.T) (*App, *httptest.Server) {
 	tg := bridge.NewTGBridge(bus, deps.KS, filepath.Join(dir, "telegram.json"))
 	app := NewApp(bus, sched, deps, tg, settings, cfgs, cfgPath, dir)
 	srv := httptest.NewServer(app.Handler())
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() {
+		srv.Close()
+		for _, w := range bus.Bots() {
+			w.Stop()
+		}
+	})
 	return app, srv
 }
 

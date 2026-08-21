@@ -119,6 +119,7 @@ type BotWorker struct {
 	injected  []Msg
 	busy      atomic.Bool
 	cancelFn  atomic.Value // context.CancelFunc
+	loop      sync.WaitGroup
 	bus       *Bus
 	toolbox   *Toolbox
 	mem       *Memory
@@ -205,15 +206,25 @@ func (w *BotWorker) Queued() int           { return len(w.inbox) + int(w.deferre
 func (w *BotWorker) ProviderLabel() string { return w.provider.Label() }
 func (w *BotWorker) MemoryText() string    { return w.mem.Load() }
 
-func (w *BotWorker) Start() { go w.run() }
+func (w *BotWorker) Start() {
+	w.loop.Add(1)
+	go func() {
+		defer w.loop.Done()
+		w.run()
+	}()
+}
 
 func (w *BotWorker) Stop() {
 	w.Cancel()
-	w.saveSessions()
 	select {
 	case w.inbox <- Msg{Sender: stopSentinel}:
 	default:
 	}
+	// Wait until the loop has left the workspace: handle() still copies attachments and writes
+	// sessions.json after Cancel, and removing the data dir under that (tests, RemoveBot) fails
+	// with "directory not empty".
+	w.loop.Wait()
+	w.saveSessions()
 }
 
 func (w *BotWorker) Cancel() {
