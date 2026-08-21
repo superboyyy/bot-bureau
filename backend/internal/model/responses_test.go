@@ -20,6 +20,9 @@ func TestUsesResponsesAPI(t *testing.T) {
 	if usesResponsesAPI("https://opencode.ai/zen/v1", "kimi-k2.6") {
 		t.Fatal("zen kimi should stay on chat completions")
 	}
+	if usesResponsesAPI("https://api.kimi.com/coding/v1", "k3") {
+		t.Fatal("Kimi Code should stay on chat completions")
+	}
 	if !usesResponsesAPI("https://api.openai.com/v1", "gpt-4.1") {
 		t.Fatal("official openai should use responses")
 	}

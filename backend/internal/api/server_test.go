@@ -282,6 +282,24 @@ func TestHTTPBotCRUD(t *testing.T) {
 	}
 }
 
+func TestKimiCodeBotAcceptsOfficialEffortTiers(t *testing.T) {
+	_, srv := newTestApp(t)
+
+	// k3 takes low/high/max; medium is an OpenAI knob and must not sneak through
+	if code, out := postJSON(t, srv.URL+"/api/bots", map[string]any{
+		"name": "kimi", "provider": "openai", "provider_id": "kimi-code",
+		"model": "k3", "effort": "medium",
+	}); code != 400 {
+		t.Fatalf("k3 should refuse medium: %d %v", code, out)
+	}
+	if code, out := postJSON(t, srv.URL+"/api/bots", map[string]any{
+		"name": "kimi", "provider": "openai", "provider_id": "kimi-code",
+		"model": "k3", "effort": "low",
+	}); code != 200 {
+		t.Fatalf("k3 low should save: %d %v", code, out)
+	}
+}
+
 func TestHTTPApprovalFlow(t *testing.T) {
 	app, srv := newTestApp(t)
 

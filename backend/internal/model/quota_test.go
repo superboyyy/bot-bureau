@@ -12,6 +12,8 @@ func TestQuotaClassification(t *testing.T) {
 		{429, "You exceeded your current quota, please check your plan and billing details.", true},
 		{429, "insufficient_quota", true},
 		{402, "payment required", true},
+		{400, "账号余额不足", true},
+		{400, "会员额度已用完", true},
 
 		// Ordinary rate limiting does not count as quota exhaustion
 		{429, "Rate limit reached for requests", false},
