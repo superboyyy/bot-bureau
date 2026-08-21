@@ -914,6 +914,7 @@ the procedure yourself.
 	if w.provider.SupportsWebTools() {
 		webLine = i18n.T("- Use web_search to find pages (the engine tool is always there; you also have the vendor's web_search / web_fetch), then fetch_url for one specific address")
 	}
+	webLine += i18n.T("\n- read_file extracts text from PDF, Word, Excel and PowerPoint files (including attachments in inbox/); grep searches that extracted text too")
 	webLine += i18n.T("\n- If the work will touch more than one file, call todo_write with a checklist, then submit_plan with the plan, and wait for the user to accept it before editing")
 	webLine += i18n.T("\n- Memory lists below are id: first-clause only; call recall to load a body, forget to delete by id, and search_history to look up a line from this conversation")
 	webLine += i18n.T("\n- Built-in connectors (GitHub, Slack, Figma, Jira, Notion, Google Drive/Gmail, Stripe, Sentry, …) stay off until enabled. When the user needs one you do not have, call list_connectors then enable_connector (needs approval); afterward use the mcp_* tools it adds")

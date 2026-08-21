@@ -2,6 +2,7 @@ package engine
 
 import (
 	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/docparse"
 	"botbureau/backend/internal/model"
 
 	"context"
@@ -218,6 +219,58 @@ func TestGrepSkipsBinaryAndGit(t *testing.T) {
 	}
 	if strings.Contains(out, "blob.bin") || strings.Contains(out, ".git") {
 		t.Fatalf("binary or .git leaked: %q", out)
+	}
+}
+
+func TestReadFileExtractsPDFAndOffice(t *testing.T) {
+	w, _, _ := newTestWorker(t, "a", nil)
+	tb := w.toolbox
+	if err := os.WriteFile(filepath.Join(w.workspace, "quote.pdf"), docparse.FixturePDF("Invoice TOTAL-99"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, isErr := tb.Execute("read_file", map[string]any{"path": "quote.pdf"})
+	if isErr || !strings.Contains(out, "Invoice TOTAL-99") {
+		t.Fatalf("PDF text should be extracted: %q %v", out, isErr)
+	}
+	if !strings.Contains(out, "Extracted text from quote.pdf") {
+		t.Fatalf("extraction should be labelled: %q", out)
+	}
+
+	if err := os.WriteFile(filepath.Join(w.workspace, "note.docx"), docparse.FixtureDOCX("Contract clause"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, isErr = tb.Execute("read_file", map[string]any{"path": "note.docx"})
+	if isErr || !strings.Contains(out, "Contract clause") {
+		t.Fatalf("docx text should be extracted: %q %v", out, isErr)
+	}
+
+	out, _, isErr = tb.Execute("read_file", map[string]any{"path": "quote.pdf", "offset": float64(1), "limit": float64(2)})
+	if isErr || !strings.Contains(out, "quote.pdf: lines 1-2 of") {
+		t.Fatalf("windowed PDF read: %q %v", out, isErr)
+	}
+}
+
+func TestGrepSearchesExtractedPDF(t *testing.T) {
+	w, _, _ := newTestWorker(t, "a", nil)
+	tb := w.toolbox
+	if err := os.WriteFile(filepath.Join(w.workspace, "quote.pdf"), docparse.FixturePDF("Invoice TOTAL-99"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, isErr := tb.Execute("grep", map[string]any{"pattern": "TOTAL-99"})
+	if isErr || !strings.Contains(out, "quote.pdf") || !strings.Contains(out, "TOTAL-99") {
+		t.Fatalf("grep should search extracted PDF text: %q %v", out, isErr)
+	}
+}
+
+func TestReadFileStillRefusesOpaqueBinary(t *testing.T) {
+	w, _, _ := newTestWorker(t, "a", nil)
+	tb := w.toolbox
+	if err := os.WriteFile(filepath.Join(w.workspace, "blob.bin"), []byte("x\x00y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, isErr := tb.Execute("read_file", map[string]any{"path": "blob.bin"})
+	if !isErr || !strings.Contains(out, "binary") {
+		t.Fatalf("opaque binary should still be refused: %q %v", out, isErr)
 	}
 }
 
