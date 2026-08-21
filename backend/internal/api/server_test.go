@@ -12,7 +12,9 @@ import (
 
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -134,6 +136,57 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 	// Target does not exist
 	if code, _ := postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:ghost", "text": "x"}); code != 404 {
 		t.Fatalf("a nonexistent dm target should 404, got %d", code)
+	}
+}
+
+// A screenshot of a few hundred KiB becomes more than 1MiB once it is base64 inside JSON. The
+// default ReadJSON cap is 1MiB, which used to cut the body off and surface as "Invalid request
+// body" — the composer then showed "发送失败：请求体不合法".
+func TestSendAcceptsImageLargerThanDefaultJSONCap(t *testing.T) {
+	_, srv := newTestApp(t)
+
+	raw := bytes.Repeat([]byte{0x89, 0x50, 0x4e, 0x47}, 200*1024) // 800KiB
+	b64 := base64.StdEncoding.EncodeToString(raw)
+	if len(b64) <= 1<<20 {
+		t.Fatalf("test payload is too small to exercise the old cap: base64 is %d bytes", len(b64))
+	}
+
+	code, out := postJSON(t, srv.URL+"/api/send", map[string]any{
+		"chat": "dm:scout",
+		"files": []map[string]string{{
+			"name": "shot.png",
+			"mime": "image/png",
+			"data": b64,
+		}},
+	})
+	if code != 200 {
+		t.Fatalf("send returned %d %v", code, out)
+	}
+
+	ev := waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "dm:scout" && ev["source"] == "user"
+	})
+	files, _ := ev["files"].([]any)
+	if len(files) != 1 {
+		t.Fatalf("the message should carry the image: %+v", ev)
+	}
+	meta, _ := files[0].(map[string]any)
+	id, _ := meta["id"].(string)
+	if id == "" {
+		t.Fatalf("attachment id missing: %+v", meta)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/file/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || !bytes.Equal(got, raw) {
+		t.Fatalf("stored file: status %d len %d", resp.StatusCode, len(got))
 	}
 }
 

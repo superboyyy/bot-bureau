@@ -5,6 +5,7 @@ import (
 	"botbureau/backend/internal/httpx"
 	"botbureau/backend/internal/i18n"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -45,7 +46,13 @@ func (a *App) registerChatRoutes(mux *http.ServeMux) {
 				Data string `json:"data"`
 			} `json:"files"`
 		}
-		if err := httpx.ReadJSON(r, &body); err != nil {
+		// Composer attachments travel as base64 inside this JSON. The default 1MiB cap would
+		// refuse a screenshot; SendJSONMax is sized for the attachment byte cap plus encoding.
+		if err := httpx.ReadJSONMax(r, &body, int64(engine.SendJSONMax)); err != nil {
+			if errors.Is(err, httpx.ErrTooLarge) {
+				httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("These files exceed the size limit for a single message")})
+				return
+			}
 			httpx.WriteJSON(rw, 400, map[string]any{"error": i18n.T("Invalid request body")})
 			return
 		}
