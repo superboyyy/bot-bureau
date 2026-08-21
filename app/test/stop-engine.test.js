@@ -92,6 +92,24 @@ describe("stopEngine", () => {
     expect(sent.some((row) => row[0] === 10 && row[1] === "SIGKILL")).toBe(true);
   });
 
+  it("SIGKILLs known descendants after the wrapper has already exited", async () => {
+    const sent = [];
+    const proc = mockProc(10);
+    const kids = { 10: "11", 11: "" };
+    await stopEngine(proc, {
+      platform: "linux",
+      termWaitMs: 20,
+      hardWaitMs: 20,
+      spawnSync: (_cmd, args) => ({ stdout: kids[args[1]] || "", status: 0 }),
+      kill: (id, sig) => {
+        sent.push([id, sig]);
+        if (id === 10 && sig === "SIGTERM") proc.kill("SIGTERM");
+      },
+    });
+    expect(sent.some((row) => row[0] === 11 && row[1] === "SIGTERM")).toBe(true);
+    expect(sent.some((row) => row[0] === 11 && row[1] === "SIGKILL")).toBe(true);
+  });
+
   it("kills a real grandchild on unix", async () => {
     if (process.platform === "win32") return;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stop-engine-"));
@@ -104,9 +122,12 @@ describe("stopEngine", () => {
       const deadline = Date.now() + 3000;
       while (Date.now() < deadline) {
         try {
-          childPid = Number(fs.readFileSync(marker, "utf8").trim());
+          const text = fs.readFileSync(marker, "utf8");
+          // echo $! > file is not atomic; a partial line is a wrong pid that is still alive later
+          if (text.endsWith("\n")) childPid = Number(text.trim());
         } catch { childPid = 0; }
-        if (childPid > 0) break;
+        if (childPid > 0 && listDescendants(proc.pid).includes(childPid)) break;
+        childPid = 0;
         await new Promise((r) => setTimeout(r, 20));
       }
       expect(childPid).toBeGreaterThan(0);
@@ -116,6 +137,11 @@ describe("stopEngine", () => {
       await stopEngine(proc, { termWaitMs: 500, hardWaitMs: 500 });
 
       expect(isRunning(proc)).toBe(false);
+      const gone = Date.now() + 1000;
+      while (Date.now() < gone) {
+        try { process.kill(childPid, 0); } catch { break; }
+        await new Promise((r) => setTimeout(r, 20));
+      }
       expect(() => process.kill(proc.pid, 0)).toThrow();
       expect(() => process.kill(childPid, 0)).toThrow();
     } finally {

@@ -10,7 +10,7 @@ function isRunning(proc) {
   return !!(proc && proc.pid && proc.exitCode == null && proc.signalCode == null);
 }
 
-function listDescendants(pid, run) {
+function listDescendants(pid, run = spawnSync) {
   const seen = new Set();
   const walk = (p) => {
     if (!p || seen.has(p)) return;
@@ -56,6 +56,10 @@ function stopEngine(proc, opts = {}) {
     else resolve();
   });
 
+  // Remember who we already saw. `go run` (and the test's `sleep &`) can die at the wrapper
+  // while the real binary is reparented to init; a later pgrep -P then sees nobody.
+  let unixTargets = [];
+
   if (platform === "win32") {
     const result = run("taskkill", ["/pid", String(pid), "/T", "/F"], {
       windowsHide: true,
@@ -66,17 +70,22 @@ function stopEngine(proc, opts = {}) {
       try { proc.kill(); } catch { /* ignore */ }
     }
   } else {
-    const targets = [...listDescendants(pid, run), pid];
-    for (const id of targets) signal(kill, id, "SIGTERM");
+    unixTargets = [...listDescendants(pid, run), pid];
+    for (const id of unixTargets) signal(kill, id, "SIGTERM");
   }
 
   return Promise.race([exited, wait(termWaitMs)]).then(() => {
-    if (!isRunning(proc)) return;
     if (platform === "win32") {
+      if (!isRunning(proc)) return;
       try { proc.kill(); } catch { /* ignore */ }
-    } else {
-      const leftover = [pid, ...listDescendants(pid, run)];
-      for (const id of leftover) signal(kill, id, "SIGKILL");
+      return Promise.race([exited, wait(hardWaitMs)]);
+    }
+
+    // SIGKILL the pids from the first walk even if the wrapper has already exited. Returning
+    // early here is how a grandchild survives stopEngine and the next launch finds a bound port.
+    const leftover = new Set([...unixTargets, ...listDescendants(pid, run), pid]);
+    for (const id of leftover) signal(kill, id, "SIGKILL");
+    if (isRunning(proc)) {
       try { proc.kill("SIGKILL"); } catch { /* ignore */ }
     }
     return Promise.race([exited, wait(hardWaitMs)]);
