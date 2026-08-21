@@ -2,6 +2,7 @@ package engine
 
 import (
 	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/docparse"
 	"botbureau/backend/internal/model"
 
 	"os"
@@ -295,6 +296,46 @@ func TestEvalRememberSurvivesNewSession(t *testing.T) {
 	}
 }
 
+func TestEvalReadPDFUsesReadFile(t *testing.T) {
+	skill := &evalSkill{
+		name: "pdf",
+		desc: "Read, summarise, extract from, or create PDF files.",
+		body: "SECRET_PDF_SKILL: read_file extracts the text; do not bash.",
+	}
+	orig := []model.StepResult{
+		{StopReason: "tool_use", ToolCalls: []model.ToolCall{
+			{ID: "1", Name: "read_skill", Input: map[string]any{"name": "pdf"}},
+		}},
+		{StopReason: "tool_use", ToolCalls: []model.ToolCall{
+			{ID: "2", Name: "read_file", Input: map[string]any{"path": "quote.pdf"}},
+		}},
+		{StopReason: "end_turn", Texts: []string{"the invoice says TOTAL-99"}},
+	}
+	p := &scriptedProvider{script: append([]model.StepResult(nil), orig...)}
+	w, bus := newEval(t, p, config.PermEdit, "", skill)
+	if err := os.WriteFile(filepath.Join(w.workspace, "quote.pdf"), docparse.FixturePDF("Invoice TOTAL-99"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w.handle(Msg{Sender: "user", Content: "What does quote.pdf say?", Chat: "dm", Respond: true})
+
+	tools := consumedTools(orig, p.script)
+	ri, fi := toolIndex(tools, "read_skill"), toolIndex(tools, "read_file")
+	if ri < 0 || fi < 0 || ri > fi {
+		t.Fatalf("read_skill must run before read_file, got %v", tools)
+	}
+	if hasTool(tools, "bash") {
+		t.Fatalf("PDF text is extracted by read_file, not bash: %v", tools)
+	}
+	sess := w.session("dm").(*scriptedSession)
+	if len(sess.toolResults) < 2 || !strings.Contains(sess.toolResults[1][0].Content, "TOTAL-99") {
+		t.Fatalf("read_file should return extracted PDF text: %+v", sess.toolResults)
+	}
+	if texts := botMsgTexts(bus, w.Name()); len(texts) == 0 || !strings.Contains(texts[len(texts)-1], "TOTAL-99") {
+		t.Fatalf("the turn should finish with the scripted reply: %v", texts)
+	}
+}
+
 func TestEvalPolicyToolsTheModelCanSee(t *testing.T) {
 	w, _, _ := newTestWorker(t, "a", nil)
 	names := defNames(w)
@@ -308,7 +349,7 @@ func TestEvalPolicyToolsTheModelCanSee(t *testing.T) {
 		}
 	}
 	prompt := w.systemPrompt("dm")
-	for _, want := range []string{"prefer edit_file", "prefer grep", "web_search", "todo_write", "recall"} {
+	for _, want := range []string{"prefer edit_file", "prefer grep", "web_search", "todo_write", "recall", "extracts text from PDF"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt should steer with %q", want)
 		}

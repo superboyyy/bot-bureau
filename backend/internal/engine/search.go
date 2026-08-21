@@ -2,6 +2,7 @@ package engine
 
 import (
 	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/docparse"
 	"botbureau/backend/internal/i18n"
 
 	"bytes"
@@ -203,11 +204,15 @@ func grepFile(abs, shown string, re *regexp.Regexp, left int) []string {
 		return nil
 	}
 	raw, err := os.ReadFile(abs)
-	if err != nil || bytes.IndexByte(raw, 0) >= 0 {
+	if err != nil {
+		return nil
+	}
+	text, ok := grepPlainText(abs, raw)
+	if !ok {
 		return nil
 	}
 	var hits []string
-	for i, line := range splitFileLines(string(raw)) {
+	for i, line := range splitFileLines(text) {
 		if !re.MatchString(line) {
 			continue
 		}
@@ -217,6 +222,20 @@ func grepFile(abs, shown string, re *regexp.Regexp, left int) []string {
 		}
 	}
 	return hits
+}
+
+func grepPlainText(abs string, raw []byte) (string, bool) {
+	if docparse.Detect(abs, raw) != "" {
+		res, err := docparse.Extract(abs, raw)
+		if err != nil || strings.TrimSpace(res.Text) == "" {
+			return "", false
+		}
+		return res.Text, true
+	}
+	if bytes.IndexByte(raw, 0) >= 0 {
+		return "", false
+	}
+	return string(raw), true
 }
 
 func displayPath(workspace, abs string) string {

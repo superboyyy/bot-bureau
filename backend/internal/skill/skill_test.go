@@ -149,7 +149,11 @@ func TestSeedBundledCopiesIntoEmptyDir(t *testing.T) {
 	for _, n := range m.Names() {
 		got[n] = true
 	}
-	for _, want := range []string{"edit-code", "verify", "research"} {
+	names := BundledNames()
+	if len(names) < 5 {
+		t.Fatalf("starter set should include pdf and documents, got %v", names)
+	}
+	for _, want := range names {
 		if !got[want] {
 			t.Errorf("missing starter skill %s in %v", want, m.Names())
 		}
@@ -173,8 +177,11 @@ func TestSeedBundledDoesNotOverwriteExistingLibrary(t *testing.T) {
 	if !strings.Contains(string(raw), "USER BODY") {
 		t.Fatalf("an existing library must not be overwritten: %s", raw)
 	}
-	if _, err := os.Stat(filepath.Join(dest, "verify", "SKILL.md")); !os.IsNotExist(err) {
-		t.Fatal("seeding must not add siblings when the directory already has files")
+	if _, err := os.Stat(filepath.Join(dest, "pdf", "SKILL.md")); err != nil {
+		t.Fatal("missing starters should still be copied beside a user-edited skill")
+	}
+	if _, err := os.Stat(filepath.Join(dest, "verify", "SKILL.md")); err != nil {
+		t.Fatal("verify should be added when it is absent")
 	}
 }
 
@@ -188,5 +195,17 @@ func TestSeedBundledSkipsNonEmptyKeepFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, "edit-code", "SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("a .keep file means the library is already claimed")
+	}
+}
+
+func TestBundledNamesIncludesPDFAndDocuments(t *testing.T) {
+	got := map[string]bool{}
+	for _, n := range BundledNames() {
+		got[n] = true
+	}
+	for _, want := range []string{"edit-code", "verify", "research", "pdf", "documents"} {
+		if !got[want] {
+			t.Errorf("bundled starters missing %s: %v", want, BundledNames())
+		}
 	}
 }

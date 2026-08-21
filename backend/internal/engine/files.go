@@ -2,10 +2,12 @@ package engine
 
 import (
 	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/docparse"
 	"botbureau/backend/internal/i18n"
 	"botbureau/backend/internal/textutil"
 
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,13 +23,14 @@ func (t *Toolbox) runReadFile(rel string, offset, limit int, haveOffset, haveLim
 	if err != nil {
 		return i18n.T("Read failed: ") + err.Error(), true
 	}
-	if bytes.IndexByte(raw, 0) >= 0 {
-		return i18n.T("That file looks binary; this tool only reads text."), true
+	body, errMsg := workspaceFileText(rel, raw)
+	if errMsg != "" {
+		return errMsg, true
 	}
 	if !haveOffset && !haveLimit {
-		return truncateOutput(string(raw)), false
+		return truncateOutput(body), false
 	}
-	lines := splitFileLines(string(raw))
+	lines := splitFileLines(body)
 	total := len(lines)
 	start := 1
 	if haveOffset {
@@ -56,6 +59,33 @@ func (t *Toolbox) runReadFile(rel string, offset, limit int, haveOffset, haveLim
 		fmt.Fprintf(&b, "%*d|%s\n", width, i, lines[i-1])
 	}
 	return truncateOutput(strings.TrimSuffix(b.String(), "\n")), false
+}
+
+// workspaceFileText turns workspace bytes into something the model can read. PDF and
+// Office files are extracted; other binary files are refused.
+func workspaceFileText(rel string, raw []byte) (string, string) {
+	if docparse.Detect(rel, raw) != "" {
+		res, err := docparse.Extract(rel, raw)
+		if err != nil {
+			k := docparse.Detect(rel, raw)
+			switch {
+			case errors.Is(err, docparse.ErrNoText):
+				return "", fmt.Sprintf(i18n.T("Extracted no text from %s (%s). It may be scanned or image-only."), rel, k)
+			case errors.Is(err, docparse.ErrEncrypted):
+				return "", i18n.T("That PDF is encrypted; this tool cannot extract its text.")
+			default:
+				return "", fmt.Sprintf(i18n.T("Could not extract text from %s: %s"), rel, err.Error())
+			}
+		}
+		if res.Pages > 0 {
+			return fmt.Sprintf(i18n.T("Extracted text from %s (%s, %d pages)\n\n"), rel, res.Kind, res.Pages) + res.Text, ""
+		}
+		return fmt.Sprintf(i18n.T("Extracted text from %s (%s)\n\n"), rel, res.Kind) + res.Text, ""
+	}
+	if bytes.IndexByte(raw, 0) >= 0 {
+		return "", i18n.T("That file looks binary; this tool only reads text (PDF and Office documents are extracted automatically).")
+	}
+	return string(raw), ""
 }
 
 func (t *Toolbox) runWriteFile(rel, content string) (string, bool) {
