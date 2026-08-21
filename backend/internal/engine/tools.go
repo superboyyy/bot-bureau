@@ -181,7 +181,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		},
 		{
 			Name:        "read_file",
-			Description: i18n.T("Read a text file in your workspace. Optional offset (1-based line) and limit (line count) return a numbered window; omit them to read the whole file."),
+			Description: i18n.T("Read a text file, or extract text from a PDF, Word, Excel or PowerPoint file, in your workspace. Optional offset (1-based line) and limit (line count) return a numbered window; omit them to read the whole file."),
 			Properties: map[string]any{
 				"path":   map[string]any{"type": "string", "description": i18n.T("Path relative to the workspace")},
 				"offset": map[string]any{"type": "integer", "description": i18n.T("1-based line to start from")},
@@ -211,7 +211,7 @@ func (t *Toolbox) Defs() []model.ToolDef {
 		},
 		{
 			Name:        "grep",
-			Description: i18n.T("Search file contents in your workspace and the directories the user pointed you at. The pattern is a regular expression. Prefer this over bash grep."),
+			Description: i18n.T("Search file contents in your workspace and the directories the user pointed you at, including text extracted from PDF and Office documents. The pattern is a regular expression. Prefer this over bash grep."),
 			Properties: map[string]any{
 				"pattern": map[string]any{"type": "string", "description": i18n.T("Regular expression to search for")},
 				"path":    map[string]any{"type": "string", "description": i18n.T("Directory or file to search; defaults to the workspace")},

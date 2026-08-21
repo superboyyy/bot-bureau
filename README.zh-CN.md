@@ -396,6 +396,8 @@ data/skills/release-notes/
 
 SKILL.md 的 frontmatter 必须包含 name 和 description。系统提示词只带每个技能的一行摘要；成员判断适用后才调用 `read_skill` 读取全文：安装 50 个技能也只增加 50 行提示词，而不是把 50 份文档全部塞进去。description 是成员判断技能是否适用的唯一依据，因此要写清楚适用场景。
 
+新团队会得到一套起步技能：改代码、跑测试、调研、PDF、Office 文档（`edit-code`、`verify`、`research`、`pdf`、`documents`）。`read_file` 会从 PDF / Word / Excel / PowerPoint 抽出文本，包括已经放进 `inbox/` 的聊天附件。你已经有的技能目录不会被覆盖；缺少的起步技能会在启动时补上。
+
 技能由整个团队共享，不需要逐个分配给成员。技能附带的脚本会通过 bash 按完整路径运行；脚本位于工作目录之外，因此需要审批，这也是对待第三方代码的安全边界。
 
 ## 插件包

@@ -3,6 +3,7 @@ package engine
 import (
 	"botbureau/backend/internal/config"
 	"botbureau/backend/internal/secret"
+	"botbureau/backend/internal/skill"
 
 	"os"
 	"path/filepath"
@@ -128,7 +129,7 @@ func TestNewTeamDepsSeedsBundledSkills(t *testing.T) {
 	for _, n := range deps.Skills.Names() {
 		got[n] = true
 	}
-	for _, want := range []string{"edit-code", "verify", "research"} {
+	for _, want := range skill.BundledNames() {
 		if !got[want] {
 			t.Errorf("an empty data/skills should receive %s, got %v", want, deps.Skills.Names())
 		}

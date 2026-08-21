@@ -180,13 +180,15 @@ Prompt rule: if the work will touch more than one file, call `todo_write`, then 
 
 ### Default skills
 
-Ship three skills in the repo (`assets/skills/` or `backend/internal/skill/bundled/`) and copy them into `data/skills/` when that directory is empty:
+Ship starter skills in the repo (`backend/internal/skill/bundled/`) and copy them into `data/skills/` when missing:
 
 - `edit-code` — grep, ranged read, `edit_file`, then verify.
 - `verify` — run the project's tests (`go test`, `npm test`, …) after edits.
 - `research` — `web_search` (phase 5) or `fetch_url`, then `remember` only what should survive.
+- `pdf` — `read_file` extracts PDF text (including `inbox/` attachments); create/merge via bash after drafting markdown.
+- `documents` — the same for Word, Excel, and PowerPoint (`.docx` / `.xlsx` / `.pptx`).
 
-An existing `data/skills/` with user files is never overwritten. Bundle-provided skills already merge through `SyncSkillRoots`; these three are the local library's starter set.
+A skill directory that already exists is never overwritten. A `.keep` file in `data/skills/` opts out of seeding (tests use this). Bundle-provided skills already merge through `SyncSkillRoots`; these five are the local library's starter set. `read_file` and `grep` extract text from PDF and Office files so members do not need `pdftotext` on the host.
 
 ### Files
 

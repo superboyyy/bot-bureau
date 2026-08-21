@@ -486,6 +486,8 @@ description: Turn merged PRs into release notes in the house style. This line ha
 
 **Two-stage loading** is the one design decision that matters here: the system prompt carries only a single `name: description` line per skill, and the model calls `read_skill` for the full text once it judges one to apply. Fifty installed skills therefore cost fifty lines of prompt rather than fifty documents. The `description` is the model's only basis for choosing — it has to state when the skill applies, which is the thing most easily missed when writing your own.
 
+A new team gets starter skills for editing code, running tests, research, PDFs, and Office documents (`edit-code`, `verify`, `research`, `pdf`, `documents`). `read_file` extracts text from PDF / Word / Excel / PowerPoint files, including chat attachments already placed in `inbox/`. A skill folder you already have is never overwritten; missing starters are added on launch.
+
 Skills are shared by the whole team rather than subscribed per bot (a one-line summary costs nothing, and which skill suits whom is already decided by description matching). Scripts a skill ships are run with bash by full path; that lies outside the workspace, so it goes through approval — which is how third-party code should be treated.
 
 ## Plugin packages (the Claude / Codex format)
