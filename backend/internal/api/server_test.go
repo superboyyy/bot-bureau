@@ -126,6 +126,17 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout"
 	})
 
+	// Addressing the whole room wakes every member, not just the default
+	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "大家好，介绍一下自己吧"})
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "chief" &&
+			strings.Contains(ev["text"].(string), "介绍一下自己吧")
+	})
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout" &&
+			strings.Contains(ev["text"].(string), "介绍一下自己吧")
+	})
+
 	// DM scout
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "dm:scout", "text": "dm test"})
 	waitForEvent(t, srv, func(ev engine.Event) bool {

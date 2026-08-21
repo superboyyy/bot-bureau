@@ -2,6 +2,7 @@ package engine
 
 import (
 	"botbureau/backend/internal/config"
+	"botbureau/backend/internal/i18n"
 	"botbureau/backend/internal/model"
 	"botbureau/backend/internal/sandbox"
 	"botbureau/backend/internal/secret"
@@ -758,6 +759,91 @@ func TestBareNameCountsAsMention(t *testing.T) {
 		if got := containsMention(c.text, c.name); got != c.want {
 			t.Errorf("%s: containsMention(%q, %q) = %v, want %v", c.why, c.text, c.name, got, c.want)
 		}
+	}
+}
+
+func TestMentionsAll(t *testing.T) {
+	yes := []struct{ text, why string }{
+		{"@all introduce yourselves", "the @all form"},
+		{"@everyone hello", "the @everyone form"},
+		{"@here ping", "the @here form"},
+		{"@大家 介绍一下", "the @大家 form"},
+		{"@各位 报到", "the @各位 form"},
+		{"@所有人 听一下", "the @所有人 form"},
+		{"大家好，大家分别介绍一下自己吧", "大家好 plus 大家"},
+		{"人呢，各位", "bare 各位"},
+		{"everyone please introduce yourself", "bare everyone"},
+		{"everybody in", "bare everybody"},
+	}
+	for _, c := range yes {
+		if !mentionsAll(c.text) {
+			t.Errorf("%s: mentionsAll(%q) = false, want true", c.why, c.text)
+		}
+	}
+	no := []struct{ text, why string }{
+		{"人呢", "a follow-up that names nobody"},
+		{"hello", "a plain greeting"},
+		{"all the files", "bare all must not wake the room"},
+		{"@allison go", "the @all form must not match a longer name"},
+		{"calling", "unrelated"},
+		{"scouting the area", "unrelated"},
+		{"没有点名", "explicitly names nobody"},
+		{"", "empty text"},
+	}
+	for _, c := range no {
+		if mentionsAll(c.text) {
+			t.Errorf("%s: mentionsAll(%q) = true, want false", c.why, c.text)
+		}
+	}
+}
+
+func TestMentionsAllWakesEveryMember(t *testing.T) {
+	_, bus, sched := newTestWorker(t, "a", nil)
+	addTestBot(t, bus, sched, "c")
+
+	got := bus.MentionedBotsIn("group", "大家好，介绍一下自己吧")
+	if len(got) != 2 {
+		t.Fatalf("大家好 should wake every member, got %v", got)
+	}
+	seen := map[string]bool{}
+	for _, n := range got {
+		seen[n] = true
+	}
+	if !seen["a"] || !seen["c"] {
+		t.Fatalf("大家好 should include a and c, got %v", got)
+	}
+
+	if got := bus.MentionedBotsIn("group", "人呢"); len(got) != 0 {
+		t.Fatalf("人呢 names nobody, got %v", got)
+	}
+}
+
+func TestGroupPromptTellsAssignedMemberToAnswer(t *testing.T) {
+	w, _, _ := newTestWorker(t, "a", nil)
+	prompt := w.systemPrompt("group")
+	if !strings.Contains(prompt, "default handler") {
+		t.Fatalf("group prompt must tell the assigned member to answer unnamed room messages:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "stay silent when you see someone else's task, and equally when") {
+		t.Fatal("group prompt must not tell the assigned member to stay silent on unnamed room messages")
+	}
+}
+
+func TestGroupPromptChineseTranslation(t *testing.T) {
+	w, _, _ := newTestWorker(t, "a", nil)
+	i18n.SetLocale("zh")
+	t.Cleanup(func() { i18n.SetLocale("en") })
+	prompt := w.systemPrompt("group")
+	if strings.Contains(prompt, "you only act when you are called on by name") ||
+		strings.Contains(prompt, "The engine decides who should act") {
+		t.Fatalf("Chinese locale fell back to English group prompt (key mismatch?):\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "由引擎决定谁该行动") {
+		t.Fatalf("Chinese group prompt missing the assigned-turn rule:\n%s", prompt)
+	}
+	got := w.renderMsg(Msg{Sender: "user", Chat: "group", Respond: true, Content: "人呢"})
+	if !strings.Contains(got, "派给你的") {
+		t.Fatalf("Chinese assigned marker missing: %q", got)
 	}
 }
 

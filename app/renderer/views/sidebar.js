@@ -270,7 +270,7 @@ function renderHeader() {
     h.append(groupAvatarFor(current, 26), el("span", "title", groupTitleOf(current)));
     h.append(el("span", "desc", unset
       ? t("%s members · %s without a model", n, unset)
-      : t("%s members · mention a member by name to assign work", n)));
+      : t("%s members · mention a name, or 大家 / @all for everyone", n)));
   } else {
     const name = current.slice(3);
     const b = state.bots.find((x) => x.name === name);
@@ -315,7 +315,7 @@ function renderHeader() {
   setPlusBtn();
 
   $("input").placeholder = isGroupChatId(current)
-    ? t("Message the team… mention a member by name to assign work")
+    ? t("Message the team… with no name, the first member answers")
     : t("Message %s", titleOf(current.slice(3)));
 }
 

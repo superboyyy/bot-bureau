@@ -725,6 +725,28 @@ func containsMention(text, name string) bool {
 	return mentionAt(text, "@"+name, false) || mentionAt(text, name, true)
 }
 
+// mentionsAll reports whether the text addresses the whole room rather than one member.
+//
+// @all / @everyone / @here / 大家 / 各位 / 所有人 (with or without @) all count, as do 大家好
+// and a bare English "everyone". A bare "all" does not: it is too common in ordinary sentences
+// ("all the files"), and waking every member on that would undo the division of labor.
+func mentionsAll(text string) bool {
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+	for _, n := range []string{"all", "everyone", "everybody", "here", "大家", "各位", "所有人"} {
+		if mentionAt(text, "@"+n, false) {
+			return true
+		}
+	}
+	for _, n := range []string{"大家好", "各位好", "大家", "各位", "所有人", "everyone", "everybody"} {
+		if mentionAt(text, n, true) {
+			return true
+		}
+	}
+	return false
+}
+
 func isNameChar(c byte) bool {
 	return c == '_' || c == '-' ||
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')

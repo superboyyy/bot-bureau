@@ -52,6 +52,19 @@ $("plusBtn").onclick = (e) => {
         ...state.bots.filter((b) => "dm:" + b.name !== current).map((b) => ({ id: "dm:" + b.name, name: b.name, meta: b.role })),
       ];
   if (!entries.length) pop.append(el("div", "empty", t("No members in the group yet")));
+  if (isGroup && entries.length) {
+    const allBtn = el("button", "");
+    allBtn.type = "button";
+    allBtn.append(el("span", "", t("Everyone")));
+    allBtn.append(el("span", "meta", t("everyone answers")));
+    allBtn.onclick = () => {
+      closePop();
+      const input = $("input");
+      input.value = "@all " + input.value;
+      input.focus();
+    };
+    pop.append(allBtn);
+  }
   for (const en of entries) {
     const b = el("button", "");
     b.type = "button";

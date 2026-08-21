@@ -131,9 +131,16 @@ func (b *Bus) DefaultGroupMemberOf(chat string) string {
 // ownership and past messages all reference it), but what the user sees on screen and says out loud is
 // the display name — matching the id alone means a bot renamed to "Wren" ignores anyone calling for
 // Wren, while the user has no idea they were supposed to remember an id at all.
+
+// Addressing the whole room (大家, @all, everyone, …) returns every member: the user asked all of
+// them to speak, so the usual "exactly one recipient" rule does not apply.
 func (b *Bus) MentionedBotsIn(chat, text string) []string {
+	members := b.GroupMembersOf(chat)
+	if mentionsAll(text) {
+		return append([]string(nil), members...)
+	}
 	var out []string
-	for _, n := range b.GroupMembersOf(chat) {
+	for _, n := range members {
 		if containsMention(text, n) || containsMention(text, b.displayNameOf(n)) {
 			out = append(out, n)
 		}
