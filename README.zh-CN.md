@@ -175,8 +175,8 @@ BOTBUREAU_DATA_DIR=/tmp/bb-dev npm start
 
 界面按三步连接模型：
 
-1. 选择服务商：Anthropic Claude、OpenAI / ChatGPT、xAI Grok、DeepSeek、Kimi、Ollama、自定义服务或 Fake 离线模型；
-2. 选择登录方式：使用订阅登录，或粘贴 API key。订阅登录使用设备码流程，不需要本机回调端口；密钥会保存到本机密钥库，优先于环境变量；
+1. 选择服务商：Anthropic Claude、OpenAI / ChatGPT、xAI Grok、DeepSeek、Kimi（开放平台按量）、Kimi Code（会员）、Ollama、自定义服务或 Fake 离线模型；
+2. 选择登录方式：使用订阅登录，或粘贴 API key。订阅登录使用设备码流程，不需要本机回调端口；密钥会保存到本机密钥库，优先于环境变量。Kimi Code 要贴 Code 控制台的密钥，不是开放平台按量 Key；
 3. 选择模型：引擎调用服务商的模型列表接口，选择当前可用模型。列表不可用时会显示错误并允许手动填写，不会替换成猜测的模型列表。
 
 ### bots.yaml 示例

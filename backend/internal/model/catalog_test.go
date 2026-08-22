@@ -90,3 +90,25 @@ func TestProviderCatalogShape(t *testing.T) {
 		t.Fatal("the xAI entry should default to the SuperGrok subscription")
 	}
 }
+
+func TestKimiCodeIsAMembershipKeyNotOpenPlatform(t *testing.T) {
+	code := providerOption("kimi-code")
+	if code == nil {
+		t.Fatal("missing kimi-code vendor")
+	}
+	if code.BaseURL != "https://api.kimi.com/coding/v1" || code.KeyEnv != "KIMI_CODE_API_KEY" {
+		t.Fatalf("kimi-code should hit the coding endpoint with its own key name: %+v", code)
+	}
+	if len(code.Auth) != 1 || code.Auth[0] != AuthKey {
+		t.Fatalf("official third-party Kimi Code is a console key, not an OAuth login: %+v", code.Auth)
+	}
+
+	// The Open Platform entry must stay: the two keys and endpoints are not interchangeable
+	payg := providerOption("moonshot")
+	if payg == nil || payg.BaseURL != "https://api.moonshot.cn/v1" || payg.KeyEnv != "MOONSHOT_API_KEY" {
+		t.Fatalf("the pay-as-you-go Kimi entry should stay: %+v", payg)
+	}
+	if payg.KeyEnv == code.KeyEnv || payg.BaseURL == code.BaseURL {
+		t.Fatal("the two Kimi products must not share a key or a URL")
+	}
+}

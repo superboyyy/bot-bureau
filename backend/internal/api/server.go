@@ -179,6 +179,9 @@ func effortProviderID(cfg config.BotConfig) string {
 	if strings.Contains(base, "x.ai") {
 		return "xai"
 	}
+	if strings.Contains(base, "kimi.com") {
+		return "kimi-code"
+	}
 	if family := config.EffortProviderFamily(cfg.ProviderID); family != "" {
 		return family
 	}

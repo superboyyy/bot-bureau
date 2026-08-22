@@ -144,6 +144,18 @@ func TestEffortCatalogIsModelSpecific(t *testing.T) {
 	if !EffortSupportedForModel("openai", "gpt-5.6", EffortMax) || EffortSupportedForModel("openai", "unknown", EffortMax) {
 		t.Fatal("model-specific effort support is incorrect")
 	}
+	if got := EffortProviderFamily("kimi-code"); got != "kimi-code" {
+		t.Fatalf("kimi-code family = %q", got)
+	}
+	if got, want := ids(EffortOptionsForModel("kimi-code", "k3")), []string{"", EffortLow, EffortHigh, EffortMax}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("k3 effort ids = %#v, want %#v", got, want)
+	}
+	if got, want := ids(EffortOptionsForModel("kimi-code", "k3-256k")), []string{"", EffortLow, EffortHigh, EffortMax}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("k3-256k effort ids = %#v, want %#v", got, want)
+	}
+	if got, want := ids(EffortOptionsForModel("kimi-code", "kimi-for-coding")), []string{""}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("kimi-for-coding should expose only the default: %#v", got)
+	}
 }
 
 func TestBotConfigTextAndPersistence(t *testing.T) {

@@ -218,6 +218,8 @@ func EffortProviderFamily(providerID string) string {
 		return "deepseek"
 	case "openai", "openai-compatible", "openai_compatible", "moonshot", "opencode", "opencode-go", "ollama", "custom":
 		return "openai"
+	case "kimi-code":
+		return "kimi-code"
 	case "fake":
 		return "fake"
 	default:
@@ -287,6 +289,15 @@ func deepSeekEffortIDs(model string) []string {
 	}
 }
 
+// k3 / k3-256k take low/high/max. kimi-for-coding does not take a thinking setting at all.
+func kimiCodeEffortIDs(model string) []string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if modelPrefix(m, "k3") {
+		return []string{EffortLow, EffortHigh, EffortMax}
+	}
+	return nil
+}
+
 func anthropicFamily(model, family string) bool {
 	return modelPrefix(model, "claude-"+family+"-4") || modelPrefix(model, "claude-"+family+"-5")
 }
@@ -314,6 +325,8 @@ func EffortOptionsForModel(providerID, model string) []map[string]any {
 		ids = xAIEffortIDs(model)
 	case "deepseek":
 		ids = deepSeekEffortIDs(model)
+	case "kimi-code":
+		ids = kimiCodeEffortIDs(model)
 	case "fake":
 		// the offline echo has no model to think with
 	}

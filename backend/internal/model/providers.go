@@ -151,8 +151,10 @@ func classifyQuota(status int, label, msg string) string {
 
 		// These are not our strings but substrings of vendor error text: Chinese vendors (DeepSeek,
 		// Kimi) report an exhausted balance in Chinese, and what must be matched is exactly what
-		// they send back, so translating it would defeat the purpose.
-		strings.Contains(lower, "余额")
+		// they send back, so translating it would defeat the purpose. Kimi Code membership talks
+		// about 额度 rather than 余额.
+		strings.Contains(lower, "余额") ||
+		strings.Contains(lower, "额度")
 	if !hit {
 		return ""
 	}

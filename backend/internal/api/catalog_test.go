@@ -15,6 +15,11 @@ import (
 // shadowed the subscription the user had just signed into.
 func TestListModelsLiveAndErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("User-Agent") == "" {
+			rw.WriteHeader(403)
+			_, _ = rw.Write([]byte(`{"error":"missing user-agent"}`))
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer sk-test" {
 			rw.WriteHeader(401)
 			_, _ = rw.Write([]byte(`{"error":"bad key"}`))
