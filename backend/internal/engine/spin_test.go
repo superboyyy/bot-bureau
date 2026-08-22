@@ -107,10 +107,20 @@ func TestBackgroundMessageSaysItIsNotForYou(t *testing.T) {
 		t.Fatalf("背景消息要自报身份 / a background message must announce itself: %q", background)
 	}
 
-	// The one addressed to you carries no such note, or it would fall silent instead
+	// The one addressed to you must say so: without that, an unnamed room message looks like a
+	// shout into the void, and the model stays silent even though the engine gave it the turn.
 	mine := w.renderMsg(Msg{Sender: "user", Chat: "group", Respond: true, Content: "这是什么限制？"})
 	if strings.Contains(mine, "was not addressed to you") {
 		t.Fatalf("派给你的消息不该被标成背景 / a message addressed to you must not read as background: %q", mine)
+	}
+	if !strings.Contains(mine, "Assigned to you") {
+		t.Fatalf("派给你的群聊消息要自报身份 / an assigned group message must announce itself: %q", mine)
+	}
+
+	// A DM has no default-member ambiguity, so the assigned note would just be noise
+	dm := w.renderMsg(Msg{Sender: "user", Chat: "dm", Respond: true, Content: "这是什么限制？"})
+	if strings.Contains(dm, "Assigned to you") {
+		t.Fatalf("私聊不需要派活标记 / a DM must not carry the group assigned note: %q", dm)
 	}
 
 	// The two notes are exclusive: background arriving mid-task says stay out of it and carry on, not the

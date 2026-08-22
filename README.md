@@ -20,13 +20,13 @@ Bot Bureau combines a **Go engine with a cross-platform Electron desktop client*
 
 | Capability | How it works |
 |---|---|
-| Message bots like team members | **Group chat** (call a bot by plain name or @mention it; if nobody is named, the first member in the group handles it; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
+| Message bots like team members | **Group chat** (call a bot by plain name or @mention it; if nobody is named, the first member in the group handles it; say 大家 or @all to wake everyone; collaboration stays visible to the whole room) + **DMs** (one-on-one independent work) |
 | Each bot has its own workspace | Each bot starts with its own workspace `data/workspaces/<bot>/`, plus any existing directories the user explicitly names; file I/O is bounds-checked and bash stays permission-gated |
 | Autonomous multi-step tasks, always-on | Each bot is a resident goroutine running its own agent loop, never blocking the others |
 | Comes back when human judgment is needed | Non-read-only commands suspend for approval; one-click approve / reject in the sidebar (with optional reason) |
 | — | **Starts empty**: no bots and no group chat out of the box; the first launch runs a three-step tour (you are the boss → what you can do → hire your first member), skippable |
 | — | **Long-running work reports progress**: while a bot works, a typing bubble sits in the conversation with a small "Working · N steps" line beside it that expands to show each step |
-| — | **No @ required**: calling a bot by name in a group (`scout take a look`) is the same as `@scout`; it will not match longer words like `scouting` |
+| — | **No @ required**: calling a bot by name in a group (`scout take a look`) is the same as `@scout`; it will not match longer words like `scouting`. Say 大家 or `@all` to address every member |
 | — | **Light and dark**: follows the system setting, or can be pinned |
 | — | **Permission tiers**: ask every time / can edit files / work unattended / no approvals — one team-wide default, overridable per bot; actions leaving the workspace and plugin calls skip approval only under "no approvals" |
 | Remembers your preferences | Per-bot `MEMORY.md` long-term memory, injected across sessions |

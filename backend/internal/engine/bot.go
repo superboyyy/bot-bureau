@@ -119,6 +119,7 @@ type BotWorker struct {
 	injected  []Msg
 	busy      atomic.Bool
 	cancelFn  atomic.Value // context.CancelFunc
+	loop      sync.WaitGroup
 	bus       *Bus
 	toolbox   *Toolbox
 	mem       *Memory
@@ -205,15 +206,25 @@ func (w *BotWorker) Queued() int           { return len(w.inbox) + int(w.deferre
 func (w *BotWorker) ProviderLabel() string { return w.provider.Label() }
 func (w *BotWorker) MemoryText() string    { return w.mem.Load() }
 
-func (w *BotWorker) Start() { go w.run() }
+func (w *BotWorker) Start() {
+	w.loop.Add(1)
+	go func() {
+		defer w.loop.Done()
+		w.run()
+	}()
+}
 
 func (w *BotWorker) Stop() {
 	w.Cancel()
-	w.saveSessions()
 	select {
 	case w.inbox <- Msg{Sender: stopSentinel}:
 	default:
 	}
+	// Wait until the loop has left the workspace: handle() still copies attachments and writes
+	// sessions.json after Cancel, and removing the data dir under that (tests, RemoveBot) fails
+	// with "directory not empty".
+	w.loop.Wait()
+	w.saveSessions()
 }
 
 func (w *BotWorker) Cancel() {
@@ -353,6 +364,13 @@ func (w *BotWorker) renderMsg(msg Msg) string {
 	// yours, deal with it and carry on), false means background (not yours, stay out of it).
 	if msg.Sender == "user" && !msg.Respond {
 		return i18n.T("[Background — the user said this in the room but it was not addressed to you; it went to someone else. Do not answer it. Carry on with what you were doing; this is here only so you know what is going on.]\n") + text
+	}
+	// The assigned note is the other half of the same judgement. Without it, a message that named
+	// nobody still looks like a shout into the room, and the model follows "stay silent unless
+	// named" — so the default member, woken correctly by the engine, says nothing. Spell out that
+	// this turn is theirs.
+	if msg.Sender == "user" && msg.Respond && IsGroupChat(msg.Chat) {
+		text = i18n.T("[Assigned to you — answer this even if the user did not type your name. You are the one who should handle it.]\n") + text
 	}
 	if msg.Interject && msg.Sender == "user" {
 		text = i18n.T("[The user broke in while you were working. Take it on board, then carry on with what you were doing — unless it replaces the task, in which case say so and drop the old one.]\n") + text
@@ -854,14 +872,17 @@ func (w *BotWorker) systemPrompt(chat string) string {
 	var mode string
 	if IsGroupChat(chat) {
 		mode = fmt.Sprintf(i18n.T(`# Current setting: team group chat
-The user and the AI members below are all in this room. Messages carry a speaker prefix ("User:" or a bot name);
-you see everything as background, but you only act when you are called on by name (with or without an @),
-assigned a task, handed work, or triggered by a routine. Stay silent otherwise.
+The user and the AI members below are all in this room. Messages carry a speaker prefix ("User:" or a bot name).
+The engine decides who should act. A user message that arrives as your turn (no "[Background —" prefix) was
+assigned to you — answer it. That includes when the user did not type your name: you are the default handler,
+or they addressed the whole room. Stay silent only on lines marked [Background —], on someone else's task,
+or after you have already handed the work off.
 
 ## Division-of-labor protocol (hard rules against duplicate work)
-1. Not called on, not assigned, no action — stay silent when you see someone else's task, and equally when
-   the user asks the room something without naming you. Exactly one member is given each message; if it was
-   not you, it was somebody else, and answering anyway means the user gets the same question answered twice.
+1. If this turn was given to you, it is yours: answer, even when the user spoke to the room without naming
+   you. Stay silent on [Background —] lines and on other people's tasks. When the user addressed everyone,
+   each member who received the turn answers in their own voice; do not wait for someone else, and do not
+   copy another member's reply.
 2. Handing work over and doing it yourself are alternatives, never both. Once you have passed something to
    someone, that is your contribution: stop there, add nothing further on the subject, and wait for them to
    report back. Two answers to one question is worse than one, because the user cannot tell which to trust —

@@ -104,7 +104,7 @@ function onboardSteps() {
       lede: t("You can return to any of these features at any time."),
       rows: [
         [ICON_PLUS, t("Create a bot"), t("Click the ＋ at the top of the sidebar. Give the new member a role and persona, choose a model, and it joins the team.")],
-        [ICON_PEOPLE, t("Create a group chat"), t("Let several members collaborate on one task. Mention a member by name to assign the work; the others follow along for context.")],
+        [ICON_PEOPLE, t("Create a group chat"), t("Let several members collaborate on one task. Mention a member by name to assign the work; with no name, the first member handles it. The others follow along for context.")],
         [ICON_GEAR, t("Manage members"), t("Hover over a conversation and click the pencil to change a member's name, avatar, model, or permissions. You can edit group chats the same way.")],
       ],
     },

@@ -66,7 +66,12 @@ func newTestApp(t *testing.T) (*App, *httptest.Server) {
 	tg := bridge.NewTGBridge(bus, deps.KS, filepath.Join(dir, "telegram.json"))
 	app := NewApp(bus, sched, deps, tg, settings, cfgs, cfgPath, dir)
 	srv := httptest.NewServer(app.Handler())
-	t.Cleanup(srv.Close)
+	t.Cleanup(func() {
+		srv.Close()
+		for _, w := range bus.Bots() {
+			w.Stop()
+		}
+	})
 	return app, srv
 }
 
@@ -124,6 +129,17 @@ func TestHTTPGroupAndDMFlow(t *testing.T) {
 	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "@scout take a look"})
 	waitForEvent(t, srv, func(ev engine.Event) bool {
 		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout"
+	})
+
+	// Addressing the whole room wakes every member, not just the default
+	postJSON(t, srv.URL+"/api/send", map[string]any{"chat": "group", "text": "大家好，介绍一下自己吧"})
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "chief" &&
+			strings.Contains(ev["text"].(string), "介绍一下自己吧")
+	})
+	waitForEvent(t, srv, func(ev engine.Event) bool {
+		return ev["kind"] == "msg" && ev["chat"] == "group" && ev["source"] == "scout" &&
+			strings.Contains(ev["text"].(string), "介绍一下自己吧")
 	})
 
 	// DM scout
